@@ -104,19 +104,44 @@ export function listenToGame(roomCode, callback) {
   const code = roomCode.trim().toUpperCase()
 
   return onValue(ref(db, `rooms/${code}/game`), (snapshot) => {
-    callback(snapshot.exists() ? snapshot.val() : null)
+    if (!snapshot.exists()) {
+      callback(null)
+      return
+    }
+
+    const payload = snapshot.val()
+
+    // New format: the game state is stored as JSON text so null values survive
+    // Firebase Realtime Database. This is important for states such as
+    // battleState: null and opponentIndex: null.
+    if (typeof payload.stateJson === 'string') {
+      try {
+        callback({
+          ...payload,
+          state: JSON.parse(payload.stateJson),
+        })
+      } catch (error) {
+        console.error('Could not parse multiplayer game state:', error)
+        callback(null)
+      }
+      return
+    }
+
+    // Backward compatibility for rooms created before this fix.
+    callback(payload)
   })
 }
 
 export async function saveGameState(roomCode, state, updatedBy) {
   const code = roomCode.trim().toUpperCase()
 
-  // Firebase does not accept undefined values. JSON serialization also makes
-  // the snapshot a clean, plain object that every browser can reproduce.
+  // Realtime Database treats null object properties as deletions. Storing the
+  // whole state as JSON text preserves nulls, so remote browsers can correctly
+  // clear Battle/Event/Special state instead of getting stuck on stale screens.
   const cleanState = JSON.parse(JSON.stringify(state))
 
   await set(ref(db, `rooms/${code}/game`), {
-    state: cleanState,
+    stateJson: JSON.stringify(cleanState),
     updatedBy,
     updatedAt: Date.now(),
   })
