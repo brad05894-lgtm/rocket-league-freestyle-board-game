@@ -1,0 +1,170 @@
+.game {
+  text-align: center;
+  padding: 50px;
+}
+
+.game h1 {
+  font-size: 40px;
+}
+
+.game p {
+  font-size: 20px;
+}
+
+.menu {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-top: 30px;
+}
+
+button {
+  padding: 12px 24px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.player-form {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 25px 0;
+}
+
+.player-form input {
+  padding: 12px;
+  font-size: 16px;
+}
+
+.player-list {
+  max-width: 500px;
+  margin: 20px auto;
+}
+
+.player {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid gray;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.turn-box {
+  max-width: 500px;
+  margin: 30px auto;
+  padding: 25px;
+  border: 2px solid gray;
+  border-radius: 12px;
+}
+
+.spinner {
+  width: 120px;
+  height: 120px;
+  margin: 20px auto;
+  border: 5px solid black;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48px;
+  font-weight: bold;
+}
+
+.turn-box button {
+  margin: 8px;
+}
+
+.landing-box {
+  margin: 20px auto;
+  padding: 18px;
+  max-width: 300px;
+  border: 2px solid gray;
+  border-radius: 10px;
+}
+
+.landing-box h3 {
+  margin-top: 0;
+}
+
+.landing-box strong {
+  font-size: 24px;
+}
+
+.mechanic-card {
+  max-width: 400px;
+  margin: 20px auto;
+  padding: 20px;
+  border: 3px solid #168cff;
+  border-radius: 12px;
+}
+
+.mechanic-card h2 {
+  margin-top: 0;
+}
+
+.mechanic-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin: 15px;
+}
+
+.action-space-box {
+  max-width: 400px;
+  margin: 20px auto;
+  padding: 20px;
+  border: 3px solid green;
+  border-radius: 12px;
+}
+
+.action-space-box button {
+  margin: 8px;
+}
+
+.action-hand {
+  max-width: 500px;
+  margin: 30px auto;
+  padding: 20px;
+  border: 2px solid gray;
+  border-radius: 12px;
+}
+
+.held-action-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 2px solid green;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+}
+
+.rules-box {
+  max-width: 760px;
+  margin: 25px auto;
+  padding: 24px;
+  border: 2px solid gray;
+  border-radius: 12px;
+  text-align: left;
+}
+
+.rules-box h2 {
+  text-align: center;
+  margin-top: 0;
+}
+
+.rules-box p {
+  margin: 12px 0;
+}
+
+/* Online multiplayer: spectators can watch the shared game, but only the
+   player who currently owns the interaction sees the game buttons. */
+.game.online-waiting button {
+  display: none;
+}
