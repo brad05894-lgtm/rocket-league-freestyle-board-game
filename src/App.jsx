@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import OnlineLobby from './OnlineLobby'
-import { endRoom, getClientId, leaveRoom, listenToGame, listenToRoom, saveGameState } from './multiplayer'
+import { endRoom, getClientId, kickPlayer, leaveRoom, listenToGame, listenToRoom, saveGameState } from './multiplayer'
 import { generateBoard } from './boardGenerator'
 import GameBoard from './GameBoard'
 
@@ -843,6 +843,7 @@ function App() {
   const onlineSyncTimerRef = useRef(null)
   const hasHydratedOnlineStateRef = useRef(false)
   const lastAppliedRemoteStateKeyRef = useRef(null)
+  const kickedFromRoomRef = useRef(false)
 
   useEffect(() => {
     if (!onlineSession?.roomCode) return
@@ -1009,6 +1010,8 @@ function App() {
   }
 
   function enterOnlineGame({ roomCode, room, clientId }) {
+    kickedFromRoomRef.current = false
+
     const roomPlayers = room?.players
       ? Object.values(room.players).sort(
           (a, b) => (a.joinedAt || 0) - (b.joinedAt || 0)
@@ -1149,6 +1152,25 @@ function App() {
     if (!onlineSession?.roomCode) return
 
     return listenToRoom(onlineSession.roomCode, (room) => {
+      // A kicked browser should immediately stop following the live game and
+      // return to a clear removal screen. This works both in the lobby and
+      // after the match has already started.
+      if (room?.kickedPlayers?.[onlineSession.clientId]) {
+        kickedFromRoomRef.current = true
+
+        try {
+          window.localStorage.removeItem(ONLINE_SESSION_STORAGE_KEY)
+        } catch (error) {
+          console.warn('Could not clear kicked-room recovery data:', error)
+        }
+
+        setGameEndedNotice('The host removed you from this room.')
+        setLeaveConfirmOpen(false)
+        setOnlineSession(null)
+        setScreen('removed-from-room')
+        return
+      }
+
       if (room && room.status !== 'ended') {
         // Keep host identity fresh in case room ownership ever changes.
         if (room.hostId && room.hostId !== onlineSession.hostId) {
@@ -1214,6 +1236,7 @@ function App() {
     hasHydratedOnlineStateRef.current = false
 
     return listenToGame(onlineSession.roomCode, (payload) => {
+      if (kickedFromRoomRef.current) return
       if (!payload?.state) return
 
       const isOwnEcho = payload.updatedBy === onlineSession.clientId
@@ -1311,6 +1334,35 @@ function App() {
   function cancelLeaveGame() {
     setLeaveGameError('')
     setLeaveConfirmOpen(false)
+  }
+
+  async function kickOnlinePlayer(player) {
+    if (
+      !isOnlineHost ||
+      !onlineSession?.roomCode ||
+      !onlineSession?.clientId ||
+      !player ||
+      player.id === onlineSession.clientId ||
+      player.leftGame
+    ) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Kick ${player.name} from the game? They will be removed and all of their future turns will be skipped.`
+    )
+
+    if (!confirmed) return
+
+    try {
+      await kickPlayer(
+        onlineSession.roomCode,
+        onlineSession.clientId,
+        player.id
+      )
+    } catch (error) {
+      window.alert(error.message || 'Could not kick that player.')
+    }
   }
 
   async function confirmLeaveGame() {
@@ -1499,6 +1551,69 @@ function App() {
     screen,
     players,
     currentPlayerIndex,
+  ])
+
+  // If a 1v1 opponent leaves or is kicked after the Battle has already begun,
+  // cancel that Battle instead of leaving everybody trapped on its result screen.
+  useEffect(() => {
+    if (
+      !isOnlineGame ||
+      !isOnlineHost ||
+      screen !== 'game' ||
+      !battleState ||
+      battleResolved ||
+      battleState.card?.allPlayers ||
+      battleState.opponentIndex === null
+    ) {
+      return
+    }
+
+    const opponent = players[battleState.opponentIndex]
+    if (!opponent?.leftGame) return
+
+    setBattleResolved(true)
+    setBattleState((currentBattle) =>
+      currentBattle
+        ? {
+            ...currentBattle,
+            concedeVoteBy: null,
+            resultMessage: `${opponent.name} left the game. Battle cancelled — no points awarded.`,
+          }
+        : currentBattle
+    )
+  }, [
+    isOnlineGame,
+    isOnlineHost,
+    screen,
+    players,
+    battleState,
+    battleResolved,
+  ])
+
+  // Likewise, a pending private Trade Offer cannot keep waiting on a player
+  // who has left or was kicked.
+  useEffect(() => {
+    if (
+      !isOnlineGame ||
+      !isOnlineHost ||
+      screen !== 'game' ||
+      !tradeOfferState ||
+      tradeOfferState.targetIndex === null
+    ) {
+      return
+    }
+
+    const target = players[tradeOfferState.targetIndex]
+    if (!target?.leftGame) return
+
+    setTradeOfferState(null)
+    setActionMessage(`${target.name} left the game. Trade cancelled.`)
+  }, [
+    isOnlineGame,
+    isOnlineHost,
+    screen,
+    players,
+    tradeOfferState,
   ])
 
   function addPlayer() {
@@ -6327,6 +6442,23 @@ if (currentPlayer.hotStreakActive) {
     )
   }
 
+  if (screen === 'removed-from-room') {
+    return (
+      <div className="game">
+        <h1>Removed from Room</h1>
+        <div className="rules-box">
+          <p>{gameEndedNotice || 'The host removed you from this room.'}</p>
+          <p>You can safely create or join another game now.</p>
+        </div>
+        <div className="menu">
+          <button onClick={() => setScreen('home')}>
+            Home
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (screen === 'game-ended') {
     return (
       <div className="game">
@@ -6553,6 +6685,18 @@ if (currentPlayer.hotStreakActive) {
                 <div className="hud-player__meta">
                   <strong>{player.points}</strong> pts · {player.leftGame ? 'Left game' : player.finished ? 'Finished' : `Space ${player.position}/75`}
                 </div>
+
+                {isOnlineHost && !isYou && !player.leftGame && (
+                  <button
+                    type="button"
+                    className="hud-player__kick"
+                    data-online-allowed="true"
+                    onClick={() => kickOnlinePlayer(player)}
+                    title={`Kick ${player.name} from the game`}
+                  >
+                    Kick
+                  </button>
+                )}
               </div>
             )
           })}

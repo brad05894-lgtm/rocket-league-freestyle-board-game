@@ -124,21 +124,33 @@ export async function kickPlayer(roomCode, requesterId, targetPlayerId) {
     throw new Error('The host cannot kick themselves.')
   }
 
-  if (room.status !== 'lobby') {
-    throw new Error('Players can only be kicked before the game starts.')
+  if (!['lobby', 'playing'].includes(room.status)) {
+    throw new Error('Players cannot be kicked after the room has ended.')
   }
 
   if (!room.players?.[targetPlayerId]) {
     throw new Error('That player is no longer in the room.')
   }
 
-  await update(roomRef, {
+  const kickedAt = Date.now()
+  const updates = {
     [`players/${targetPlayerId}`]: null,
     [`kickedPlayers/${targetPlayerId}`]: {
       kickedBy: requesterId,
-      kickedAt: Date.now(),
+      kickedAt,
     },
-  })
+  }
+
+  // During a live match, also record the departure. The host's live game state
+  // keeps the player in score/board history but marks them inactive forever.
+  if (room.status === 'playing') {
+    updates[`departedPlayers/${targetPlayerId}`] = {
+      leftAt: kickedAt,
+      reason: 'kicked',
+    }
+  }
+
+  await update(roomRef, updates)
 }
 
 export async function leaveRoom(roomCode, playerId) {
