@@ -69,6 +69,10 @@ export async function joinRoom(roomCode, playerName) {
     throw new Error('This game has already started.')
   }
 
+  if (room.kickedPlayers?.[playerId]) {
+    throw new Error('The host removed you from this room.')
+  }
+
   const existingPlayers = room.players
     ? Object.keys(room.players).length
     : 0
@@ -91,6 +95,7 @@ export function listenToRoom(roomCode, callback) {
     callback(snapshot.exists() ? snapshot.val() : null)
   })
 }
+
 export async function startRoom(roomCode) {
   const code = roomCode.trim().toUpperCase()
 
@@ -100,6 +105,68 @@ export async function startRoom(roomCode) {
   })
 }
 
+export async function kickPlayer(roomCode, requesterId, targetPlayerId) {
+  const code = roomCode.trim().toUpperCase()
+  const roomRef = ref(db, `rooms/${code}`)
+  const roomSnapshot = await get(roomRef)
+
+  if (!roomSnapshot.exists()) {
+    throw new Error('Room not found.')
+  }
+
+  const room = roomSnapshot.val()
+
+  if (room.hostId !== requesterId) {
+    throw new Error('Only the host can kick players.')
+  }
+
+  if (targetPlayerId === requesterId) {
+    throw new Error('The host cannot kick themselves.')
+  }
+
+  if (room.status !== 'lobby') {
+    throw new Error('Players can only be kicked before the game starts.')
+  }
+
+  if (!room.players?.[targetPlayerId]) {
+    throw new Error('That player is no longer in the room.')
+  }
+
+  await update(roomRef, {
+    [`players/${targetPlayerId}`]: null,
+    [`kickedPlayers/${targetPlayerId}`]: {
+      kickedBy: requesterId,
+      kickedAt: Date.now(),
+    },
+  })
+}
+
+export async function leaveRoom(roomCode, playerId) {
+  const code = roomCode.trim().toUpperCase()
+  const roomRef = ref(db, `rooms/${code}`)
+  const roomSnapshot = await get(roomRef)
+
+  if (!roomSnapshot.exists()) {
+    throw new Error('Room not found.')
+  }
+
+  const room = roomSnapshot.val()
+
+  if (room.hostId === playerId) {
+    throw new Error('The host must end the game instead of leaving it.')
+  }
+
+  if (!room.players?.[playerId]) {
+    return
+  }
+
+  await update(roomRef, {
+    [`players/${playerId}`]: null,
+    [`departedPlayers/${playerId}`]: {
+      leftAt: Date.now(),
+    },
+  })
+}
 
 export async function endRoom(roomCode, requesterId) {
   const code = roomCode.trim().toUpperCase()
@@ -169,4 +236,3 @@ export async function saveGameState(roomCode, state, updatedBy) {
     updatedAt: Date.now(),
   })
 }
-

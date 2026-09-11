@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import OnlineLobby from './OnlineLobby'
-import { endRoom, getClientId, listenToGame, listenToRoom, saveGameState } from './multiplayer'
+import { endRoom, getClientId, leaveRoom, listenToGame, listenToRoom, saveGameState } from './multiplayer'
 import { generateBoard } from './boardGenerator'
 import GameBoard from './GameBoard'
 
@@ -104,6 +104,7 @@ const mechanicCards = [
   { name: 'Flip Reset', difficulty: 'Medium', points: 2 },
   { name: 'Ground-to-Flip Reset', difficulty: 'Medium', points: 2 },
   { name: 'Wall-to-Flip Reset', difficulty: 'Medium', points: 2 },
+  { name: 'Wavedash Reset', difficulty: 'Hard', points: 3 },
   { name: 'Ceiling-to-Flip Reset', difficulty: 'Medium', points: 2 },
   { name: 'Cross Map Air Dribble', difficulty: 'Medium', points: 2 },
   { name: 'Cross Map Flip Reset', difficulty: 'Hard', points: 3 },
@@ -289,7 +290,7 @@ const battleCards = [
       'Both players may score however they want.',
       'After 60 seconds, the player with more goals wins.',
       'If tied, play sudden death. Next goal wins.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -303,7 +304,7 @@ const battleCards = [
       'Each attacking goal is 1 mini-point. A save or miss is 0.',
       'After 3 attacks each, the player with more goals wins.',
       'If tied, play sudden-death rounds. Each player gets 1 attack in the same round; if one scores and the other does not, the scorer wins. Otherwise repeat.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -318,7 +319,7 @@ const battleCards = [
       'If one player misses all 3 and the other makes at least 1, the player who scored wins automatically.',
       'If both miss all 3, go to sudden death: 1 freestyle attempt each per round.',
       'In sudden death: one make and one miss means the scorer wins; both miss means repeat; both score means judge those two shots and the better shot wins.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -332,7 +333,7 @@ const battleCards = [
       'The goalie earns 1 mini-point for each save.',
       'After both players have defended 3 shots, the player with more saves wins.',
       'If tied, play sudden-death rounds. Each player faces 1 shot as goalie; if one saves and the other concedes, the saver wins. If both save or both concede, repeat.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -346,7 +347,7 @@ const battleCards = [
       'No wall setup, dribble setup, ceiling setup, or moving the ball elsewhere before the attempt.',
       'A crossbar hit counts as 1 mini-point. More hits after 3 attempts each wins.',
       'If tied, play sudden-death center-kickoff attempts: 1 attempt each per round. One hit and one miss means the hitter wins; both hit or both miss means repeat.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -362,7 +363,7 @@ const battleCards = [
       'After 3 attempts each, more completions wins.',
       'If tied, play sudden-death rounds on the same mechanic: 1 attempt each. One make and one miss means the maker wins; both make or both miss means repeat.',
       'If the mechanic is too difficult or unreasonable, both players may mutually concede. Both must agree; then nobody earns board points.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -377,7 +378,7 @@ const battleCards = [
       'If the Setter makes it, the Copier gets exactly 1 attempt to copy the called shot.',
       'If the Copier makes it, roles switch and the Copier becomes the new Setter.',
       'If the Copier misses, the Copier immediately loses. Only one failed copy is needed to lose.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -392,7 +393,7 @@ const battleCards = [
       'Failing an upgrade does NOT lose the Battle. The chain simply ends and the original Setter begins a brand-new chain.',
       'If the upgrade succeeds, the other player gets 1 attempt to copy the upgraded shot. Continue the chain the same way.',
       'A player only loses by failing to copy a successfully made shot, never by failing to create or land an upgrade.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -408,7 +409,7 @@ const battleCards = [
       'If the Setter hits the called target, the Copier gets exactly 1 attempt to reproduce it with a valid flick.',
       'If the Copier misses, the Copier immediately loses. If the Copier makes it, roles switch.',
       'Crossbar in must hit the crossbar and go in. Post in must hit the post and go in.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -422,7 +423,7 @@ const battleCards = [
       'Add all 3 attempt speeds together for each player.',
       'The player with the higher total KPH wins.',
       'If the totals are exactly tied, play sudden death: each player gets 1 shot and the faster successful shot wins. If both miss or tie exactly, repeat.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -436,7 +437,7 @@ const battleCards = [
       'If both miss, repeat another round.',
       'If both score in the same round, compare shot speed. The faster Kuxir pinch wins.',
       'If the speeds are exactly tied, repeat another round.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -452,7 +453,7 @@ const battleCards = [
       'If both score, add 1 reset for the next round: single to double to triple to quadruple, and so on.',
       'Keep climbing until one player makes it and the other misses in the same round.',
       'If the required reset count becomes too difficult, both players may mutually concede. Both must agree; then nobody earns board points.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -465,7 +466,7 @@ const battleCards = [
       'If the ball clearly ends up on the opponent\'s side of the field, you win that kickoff and earn 1 mini-point.',
       'First player to 2 mini-points wins the Battle.',
       'If a kickoff is too close or ambiguous to judge, redo that kickoff. Nobody earns a mini-point for the redo.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -479,7 +480,7 @@ const battleCards = [
       'Both players start at Shot 1 and race through Shots 1-10 in order.',
       'Retry a shot as many times as needed until it is scored, then move to the next shot.',
       'The first player to successfully complete Shot 10 wins.',
-      'Winner earns +2 board points. Loser earns 0.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -488,12 +489,70 @@ const battleCards = [
     name: 'Lucky Spin',
     allPlayers: true,
     rules: [
-      'Every player participates.',
+      'Every active player participates.',
       'Each player gets exactly 1 special Battle spin from 1-10.',
       'These Battle spins do not move anyone on the board.',
       'The highest number wins.',
       'If multiple players tie for the highest number, the app randomly chooses one of those tied players as the winner.',
       'Winner earns +2 board points.',
+      'Every other participating player loses 1 board point.',
+    ],
+  },
+  {
+    number: 23,
+    id: 'reverse-one-minute-1v1',
+    name: 'Reverse 1v1',
+    rules: [
+      'The app randomly chooses one opponent.',
+      'Play the same 60-second 1v1 as the normal 1-Minute 1v1.',
+      'Both players must drive in reverse for the entire Battle, including from the opening kickoff.',
+      'No normal forward driving is allowed. If a player clearly drives forward to make a play, that play does not count.',
+      'After 60 seconds, the player with more goals wins.',
+      'If tied, play sudden death under the same reverse-only rule. Next valid goal wins.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
+    ],
+  },
+  {
+    number: 24,
+    id: 'random-car-one-minute-1v1',
+    name: 'Random Car 1v1',
+    rules: [
+      'The app randomly chooses one opponent.',
+      'Before starting, each player must choose a random car and use that car for the entire Battle.',
+      'Play a normal 1v1 for 60 seconds, starting with a normal midfield kickoff.',
+      'Both players may score however they want, but neither player may switch cars during the Battle.',
+      'After 60 seconds, the player with more goals wins.',
+      'If tied, play sudden death with the same random cars. Next goal wins.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
+    ],
+  },
+  {
+    number: 25,
+    id: 'random-mutators-one-minute-1v1',
+    name: 'Random Mutators 1v1',
+    rules: [
+      'The app randomly chooses one opponent.',
+      'Before starting, set random Rocket League mutators for the private match. Both players use the exact same mutator settings.',
+      'Play a 60-second 1v1 with those mutators, starting from kickoff.',
+      'Both players may score however the active mutators allow.',
+      'After 60 seconds, the player with more goals wins.',
+      'If tied, keep the same mutators and play sudden death. Next goal wins.',
+      'Winner earns +2 board points. Loser loses 1 board point.',
+    ],
+  },
+  {
+    number: 26,
+    id: 'demo-last-standing',
+    name: 'Demo Last Standing',
+    allPlayers: true,
+    rules: [
+      'Every active player participates.',
+      'The goal is to demo the other players. Once a player gets demoed, that player is eliminated and must stop participating after they respawn.',
+      'Keep playing until only one player has not been demoed.',
+      'The last player standing wins.',
+      'If the final two players are effectively demoed at the same time, only those two replay a sudden-death round.',
+      'Winner earns +2 board points.',
+      'Every other participating player loses 1 board point.',
     ],
   },
 ]
@@ -942,6 +1001,7 @@ function App() {
       topCornerActive: false,
       shortcutGateResolved: false,
       finished: false,
+      leftGame: false,
       finishWaitingBonus: 0,
       finishCashoutBonus: 0,
       actionCards: [],
@@ -1096,6 +1156,31 @@ function App() {
             current ? { ...current, hostId: room.hostId } : current
           )
         }
+
+        // During a live match, the host is the authority for player departures.
+        // A player that leaves stays in the board/score history, but is marked
+        // inactive forever so future turns and Battles never select them again.
+        if (
+          room.status === 'playing' &&
+          room.hostId === onlineSession.clientId
+        ) {
+          const activeRoomIds = new Set(Object.keys(room.players || {}))
+
+          setPlayers((currentPlayers) => {
+            let changed = false
+            const nextPlayers = currentPlayers.map((player) => {
+              const leftGame = Boolean(
+                player.leftGame || !activeRoomIds.has(String(player.id))
+              )
+
+              if (leftGame === Boolean(player.leftGame)) return player
+              changed = true
+              return { ...player, leftGame }
+            })
+
+            return changed ? nextPlayers : currentPlayers
+          })
+        }
         return
       }
 
@@ -1241,6 +1326,16 @@ function App() {
         setLeaveGameError(error.message || 'Could not end the game.')
       }
       return
+    }
+
+    if (isOnlineGame && onlineSession?.roomCode && onlineSession?.clientId) {
+      try {
+        setLeaveGameError('')
+        await leaveRoom(onlineSession.roomCode, onlineSession.clientId)
+      } catch (error) {
+        setLeaveGameError(error.message || 'Could not leave the room.')
+        return
+      }
     }
 
     setLeaveConfirmOpen(false)
@@ -1389,6 +1484,23 @@ function App() {
     leaveConfirmOpen,
   ])
 
+  // If somebody leaves during the match, the host immediately advances past
+  // that abandoned turn. endTurn() also ignores leftGame players permanently.
+  useEffect(() => {
+    if (!isOnlineGame || !isOnlineHost || screen !== 'game') return
+
+    const currentPlayer = players[currentPlayerIndex]
+    if (!currentPlayer?.leftGame) return
+
+    endTurn()
+  }, [
+    isOnlineGame,
+    isOnlineHost,
+    screen,
+    players,
+    currentPlayerIndex,
+  ])
+
   function addPlayer() {
     const name = playerName.trim()
 
@@ -1413,6 +1525,7 @@ function App() {
         topCornerActive: false,
         shortcutGateResolved: false,
         finished: false,
+        leftGame: false,
         finishWaitingBonus: 0,
         finishCashoutBonus: 0,
         actionCards: [],
@@ -1447,6 +1560,7 @@ function App() {
         topCornerActive: false,
         shortcutGateResolved: false,
         finished: false,
+        leftGame: Boolean(player.leftGame),
         finishWaitingBonus: 0,
         finishCashoutBonus: 0,
         actionCards: [],
@@ -3909,20 +4023,40 @@ function resolveBattleWinner(winnerIndex) {
   }
 
   const winnerName = players[winnerIndex].name
+  const allPlayerParticipants = (
+    battleState.participantIndexes ||
+    players.map((_, index) => index)
+  ).filter((index) => players[index] && !players[index].leftGame)
+
+  if (card?.allPlayers && !allPlayerParticipants.includes(winnerIndex)) return
+
+  const loserIndexes = card?.allPlayers
+    ? allPlayerParticipants.filter((index) => index !== winnerIndex)
+    : [winnerIndex === currentPlayerIndex ? opponentIndex : currentPlayerIndex]
 
   setPlayers((currentPlayers) =>
-    currentPlayers.map((player, index) =>
-      index === winnerIndex
-        ? { ...player, points: player.points + 2 }
-        : player
-    )
+    currentPlayers.map((player, index) => {
+      if (index === winnerIndex) {
+        return { ...player, points: player.points + 2 }
+      }
+
+      if (loserIndexes.includes(index)) {
+        return { ...player, points: Math.max(0, player.points - 1) }
+      }
+
+      return player
+    })
   )
+
+  const lossText = card?.allPlayers
+    ? ' Everyone else loses 1 board point.'
+    : ' Loser loses 1 board point.'
 
   setBattleResolved(true)
   setBattleState((currentBattle) => ({
     ...currentBattle,
     concedeVoteBy: null,
-    resultMessage: `${winnerName} wins ${card.name}! +2 board points.`,
+    resultMessage: `${winnerName} wins ${card.name}! +2 board points.${lossText}`,
   }))
 }
 
@@ -4003,16 +4137,22 @@ function spinLuckyBattle() {
     return
   }
 
-  const cursor = battleState.luckySpinCursor || 0
-  if (cursor >= players.length) return
+  const participantIndexes = (
+    battleState.participantIndexes ||
+    players.map((_, index) => index)
+  ).filter((index) => players[index] && !players[index].leftGame)
 
+  const cursor = battleState.luckySpinCursor || 0
+  if (cursor >= participantIndexes.length) return
+
+  const playerIndex = participantIndexes[cursor]
   const roll = Math.floor(Math.random() * 10) + 1
   const newSpins = [
     ...(battleState.luckySpins || []),
-    { playerIndex: cursor, roll },
+    { playerIndex, roll },
   ]
 
-  if (cursor < players.length - 1) {
+  if (cursor < participantIndexes.length - 1) {
     setBattleState((currentBattle) => ({
       ...currentBattle,
       luckySpins: newSpins,
@@ -4030,11 +4170,12 @@ function spinLuckyBattle() {
   const winnerName = players[winnerIndex].name
 
   setPlayers((currentPlayers) =>
-    currentPlayers.map((player, index) =>
-      index === winnerIndex
+    currentPlayers.map((player, index) => {
+      if (!participantIndexes.includes(index)) return player
+      return index === winnerIndex
         ? { ...player, points: player.points + 2 }
-        : player
-    )
+        : { ...player, points: Math.max(0, player.points - 1) }
+    })
   )
 
   const tieText =
@@ -4046,8 +4187,8 @@ function spinLuckyBattle() {
   setBattleState((currentBattle) => ({
     ...currentBattle,
     luckySpins: newSpins,
-    luckySpinCursor: players.length,
-    resultMessage: `${winnerName} wins Lucky Spin with ${highestRoll}! +2 board points.${tieText}`,
+    luckySpinCursor: participantIndexes.length,
+    resultMessage: `${winnerName} wins Lucky Spin with ${highestRoll}! +2 board points. Every other participating player loses 1 board point.${tieText}`,
   }))
 }
 
@@ -4687,12 +4828,15 @@ function activateLandingAtPosition(newPosition, boardOptions = null) {
     }
 
     const drawnBattle = deck[0]
+    const activeBattleIndexes = players
+      .map((player, index) => ({ player, index }))
+      .filter(({ player }) => !player.leftGame)
+      .map(({ index }) => index)
+
     const randomOpponentIndex = drawnBattle?.allPlayers
       ? null
       : chooseRandomIndex(
-          players
-            .map((_, index) => index)
-            .filter((index) => index !== currentPlayerIndex)
+          activeBattleIndexes.filter((index) => index !== currentPlayerIndex)
         )
 
     setBattleDeck(deck.slice(1))
@@ -4700,6 +4844,7 @@ function activateLandingAtPosition(newPosition, boardOptions = null) {
     setBattleState({
       card: drawnBattle,
       opponentIndex: randomOpponentIndex,
+      participantIndexes: drawnBattle?.allPlayers ? activeBattleIndexes : null,
       battleMechanic: null,
       concedeVoteBy: null,
       luckySpins: [],
@@ -6003,7 +6148,12 @@ if (currentPlayer.hotStreakActive) {
   function endTurn() {
     // The game ends immediately after the final unfinished player reaches Finish.
     // No extra waiting bonuses are awarded once everyone is finished.
-    if (players.length > 0 && players.every((player) => player.finished)) {
+    const activePlayers = players.filter((player) => !player.leftGame)
+
+    if (
+      activePlayers.length === 0 ||
+      activePlayers.every((player) => player.finished)
+    ) {
       setScreen('results')
       return
     }
@@ -6016,6 +6166,10 @@ if (currentPlayer.hotStreakActive) {
         (currentPlayerIndex + step * turnDirection + players.length * 10) %
         players.length
       const candidate = players[candidateIndex]
+
+      if (candidate.leftGame) {
+        continue
+      }
 
       if (candidate.finished) {
         finishedPlayersPassed.push(candidateIndex)
@@ -6148,8 +6302,8 @@ if (currentPlayer.hotStreakActive) {
               </p>
               {isOnlineGame && onlineSession?.roomCode && (
                 <p>
-                  Room <strong>{onlineSession.roomCode}</strong> will no longer be
-                  remembered on this browser.
+                  You will be removed from room <strong>{onlineSession.roomCode}</strong>.
+                  Your player stays in the match history, but all of your future turns are skipped permanently.
                 </p>
               )}
               <p>
@@ -6263,7 +6417,7 @@ if (currentPlayer.hotStreakActive) {
           <p><strong>Your Turn:</strong> Spin 1–10, move, then resolve the space you land on.</p>
           <p><strong>Mechanics:</strong> Most spaces are Mechanic spaces. You normally get 2 attempts. Easy = 1 point, Medium = 2, Hard = 3, Extreme = 4.</p>
           <p><strong>Action Cards:</strong> Hold up to 3. Action spaces give cards, and Action Shops let you pay 1 point to choose 1 of 3 cards.</p>
-          <p><strong>Battles:</strong> Follow the Battle screen. The winner gets +2 points. Normal Action/Mechanic effects do not affect Battles.</p>
+          <p><strong>Battles:</strong> Follow the Battle screen. The winner gets +2 points and the loser loses 1 point (minimum 0). Normal Action/Mechanic effects do not affect Battles.</p>
           <p><strong>Events:</strong> Resolve the random Event shown on screen immediately.</p>
           <p><strong>Special Spaces:</strong> Gamble, Choose Difficulty, Action Shop, and the Shortcut Gate each explain themselves when reached.</p>
           <p><strong>Finish:</strong> If you arrive with exactly 3 Action Cards, cash them out for +1 point. All remaining Action Cards are then discarded.</p>
@@ -6299,11 +6453,13 @@ if (currentPlayer.hotStreakActive) {
   }
 
   if (screen === 'results') {
-    const sortedPlayers = [...players].sort(
-      (a, b) => b.points - a.points
-    )
-    const highestScore = sortedPlayers[0]?.points ?? 0
-    const winners = sortedPlayers.filter(
+    const sortedPlayers = [...players].sort((a, b) => {
+      if (Boolean(a.leftGame) !== Boolean(b.leftGame)) return a.leftGame ? 1 : -1
+      return b.points - a.points
+    })
+    const eligibleWinners = sortedPlayers.filter((player) => !player.leftGame)
+    const highestScore = eligibleWinners[0]?.points ?? 0
+    const winners = eligibleWinners.filter(
       (player) => player.points === highestScore
     )
 
@@ -6319,7 +6475,7 @@ if (currentPlayer.hotStreakActive) {
         <div className="rules-box">
           {sortedPlayers.map((player, index) => (
             <p key={player.id}>
-              <strong>#{index + 1} {player.name}</strong> — {player.points} Points
+              <strong>#{index + 1} {player.name}</strong> — {player.points} Points{player.leftGame ? ' · Left Game' : ''}
             </p>
           ))}
         </div>
@@ -6365,18 +6521,21 @@ if (currentPlayer.hotStreakActive) {
             }`}
           >
             <span className="turn-status__dot" />
-            {currentPlayer.finished
-              ? `${currentPlayer.name} finished`
-              : isOnlineGame && !isMyOnlineTurn
-                ? `Watching ${currentPlayer.name}'s turn`
-                : `${currentPlayer.name}'s turn`}
+            {currentPlayer.leftGame
+              ? `${currentPlayer.name} left the game — skipping turn`
+              : currentPlayer.finished
+                ? `${currentPlayer.name} finished`
+                : isOnlineGame && !isMyOnlineTurn
+                  ? `Watching ${currentPlayer.name}'s turn`
+                  : `${currentPlayer.name}'s turn`}
           </div>
         </div>
 
         <div className="game-hud__players" aria-label="Player standings">
           {playerDisplayOrder.map((playerIndex) => {
             const player = players[playerIndex]
-            const isCurrent = playerIndex === currentPlayerIndex && !player.finished
+            const isCurrent =
+              playerIndex === currentPlayerIndex && !player.finished && !player.leftGame
             const isYou = isOnlineGame && player.id === localClientId
 
             return (
@@ -6389,10 +6548,10 @@ if (currentPlayer.hotStreakActive) {
               >
                 <span className="hud-player__dot" />
                 <div className="hud-player__name">
-                  {player.name}{isYou ? ' · You' : ''}
+                  {player.name}{isYou ? ' · You' : ''}{player.leftGame ? ' · Left' : ''}
                 </div>
                 <div className="hud-player__meta">
-                  <strong>{player.points}</strong> pts · {player.finished ? 'Finished' : `Space ${player.position}/75`}
+                  <strong>{player.points}</strong> pts · {player.leftGame ? 'Left game' : player.finished ? 'Finished' : `Space ${player.position}/75`}
                 </div>
               </div>
             )
@@ -6519,7 +6678,11 @@ if (battleState) {
   }
 
   if (battleCard.id === 'lucky-spin') {
-    const spinPlayer = players[battleState.luckySpinCursor]
+    const participantIndexes = (
+      battleState.participantIndexes ||
+      players.map((_, index) => index)
+    ).filter((index) => players[index] && !players[index].leftGame)
+    const spinPlayer = players[participantIndexes[battleState.luckySpinCursor]]
 
     return (
       <GameOverlayCard>
@@ -6552,6 +6715,52 @@ if (battleState) {
             Spin 1–10 for {spinPlayer.name}
           </button>
         )}
+      </GameOverlayCard>
+    )
+  }
+
+  if (battleCard.allPlayers) {
+    const participantIndexes = (
+      battleState.participantIndexes ||
+      players.map((_, index) => index)
+    ).filter((index) => players[index] && !players[index].leftGame)
+
+    return (
+      <GameOverlayCard>
+        <h1>Battle Card #{battleCard.number}</h1>
+        <h2>{battleCard.name}</h2>
+
+        <div className="mechanic-card">
+          <h3>Players</h3>
+          <p>
+            {participantIndexes
+              .map((index) => players[index]?.name)
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        </div>
+
+        <div className="mechanic-card">
+          <h3>Rules</h3>
+          {battleCard.rules.map((rule, index) => (
+            <p key={index}>{index + 1}. {rule}</p>
+          ))}
+          <p>
+            <strong>Outside Action Cards and normal Mechanic effects do not affect this Battle.</strong>
+          </p>
+        </div>
+
+        <div className="mechanic-card">
+          <h3>Choose the Winner</h3>
+          {participantIndexes.map((playerIndex) => (
+            <button
+              key={playerIndex}
+              onClick={() => resolveBattleWinner(playerIndex)}
+            >
+              {players[playerIndex]?.name} Won (+2)
+            </button>
+          ))}
+        </div>
       </GameOverlayCard>
     )
   }
@@ -7567,23 +7776,32 @@ if (tradeOfferState) {
       </p>
     ) : (
       <>
-        {!jackpotActive && (
-          <p>
-            You have a Jackpot card. Use it now or draw your mechanic normally.
-          </p>
+        {!jackpotActive ? (
+          <>
+            <p>
+              <strong>You have a Jackpot card.</strong> Use it before revealing the Mechanic, or draw normally.
+            </p>
+            <div className="menu">
+              <button onClick={useJackpot}>
+                Use Jackpot
+              </button>
+              <button onClick={drawMechanicCard}>
+                Draw Normally
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>
+              <strong>
+                JACKPOT ACTIVE: +3 if you score, -3 if you fail.
+              </strong>
+            </p>
+            <button onClick={drawMechanicCard}>
+              Draw Mechanic
+            </button>
+          </>
         )}
-
-        {jackpotActive && (
-          <p>
-            <strong>
-              JACKPOT ACTIVE: +3 if you score, -3 if you fail.
-            </strong>
-          </p>
-        )}
-
-        <button onClick={drawMechanicCard}>
-          Draw Mechanic
-        </button>
 
         {mechanicMessage && (
           <p>
