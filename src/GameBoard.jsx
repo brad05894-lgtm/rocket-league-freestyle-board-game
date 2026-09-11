@@ -64,6 +64,8 @@ export default function GameBoard({
   boardLength = 75,
   localPlayerId = null,
   ambient = false,
+  highlightedNodes = [],
+  focusNodeIds = [],
 }) {
   const scrollRef = useRef(null)
   const [zoom, setZoom] = useState(() =>
@@ -85,6 +87,29 @@ export default function GameBoard({
       ])
     )
   }, [board, layout])
+
+  const highlightedNodeMap = useMemo(() => {
+    const map = new Map()
+
+    for (const item of highlightedNodes || []) {
+      if (!item?.nodeId) continue
+
+      const existing = map.get(item.nodeId)
+      if (existing) {
+        map.set(item.nodeId, {
+          ...existing,
+          label: `${existing.label} / ${item.label}`,
+          color: '#e2e8f0',
+        })
+      } else {
+        map.set(item.nodeId, item)
+      }
+    }
+
+    return map
+  }, [highlightedNodes])
+
+  const focusNodeKey = (focusNodeIds || []).filter(Boolean).join('|')
 
   const playerMarkers = useMemo(() => {
     if (!board || !layout) return []
@@ -151,6 +176,8 @@ export default function GameBoard({
   }
 
   useEffect(() => {
+    if (focusNodeKey) return
+
     focusPlayer(currentPlayerIndex)
     // Re-center when the active player's actual board location changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,7 +188,47 @@ export default function GameBoard({
     layout,
     playerMarkers,
     zoom,
+    focusNodeKey,
   ])
+
+  useEffect(() => {
+    if (!layout || !scrollRef.current || !focusNodeKey || ambient) return
+
+    const ids = focusNodeKey.split('|').filter(Boolean)
+    const points = ids
+      .map((nodeId) => layout.positions[nodeId])
+      .filter(Boolean)
+
+    if (points.length === 0) return
+
+    const container = scrollRef.current
+    const minPointX = Math.min(...points.map((point) => point.x))
+    const maxPointX = Math.max(...points.map((point) => point.x))
+    const minPointY = Math.min(...points.map((point) => point.y))
+    const maxPointY = Math.max(...points.map((point) => point.y))
+    const centerX = (minPointX + maxPointX) / 2
+    const centerY = (minPointY + maxPointY) / 2
+    const contentWidth = Math.max(170, maxPointX - minPointX + 170)
+    const contentHeight = Math.max(190, maxPointY - minPointY + 190)
+    const widthZoom = container.clientWidth / contentWidth
+    const heightZoom = container.clientHeight / contentHeight
+    const targetZoom = Math.max(0.45, Math.min(1.05, widthZoom, heightZoom))
+
+    setZoom(targetZoom)
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const scaledX = (centerX - layout.bounds.minX) * targetZoom
+        const scaledY = (centerY - layout.bounds.minY) * targetZoom
+
+        container.scrollTo({
+          left: Math.max(0, scaledX - container.clientWidth / 2),
+          top: Math.max(0, scaledY - container.clientHeight / 2),
+          behavior: 'smooth',
+        })
+      })
+    })
+  }, [focusNodeKey, layout, ambient])
 
   if (!board || !layout) return null
 
@@ -264,6 +331,7 @@ export default function GameBoard({
 
             const important = ['Start', 'Finish', 'Shortcut Gate'].includes(node.type)
             const color = SPACE_COLORS[node.type] || '#64748b'
+            const highlight = highlightedNodeMap.get(node.id)
 
             return (
               <g
@@ -273,6 +341,39 @@ export default function GameBoard({
                   .toLowerCase()
                   .replaceAll(' ', '-')}`}
               >
+                {highlight && (
+                  <>
+                    <circle
+                      r={important ? 42 : 37}
+                      fill="none"
+                      stroke={highlight.color || '#7dd3fc'}
+                      strokeWidth="5"
+                      opacity="0.98"
+                      filter="url(#game-board-glow)"
+                      className="board-choice-ring"
+                    />
+                    <rect
+                      x="-54"
+                      y="-58"
+                      width="108"
+                      height="19"
+                      rx="9"
+                      fill="#07111f"
+                      stroke={highlight.color || '#7dd3fc'}
+                      strokeWidth="1.5"
+                      opacity="0.98"
+                    />
+                    <text
+                      textAnchor="middle"
+                      y="-45"
+                      fill="#f8fbff"
+                      fontSize="8"
+                      fontWeight="900"
+                    >
+                      {highlight.label}
+                    </text>
+                  </>
+                )}
                 <circle r={important ? 35 : 30} fill="#040815" opacity="0.94" />
                 <circle
                   r={important ? 29 : 24}

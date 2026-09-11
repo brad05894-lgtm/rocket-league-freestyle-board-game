@@ -5016,6 +5016,53 @@ function generatedRouteLabel(nextId) {
   return 'Route'
 }
 
+function getBoardForkPreviewOptions(forkState) {
+  if (!generatedBoard || !forkState || forkState.type !== 'board-fork') {
+    return []
+  }
+
+  const nodeMap = new Map(
+    generatedBoard.nodes.map((node) => [node.id, node])
+  )
+
+  return (forkState.options || []).map((option, optionIndex) => {
+    let currentNodeId = forkState.currentNodeId
+    let remaining = Math.max(0, forkState.remainingMovement || 0)
+
+    if (remaining > 0 && option.nextId) {
+      currentNodeId = option.nextId
+      remaining -= 1
+    }
+
+    while (remaining > 0) {
+      const currentNode = nodeMap.get(currentNodeId)
+      if (!currentNode || currentNode.type === 'Finish') break
+
+      const choices = currentNode.next || []
+      if (choices.length === 0) break
+
+      // If this spin reaches another decision point, stop the preview there
+      // instead of pretending the app already knows which path will be chosen.
+      if (choices.length > 1) break
+
+      currentNodeId = choices[0]
+      remaining -= 1
+    }
+
+    const destination = nodeMap.get(currentNodeId)
+
+    return {
+      ...option,
+      optionIndex,
+      destinationNodeId: currentNodeId,
+      destinationType: destination?.type || 'Space',
+      destinationMainIndex:
+        typeof destination?.mainIndex === 'number' ? destination.mainIndex : null,
+      pausesAgain: remaining > 0 && (destination?.next || []).length > 1,
+    }
+  })
+}
+
 function clearLandingUiForRouteChoice() {
   setMechanicCard(null)
   setMechanicChoices([])
@@ -6914,40 +6961,93 @@ if (specialState) {
 
 
   if (specialState.type === 'board-fork') {
-    if (isOnlineGame && !isMyOnlineTurn) {
-      return (
-        <GameOverlayCard>
-          <h1>Fork in the Road</h1>
-          <p>
-            <strong>{currentPlayer.name}</strong> is choosing which path to take.
-          </p>
-        </GameOverlayCard>
-      )
-    }
+    const forkPreviewOptions = getBoardForkPreviewOptions(specialState)
+    const forkHighlights = forkPreviewOptions.map((option, index) => ({
+      nodeId: option.destinationNodeId,
+      label: option.label,
+      color: index === 0 ? '#38bdf8' : '#f472b6',
+    }))
+    const forkFocusNodeIds = [
+      specialState.currentNodeId,
+      ...forkPreviewOptions.map((option) => option.destinationNodeId),
+    ].filter(Boolean)
 
     return (
-      <GameOverlayCard>
-        <h1>Fork in the Road</h1>
+      <div
+        className={`game game--play game--fork-choice ${
+          isOnlineGame && !canUseOnlineControls ? 'online-waiting' : ''
+        }`}
+      >
+        {gameHud}
 
-        <div className="mechanic-card">
-          <h3>Choose Your Path</h3>
+        {generatedBoard && (
+          <GameBoard
+            board={generatedBoard}
+            players={players}
+            currentPlayerIndex={currentPlayerIndex}
+            boardLength={BOARD_LENGTH}
+            localPlayerId={localClientId}
+            highlightedNodes={forkHighlights}
+            focusNodeIds={forkFocusNodeIds}
+          />
+        )}
+
+        <div className="turn-box fork-choice-panel">
+          <h2>{currentPlayer.name}'s Turn</h2>
+
+          <div className="spinner spinner--result">
+            {spinResult === null ? '?' : spinResult}
+          </div>
+
+          <div className="landing-box fork-choice-landing">
+            <h3>Movement Paused</h3>
+            <strong>Fork in the Road</strong>
+          </div>
+
           <p>
-            Your spin paused at the fork with{' '}
-            <strong>{specialState.remainingMovement}</strong> movement space
-            {specialState.remainingMovement === 1 ? '' : 's'} remaining.
+            Your spin has <strong>{specialState.remainingMovement}</strong>{' '}
+            movement space{specialState.remainingMovement === 1 ? '' : 's'} remaining.
           </p>
-          <p>Your route choice does not use extra movement; entering the first space of the chosen route uses the next movement space normally.</p>
+          <p className="fork-choice-help">
+            The glowing spaces on the board show where this spin can take you.
+          </p>
 
-          {(specialState.options || []).map((option) => (
-            <button
-              key={option.nextId}
-              onClick={() => chooseBoardForkRoute(option.nextId)}
-            >
-              {option.label} — next space: {option.firstSpaceType}
-            </button>
-          ))}
+          {isOnlineGame && !isMyOnlineTurn ? (
+            <div className="mechanic-card fork-choice-waiting">
+              <strong>{currentPlayer.name}</strong> is choosing a path.
+            </div>
+          ) : (
+            <div className="fork-choice-options">
+              {forkPreviewOptions.map((option, index) => (
+                <button
+                  key={option.nextId}
+                  className="fork-choice-button"
+                  onClick={() => chooseBoardForkRoute(option.nextId)}
+                >
+                  <span
+                    className="fork-choice-swatch"
+                    style={{
+                      background: index === 0 ? '#38bdf8' : '#f472b6',
+                    }}
+                  />
+                  <span>
+                    <strong>{option.label}</strong>
+                    <small>
+                      {option.pausesAgain
+                        ? `Next decision: ${option.destinationType}`
+                        : `Land on: ${option.destinationType}${
+                            option.destinationMainIndex !== null
+                              ? ` · Space ${option.destinationMainIndex}`
+                              : ''
+                          }`}
+                    </small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      </GameOverlayCard>
+      </div>
     )
   }
 
@@ -7416,7 +7516,11 @@ if (tradeOfferState) {
               </p>
 
               <div className="landing-box">
-                <h3>You landed on:</h3>
+                <h3>
+                  {isOnlineGame && !isMyOnlineTurn
+                    ? `${currentPlayer.name} landed on:`
+                    : 'You landed on:'}
+                </h3>
                 <strong>{landedSpace}</strong>
               </div>
             </>
