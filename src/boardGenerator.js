@@ -1,298 +1,240 @@
-import { useEffect, useRef, useState } from 'react'
-import {
-  createRoom,
-  getClientId,
-  joinRoom,
-  kickPlayer,
-  listenToRoom,
-  startRoom,
-} from './multiplayer'
+const SPACE_WEIGHTS = [
+  ['Mechanic', 44],
+  ['Action', 15],
+  ['Battle', 16],
+  ['Event', 8],
+  ['Gamble', 4],
+  ['Action Shop', 5],
+  ['Choose Difficulty', 6],
+]
 
-function OnlineLobby({ mode, onBack, onGameStart }) {
-  const [name, setName] = useState('')
-  const [joinCode, setJoinCode] = useState('')
-  const [roomCode, setRoomCode] = useState('')
-  const [room, setRoom] = useState(null)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [kickBusyId, setKickBusyId] = useState(null)
-  const [kickedNotice, setKickedNotice] = useState('')
-  const gameStartSentRef = useRef(false)
+function hashSeed(seed) {
+  const text = String(seed)
+  let hash = 2166136261
 
-  const clientId = getClientId()
-
-  useEffect(() => {
-    if (!roomCode) return
-
-    return listenToRoom(roomCode, (roomData) => {
-      if (!roomData) {
-        setRoom(null)
-        setError('This room is no longer available.')
-        return
-      }
-
-      if (roomData.kickedPlayers?.[clientId]) {
-        setKickedNotice('The host removed you from this room.')
-        setRoom(null)
-        setRoomCode('')
-        return
-      }
-
-      setRoom(roomData)
-
-      if (
-        roomData.status === 'playing' &&
-        !gameStartSentRef.current
-      ) {
-        gameStartSentRef.current = true
-        onGameStart?.({
-          roomCode,
-          room: roomData,
-          clientId,
-        })
-      }
-    })
-  }, [roomCode, clientId, onGameStart])
-
-  async function handleCreate() {
-    if (!name.trim()) {
-      setError('Enter your name.')
-      return
-    }
-
-    try {
-      setLoading(true)
-      setError('')
-      setKickedNotice('')
-      gameStartSentRef.current = false
-
-      const code = await createRoom(name.trim())
-      setRoomCode(code)
-    } catch (err) {
-      setError(err.message || 'Could not create room.')
-    } finally {
-      setLoading(false)
-    }
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
   }
 
-  async function handleJoin() {
-    if (!name.trim()) {
-      setError('Enter your name.')
-      return
-    }
-
-    if (!joinCode.trim()) {
-      setError('Enter the room code.')
-      return
-    }
-
-    try {
-      setLoading(true)
-      setError('')
-      setKickedNotice('')
-      gameStartSentRef.current = false
-
-      const code = await joinRoom(
-        joinCode.trim().toUpperCase(),
-        name.trim()
-      )
-
-      setRoomCode(code)
-    } catch (err) {
-      setError(err.message || 'Could not join room.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleStartGame() {
-    try {
-      setError('')
-      await startRoom(roomCode)
-    } catch (err) {
-      setError(err.message || 'Could not start game.')
-    }
-  }
-
-  async function handleKick(player) {
-    if (!roomCode || !room || room.hostId !== clientId) return
-    if (!player || player.id === clientId) return
-
-    const confirmed = window.confirm(
-      `Kick ${player.name} from this room?`
-    )
-
-    if (!confirmed) return
-
-    try {
-      setKickBusyId(player.id)
-      setError('')
-      await kickPlayer(roomCode, clientId, player.id)
-    } catch (err) {
-      setError(err.message || 'Could not kick that player.')
-    } finally {
-      setKickBusyId(null)
-    }
-  }
-
-  if (kickedNotice) {
-    return (
-      <div className="game">
-        <h1>Removed from Room</h1>
-
-        <div className="rules-box">
-          <p><strong>{kickedNotice}</strong></p>
-          <p>You can return home and create or join a different room.</p>
-        </div>
-
-        <div className="menu">
-          <button onClick={onBack}>Back to Home</button>
-        </div>
-      </div>
-    )
-  }
-
-  if (roomCode && room) {
-    const roomPlayers = room.players
-      ? Object.values(room.players).sort(
-          (a, b) => (a.joinedAt || 0) - (b.joinedAt || 0)
-        )
-      : []
-
-    const isHost = room.hostId === clientId
-
-    return (
-      <div className="game">
-        <h1>Online Lobby</h1>
-
-        <h2>
-          Room Code: <strong>{roomCode}</strong>
-        </h2>
-
-        <p>Send this code to your friends.</p>
-
-        <div className="player-list">
-          {roomPlayers.map((player, index) => (
-            <div className="player" key={player.id}>
-              <span>
-                Player {index + 1}: {player.name}
-              </span>
-
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                {player.id === room.hostId && (
-                  <strong>Host</strong>
-                )}
-
-                {isHost && player.id !== room.hostId && (
-                  <button
-                    type="button"
-                    onClick={() => handleKick(player)}
-                    disabled={kickBusyId === player.id}
-                    style={{
-                      borderColor: 'rgba(248, 113, 113, .85)',
-                      background: 'rgba(127, 29, 29, .88)',
-                      color: '#fff',
-                    }}
-                  >
-                    {kickBusyId === player.id ? 'Kicking...' : 'Kick'}
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <p>{roomPlayers.length} / 4 Players</p>
-
-        {error && (
-          <p><strong>{error}</strong></p>
-        )}
-
-        {isHost ? (
-          <>
-            <p><strong>You are the host.</strong></p>
-
-            <button
-              onClick={handleStartGame}
-              disabled={roomPlayers.length < 2}
-            >
-              Start Game
-            </button>
-
-            {roomPlayers.length < 2 && (
-              <p>You need at least 2 players.</p>
-            )}
-          </>
-        ) : (
-          <p>Waiting for the host to start...</p>
-        )}
-      </div>
-    )
-  }
-
-  return (
-    <div className="game">
-      <h1>
-        {mode === 'create'
-          ? 'Create Online Game'
-          : 'Join Online Game'}
-      </h1>
-
-      <div className="player-form">
-        <input
-          type="text"
-          placeholder="Your name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          maxLength={15}
-        />
-      </div>
-
-      {mode === 'join' && (
-        <div className="player-form">
-          <input
-            type="text"
-            placeholder="Room code"
-            value={joinCode}
-            onChange={(event) =>
-              setJoinCode(event.target.value.toUpperCase())
-            }
-            maxLength={4}
-          />
-        </div>
-      )}
-
-      {error && (
-        <p><strong>{error}</strong></p>
-      )}
-
-      <div className="menu">
-        <button onClick={onBack}>Back</button>
-
-        {mode === 'create' ? (
-          <button
-            onClick={handleCreate}
-            disabled={loading}
-          >
-            {loading ? 'Creating...' : 'Create Room'}
-          </button>
-        ) : (
-          <button
-            onClick={handleJoin}
-            disabled={loading}
-          >
-            {loading ? 'Joining...' : 'Join Room'}
-          </button>
-        )}
-      </div>
-    </div>
-  )
+  return hash >>> 0
 }
 
-export default OnlineLobby
+function seededRandom(seed) {
+  let state = hashSeed(seed) || 1
+
+  return function random() {
+    state += 0x6d2b79f5
+    let value = state
+    value = Math.imul(value ^ (value >>> 15), value | 1)
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61)
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function randomInt(random, min, max) {
+  return Math.floor(random() * (max - min + 1)) + min
+}
+
+function weightedSpace(random) {
+  const total = SPACE_WEIGHTS.reduce((sum, [, weight]) => sum + weight, 0)
+  let roll = random() * total
+
+  for (const [type, weight] of SPACE_WEIGHTS) {
+    roll -= weight
+    if (roll <= 0) return type
+  }
+
+  return 'Mechanic'
+}
+
+function overlaps(aStart, aEnd, bStart, bEnd, padding = 0) {
+  return aStart <= bEnd + padding && aEnd >= bStart - padding
+}
+
+export function generateBoard(seed = Date.now()) {
+  const random = seededRandom(seed)
+
+  // The original game used positions 0 -> 75. Keep that exact race length:
+  // Start is main-0 and Finish is main-75, so there are always 75 movement
+  // steps on the main route. Fork/shortcut spaces are EXTRA and do not shrink it.
+  const mainSteps = 75
+  const mainNodeCount = mainSteps + 1
+  const finalStretch = randomInt(random, 5, 7)
+
+  const nodes = []
+  const nodeMap = new Map()
+  const mainPath = []
+  const forks = []
+
+  function addNode(id, type, extra = {}) {
+    const node = {
+      id,
+      type,
+      next: [],
+      previous: [],
+      ...extra,
+    }
+
+    nodes.push(node)
+    nodeMap.set(id, node)
+    return node
+  }
+
+  function connect(fromId, toId) {
+    const from = nodeMap.get(fromId)
+    const to = nodeMap.get(toId)
+    if (!from || !to) return
+
+    if (!from.next.includes(toId)) from.next.push(toId)
+    if (!to.previous.includes(fromId)) to.previous.push(fromId)
+  }
+
+  for (let index = 0; index < mainNodeCount; index += 1) {
+    const id = `main-${index}`
+    const type =
+      index === 0
+        ? 'Start'
+        : index === mainSteps
+          ? 'Finish'
+          : weightedSpace(random)
+
+    addNode(id, type, {
+      route: 'main',
+      mainIndex: index,
+    })
+    mainPath.push(id)
+  }
+
+  for (let index = 0; index < mainPath.length - 1; index += 1) {
+    connect(mainPath[index], mainPath[index + 1])
+  }
+
+  // Reserve the shortcut area before normal forks are generated, so the map
+  // never needs to draw a normal fork through the shortcut corridor.
+  const shortcutGateIndex = mainSteps - finalStretch - 9
+  const shortcutRejoinIndex = shortcutGateIndex + 7
+  const shortcutGateId = mainPath[shortcutGateIndex]
+  const shortcutRejoinId = mainPath[shortcutRejoinIndex]
+
+  nodeMap.get(shortcutGateId).type = 'Shortcut Gate'
+
+  const reservedIntervals = [
+    {
+      start: shortcutGateIndex,
+      end: shortcutRejoinIndex,
+      kind: 'shortcut',
+    },
+  ]
+
+  const desiredForkCount = randomInt(random, 2, 4)
+  const earliestForkIndex = 6
+  const latestForkStart = Math.max(
+    earliestForkIndex,
+    shortcutGateIndex - 8
+  )
+
+  for (let forkNumber = 0; forkNumber < desiredForkCount; forkNumber += 1) {
+    let chosen = null
+
+    for (let attempt = 0; attempt < 140; attempt += 1) {
+      const splitIndex = randomInt(
+        random,
+        earliestForkIndex,
+        latestForkStart
+      )
+      const span = randomInt(random, 4, 7)
+      const rejoinIndex = Math.min(splitIndex + span, shortcutGateIndex - 3)
+
+      if (rejoinIndex - splitIndex < 4) continue
+
+      const conflict = reservedIntervals.some((interval) =>
+        overlaps(splitIndex, rejoinIndex, interval.start, interval.end, 2)
+      )
+
+      if (conflict) continue
+
+      chosen = { splitIndex, rejoinIndex }
+      break
+    }
+
+    // Fewer clean forks is better than forcing an overlapping/broken one.
+    if (!chosen) break
+
+    const { splitIndex, rejoinIndex } = chosen
+    const splitId = mainPath[splitIndex]
+    const rejoinId = mainPath[rejoinIndex]
+    const branchLength = randomInt(random, 3, 5)
+    const alternatePath = []
+
+    for (let branchIndex = 0; branchIndex < branchLength; branchIndex += 1) {
+      const id = `fork-${forkNumber}-${branchIndex}`
+      addNode(id, weightedSpace(random), {
+        route: 'fork',
+        forkNumber,
+        branchIndex,
+      })
+      alternatePath.push(id)
+    }
+
+    connect(splitId, alternatePath[0])
+
+    for (let branchIndex = 0; branchIndex < alternatePath.length - 1; branchIndex += 1) {
+      connect(alternatePath[branchIndex], alternatePath[branchIndex + 1])
+    }
+
+    connect(alternatePath[alternatePath.length - 1], rejoinId)
+
+    forks.push({
+      splitId,
+      rejoinId,
+      alternatePath,
+      splitIndex,
+      rejoinIndex,
+    })
+
+    reservedIntervals.push({
+      start: splitIndex,
+      end: rejoinIndex,
+      kind: 'fork',
+    })
+  }
+
+  // Shortcut: 3 spaces instead of the 7-space main-road segment.
+  const shortcutPath = []
+
+  for (let index = 0; index < 3; index += 1) {
+    const id = `shortcut-${index}`
+    addNode(id, weightedSpace(random), {
+      route: 'shortcut',
+      shortcutIndex: index,
+    })
+    shortcutPath.push(id)
+  }
+
+  connect(shortcutGateId, shortcutPath[0])
+  connect(shortcutPath[0], shortcutPath[1])
+  connect(shortcutPath[1], shortcutPath[2])
+  connect(shortcutPath[2], shortcutRejoinId)
+
+  return {
+    seed: String(seed),
+    nodes,
+    mainPath,
+    forks,
+    startId: mainPath[0],
+    finishId: mainPath[mainSteps],
+    mainSteps,
+    finalStretch,
+    shortcut: {
+      gateId: shortcutGateId,
+      normalRoute: mainPath[shortcutGateIndex + 1],
+      shortcutRoute: shortcutPath[0],
+      shortcutPath,
+      rejoinId: shortcutRejoinId,
+      difficulty: 'Hard',
+      attempts: 1,
+      failurePenalty: -1,
+    },
+  }
+}
