@@ -100,6 +100,29 @@ export async function startRoom(roomCode) {
   })
 }
 
+
+export async function endRoom(roomCode, requesterId) {
+  const code = roomCode.trim().toUpperCase()
+  const roomRef = ref(db, `rooms/${code}`)
+  const roomSnapshot = await get(roomRef)
+
+  if (!roomSnapshot.exists()) {
+    throw new Error('Room not found.')
+  }
+
+  const room = roomSnapshot.val()
+
+  if (room.hostId !== requesterId) {
+    throw new Error('Only the host can end the game for everyone.')
+  }
+
+  await update(roomRef, {
+    status: 'ended',
+    endedAt: Date.now(),
+    endedBy: requesterId,
+  })
+}
+
 export function listenToGame(roomCode, callback) {
   const code = roomCode.trim().toUpperCase()
 

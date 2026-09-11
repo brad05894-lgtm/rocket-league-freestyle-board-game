@@ -1,11 +1,91 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import OnlineLobby from './OnlineLobby'
-import { getClientId, listenToGame, saveGameState } from './multiplayer'
+import { endRoom, getClientId, listenToGame, listenToRoom, saveGameState } from './multiplayer'
+import { generateBoard } from './boardGenerator'
+import GameBoard from './GameBoard'
 
 const BOARD_LENGTH = 75
 const FINISH_WAITING_BONUS_CAP = 3
+const LANDING_REVEAL_MS = 1600
+const ONLINE_SESSION_STORAGE_KEY = 'rl-freestyle-online-session-v1'
+const LOCAL_GAME_STORAGE_KEY = 'rl-freestyle-local-game-v1'
+const SOUND_STORAGE_KEY = 'rl-freestyle-sound-enabled-v1'
+const PLAYER_ACCENTS = ['#38bdf8', '#f472b6', '#a3e635', '#fb923c']
+let sharedAudioContext = null
 let nextPlayerId = 1
+
+function getSharedAudioContext() {
+  if (typeof window === 'undefined') return null
+
+  if (!sharedAudioContext) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext
+    if (!AudioContextClass) return null
+    sharedAudioContext = new AudioContextClass()
+  }
+
+  if (sharedAudioContext.state === 'suspended') {
+    sharedAudioContext.resume().catch(() => {})
+  }
+
+  return sharedAudioContext
+}
+
+function playTone(context, { frequency, duration = 0.08, delay = 0, volume = 0.025, type = 'sine' }) {
+  const oscillator = context.createOscillator()
+  const gain = context.createGain()
+  const now = context.currentTime + delay
+
+  oscillator.type = type
+  oscillator.frequency.setValueAtTime(frequency, now)
+  gain.gain.setValueAtTime(0.0001, now)
+  gain.gain.exponentialRampToValueAtTime(volume, now + 0.012)
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration)
+
+  oscillator.connect(gain)
+  gain.connect(context.destination)
+  oscillator.start(now)
+  oscillator.stop(now + duration + 0.02)
+}
+
+function playGameSound(kind, enabled = true) {
+  if (!enabled) return
+  const context = getSharedAudioContext()
+  if (!context) return
+
+  const sequences = {
+    spin: [
+      { frequency: 240, duration: 0.055, delay: 0, type: 'triangle' },
+      { frequency: 330, duration: 0.055, delay: 0.055, type: 'triangle' },
+      { frequency: 440, duration: 0.075, delay: 0.11, type: 'triangle' },
+    ],
+    land: [
+      { frequency: 520, duration: 0.11, volume: 0.028 },
+      { frequency: 660, duration: 0.12, delay: 0.07, volume: 0.018 },
+    ],
+    turn: [
+      { frequency: 392, duration: 0.08, volume: 0.018 },
+      { frequency: 523, duration: 0.1, delay: 0.065, volume: 0.022 },
+    ],
+    success: [
+      { frequency: 523, duration: 0.09, volume: 0.022 },
+      { frequency: 659, duration: 0.1, delay: 0.07, volume: 0.025 },
+      { frequency: 784, duration: 0.12, delay: 0.14, volume: 0.026 },
+    ],
+    fail: [
+      { frequency: 280, duration: 0.11, volume: 0.02, type: 'triangle' },
+      { frequency: 190, duration: 0.16, delay: 0.09, volume: 0.018, type: 'triangle' },
+    ],
+    win: [
+      { frequency: 523, duration: 0.12, volume: 0.024 },
+      { frequency: 659, duration: 0.12, delay: 0.1, volume: 0.025 },
+      { frequency: 784, duration: 0.14, delay: 0.2, volume: 0.027 },
+      { frequency: 1047, duration: 0.18, delay: 0.3, volume: 0.022 },
+    ],
+  }
+
+  ;(sequences[kind] || sequences.land).forEach((tone) => playTone(context, tone))
+}
 
 const mechanicCards = [
   { name: 'Wall Air Dribble', difficulty: 'Easy', points: 1 },
@@ -32,9 +112,9 @@ const mechanicCards = [
   { name: 'Stall Reset', difficulty: 'Hard', points: 3 },
   { name: 'Heli Reset', difficulty: 'Hard', points: 3 },
   { name: 'Pancake Reset', difficulty: 'Hard', points: 3 },
-  { name: 'Pogo', difficulty: 'Hard', points: 3 },
+  { name: 'Pogo', difficulty: 'Medium', points: 2 },
   { name: 'Pogo Double Tap', difficulty: 'Hard', points: 3 },
-  { name: 'Pogo Reset', difficulty: 'Hard', points: 3 },
+  { name: 'Reset Pogo', difficulty: 'Hard', points: 3 },
   { name: 'Psycho', difficulty: 'Extreme', points: 4 },
   { name: 'Kuxir No Bounce', difficulty: 'Hard', points: 3 },
   { name: 'Ceiling Musty', difficulty: 'Medium', points: 2 },
@@ -53,7 +133,7 @@ const mechanicCards = [
   { name: 'Maktuf Reset', difficulty: 'Hard', points: 3 },
   { name: 'Plan B', difficulty: 'Medium', points: 2 },
   { name: 'Classy Flick', difficulty: 'Medium', points: 2 },
-  { name: '360 Flick', difficulty: 'Medium', points: 2 },
+  { name: '180 Flick', difficulty: 'Medium', points: 2 },
   { name: 'Top Corner', difficulty: 'Medium', points: 2 },
   { name: 'Corner Read', difficulty: 'Medium', points: 2 },
   { name: 'BBL Pinch', difficulty: 'Hard', points: 3 },
@@ -204,7 +284,7 @@ const battleCards = [
     id: 'one-minute-1v1',
     name: '1-Minute 1v1',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Play a normal 1v1 for 60 seconds, starting with a normal midfield kickoff.',
       'Both players may score however they want.',
       'After 60 seconds, the player with more goals wins.',
@@ -217,7 +297,7 @@ const battleCards = [
     id: 'beat-the-defender',
     name: 'Beat the Defender',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Take turns as attacker and defender.',
       'Each player gets 3 attacking attempts from around midfield while the other player defends the net.',
       'Each attacking goal is 1 mini-point. A save or miss is 0.',
@@ -231,7 +311,7 @@ const battleCards = [
     id: 'freestyle-shootout',
     name: 'Freestyle Shootout',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Each player gets 3 freestyle attempts total. Any freestyle move is allowed.',
       'Only successful goals are eligible for judging.',
       'After all attempts, compare each player\'s best successful freestyle shot. The players judge which shot was better.',
@@ -246,7 +326,7 @@ const battleCards = [
     id: 'goalie-challenge',
     name: 'Goalie Challenge',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Each player gets 3 shots to defend as goalie.',
       'Player A shoots 3 while Player B is goalie, then Player B shoots 3 while Player A is goalie.',
       'The goalie earns 1 mini-point for each save.',
@@ -260,7 +340,7 @@ const battleCards = [
     id: 'crossbar-contest',
     name: 'Crossbar Contest',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Each player gets 3 attempts to hit the crossbar.',
       'Every attempt must start with the ball on the exact center kickoff spot and the shot taken from center.',
       'No wall setup, dribble setup, ceiling setup, or moving the ball elsewhere before the attempt.',
@@ -276,7 +356,7 @@ const battleCards = [
     needsBattleMechanic: true,
     allowMutualConcede: true,
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Use the Battle-only mechanic draw on this screen. Both players must attempt the exact same drawn mechanic.',
       'Each player gets 3 attempts. Every successful completion is 1 mini-point.',
       'After 3 attempts each, more completions wins.',
@@ -290,7 +370,7 @@ const battleCards = [
     id: 'one-letter-horse',
     name: 'One-Letter HORSE',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Randomly decide who sets first outside the app.',
       'The Setter must clearly call the freestyle shot before attempting it and gets exactly 1 attempt.',
       'If the Setter misses, roles switch and no challenge is set.',
@@ -305,7 +385,7 @@ const battleCards = [
     id: 'copycat-chain',
     name: 'Copycat Chain',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'One player starts by setting and making a freestyle shot.',
       'The other player gets exactly 1 attempt to copy it. Failing a copy is an immediate loss.',
       'If the Copier succeeds, that player gets exactly 1 attempt to upgrade the shot by adding something or making it harder.',
@@ -320,7 +400,7 @@ const battleCards = [
     id: 'accuracy-horse',
     name: 'Accuracy HORSE',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Randomly decide who sets first outside the app.',
       'The Setter calls the target before shooting, such as top left, top right, bottom left, bottom right, crossbar in, or post in.',
       'Every attempt must be a legitimate flick from a fair/reasonable distance from goal. Slow placements, dribbling the ball in, and point-blank tap-ins do not count.',
@@ -336,7 +416,7 @@ const battleCards = [
     id: 'speed-challenge',
     name: 'Speed Challenge',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Each player gets exactly 3 attempts to score the fastest shot possible. Pinches are allowed and will probably be the best option.',
       'Record the KPH of every successful goal. A miss counts as 0 KPH.',
       'Add all 3 attempt speeds together for each player.',
@@ -350,7 +430,7 @@ const battleCards = [
     id: 'kuxir-pinch-battle',
     name: 'Kuxir Pinch Battle',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Play repeated rounds. Each player gets exactly 1 Kuxir pinch attempt per round.',
       'If exactly one player scores the Kuxir pinch, that player wins immediately.',
       'If both miss, repeat another round.',
@@ -365,7 +445,7 @@ const battleCards = [
     name: 'Reset Ladder',
     allowMutualConcede: true,
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Start at 1 reset. Both players get exactly 1 attempt at the same required reset count.',
       'If one player scores and the other misses, the player who scored wins immediately.',
       'If both miss, repeat the same reset level.',
@@ -380,7 +460,7 @@ const battleCards = [
     id: 'kickoff-battle',
     name: 'Kickoff Battle',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Play a best-of-3 series of normal 1v1 kickoffs.',
       'If the ball clearly ends up on the opponent\'s side of the field, you win that kickoff and earn 1 mini-point.',
       'First player to 2 mini-points wins the Battle.',
@@ -393,7 +473,7 @@ const battleCards = [
     id: 'training-pack-race',
     name: 'Training Pack Race',
     rules: [
-      'Choose one opponent.',
+      'The app randomly chooses one opponent.',
       'Pick a random training pack yourselves. The app does not choose the pack.',
       'The training pack must contain at least 10 shots.',
       'Both players start at Shot 1 and race through Shots 1-10 in order.',
@@ -625,6 +705,23 @@ function movePlayerAndHandleFinish(player, newPosition, actionCardsAtFinish = nu
 
 function App() {
   const [screen, setScreen] = useState('home')
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false)
+  const [leaveGameError, setLeaveGameError] = useState('')
+  const [gameEndedNotice, setGameEndedNotice] = useState('')
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem(SOUND_STORAGE_KEY)
+      return saved === null ? true : saved === 'true'
+    } catch {
+      return true
+    }
+  })
+  const soundEnabledRef = useRef(soundEnabled)
+  const previousSpinRef = useRef(null)
+  const previousTurnRef = useRef(null)
+  const previousMechanicMessageRef = useRef('')
+  const previousLandingUntilRef = useRef(null)
+  const previousScreenRef = useRef('home')
   const [playerName, setPlayerName] = useState('')
   const [players, setPlayers] = useState([])
 
@@ -644,6 +741,8 @@ function App() {
   const [attemptsLeft, setAttemptsLeft] = useState(0)
   const [mechanicResolved, setMechanicResolved] = useState(true)
   const [mechanicMessage, setMechanicMessage] = useState('')
+  // Public, non-sensitive result for spectators. Never put Action Card names/effects here.
+  const [publicMechanicOutcome, setPublicMechanicOutcome] = useState('')
   const [mechanicFailed, setMechanicFailed] = useState(false)
   const [doublePointsActive, setDoublePointsActive] = useState(false)
   const [insuranceActive, setInsuranceActive] = useState(false)
@@ -667,13 +766,123 @@ function App() {
   const [eventResolved, setEventResolved] = useState(true)
   const [specialState, setSpecialState] = useState(null)
   const [specialResolved, setSpecialResolved] = useState(true)
+  const [generatedBoard, setGeneratedBoard] = useState(null)
+  const [landingAnnouncement, setLandingAnnouncement] = useState(null)
+  const [landingAnnouncementClock, setLandingAnnouncementClock] = useState(() => Date.now())
 
 
   // Online multiplayer session. The actual game logic stays in this component;
   // Firebase simply mirrors the complete turn state between browsers.
-  const [onlineSession, setOnlineSession] = useState(null)
-  const skipNextOnlineSyncRef = useRef(false)
+  const [onlineSession, setOnlineSession] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem(ONLINE_SESSION_STORAGE_KEY)
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
   const onlineSyncTimerRef = useRef(null)
+  const hasHydratedOnlineStateRef = useRef(false)
+  const lastAppliedRemoteStateKeyRef = useRef(null)
+
+  useEffect(() => {
+    if (!onlineSession?.roomCode) return
+
+    try {
+      window.localStorage.setItem(
+        ONLINE_SESSION_STORAGE_KEY,
+        JSON.stringify(onlineSession)
+      )
+    } catch (error) {
+      console.warn('Could not save multiplayer recovery session:', error)
+    }
+  }, [onlineSession])
+
+  useEffect(() => {
+    if (!landingAnnouncement?.until) return
+
+    const remaining = Math.max(0, landingAnnouncement.until - Date.now())
+    const timer = window.setTimeout(
+      () => setLandingAnnouncementClock(Date.now()),
+      remaining + 30
+    )
+
+    return () => window.clearTimeout(timer)
+  }, [landingAnnouncement])
+
+  const landingAnnouncementActive = Boolean(
+    landingAnnouncement?.until &&
+      landingAnnouncementClock < landingAnnouncement.until
+  )
+
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled
+    try {
+      window.localStorage.setItem(SOUND_STORAGE_KEY, String(soundEnabled))
+    } catch {
+      // Sound preference is optional; the game still works without storage.
+    }
+  }, [soundEnabled])
+
+  useEffect(() => {
+    const unlock = () => {
+      if (soundEnabledRef.current) getSharedAudioContext()
+    }
+
+    window.addEventListener('pointerdown', unlock, { once: true })
+    window.addEventListener('keydown', unlock, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (spinResult !== null && spinResult !== previousSpinRef.current) {
+      playGameSound('spin', soundEnabledRef.current)
+    }
+    previousSpinRef.current = spinResult
+  }, [spinResult])
+
+  useEffect(() => {
+    if (screen === 'game') {
+      if (previousTurnRef.current !== null && previousTurnRef.current !== currentPlayerIndex) {
+        playGameSound('turn', soundEnabledRef.current)
+      }
+      previousTurnRef.current = currentPlayerIndex
+    }
+  }, [currentPlayerIndex, screen])
+
+  useEffect(() => {
+    if (
+      landingAnnouncement?.until &&
+      landingAnnouncement.until !== previousLandingUntilRef.current
+    ) {
+      playGameSound('land', soundEnabledRef.current)
+    }
+    previousLandingUntilRef.current = landingAnnouncement?.until ?? null
+  }, [landingAnnouncement])
+
+  useEffect(() => {
+    if (mechanicMessage && mechanicMessage !== previousMechanicMessageRef.current) {
+      const normalized = mechanicMessage.toLowerCase()
+      if (normalized.includes('scored!') || normalized.includes('finished!')) {
+        playGameSound('success', soundEnabledRef.current)
+      } else if (normalized.includes('failed!') || normalized.includes('missed both')) {
+        playGameSound('fail', soundEnabledRef.current)
+      }
+    }
+    previousMechanicMessageRef.current = mechanicMessage
+  }, [mechanicMessage])
+
+  useEffect(() => {
+    if (screen === 'results' && previousScreenRef.current !== 'results') {
+      playGameSound('win', soundEnabledRef.current)
+    } else if (screen === 'game' && previousScreenRef.current !== 'game') {
+      playGameSound('turn', soundEnabledRef.current)
+    }
+    previousScreenRef.current = screen
+  }, [screen])
 
   const isOnlineGame = Boolean(onlineSession)
   const localClientId = onlineSession?.clientId || null
@@ -722,6 +931,8 @@ function App() {
       name: roomPlayer.name,
       points: 0,
       position: 0,
+      boardNodeId: null,
+      routeHistory: [],
       hotStreakActive: false,
       pressureActive: false,
       shieldActive: false,
@@ -773,6 +984,7 @@ function App() {
     attemptsLeft,
     mechanicResolved,
     mechanicMessage,
+    publicMechanicOutcome,
     mechanicFailed,
     doublePointsActive,
     insuranceActive,
@@ -795,62 +1007,139 @@ function App() {
     eventResolved,
     specialState,
     specialResolved,
+    generatedBoard,
+    landingAnnouncement,
   }
 
   const onlineStateKey = JSON.stringify(onlineStateSnapshot)
 
-  // Listen for game-state changes made by the other player's browser.
+  function applyRecoveredGameState(state) {
+    if (!state) return
+
+    if (state.screen !== undefined) setScreen(state.screen)
+    if (state.players !== undefined) setPlayers(state.players)
+    if (state.currentPlayerIndex !== undefined) setCurrentPlayerIndex(state.currentPlayerIndex)
+    if (state.spinResult !== undefined) setSpinResult(state.spinResult)
+    if (state.hasSpun !== undefined) setHasSpun(state.hasSpun)
+    if (state.landedSpace !== undefined) setLandedSpace(state.landedSpace)
+    if (state.mechanicCard !== undefined) setMechanicCard(state.mechanicCard)
+    if (state.lastScoredMechanic !== undefined) setLastScoredMechanic(state.lastScoredMechanic)
+    if (state.mechanicDeck !== undefined) setMechanicDeck(state.mechanicDeck)
+    if (state.mechanicChoices !== undefined) setMechanicChoices(state.mechanicChoices)
+    if (state.actionDeck !== undefined) setActionDeck(state.actionDeck)
+    if (state.actionDiscardPile !== undefined) setActionDiscardPile(state.actionDiscardPile)
+    if (state.actionResolved !== undefined) setActionResolved(state.actionResolved)
+    if (state.actionMessage !== undefined) setActionMessage(state.actionMessage)
+    if (state.attemptsLeft !== undefined) setAttemptsLeft(state.attemptsLeft)
+    if (state.mechanicResolved !== undefined) setMechanicResolved(state.mechanicResolved)
+    if (state.mechanicMessage !== undefined) setMechanicMessage(state.mechanicMessage)
+    if (state.publicMechanicOutcome !== undefined) setPublicMechanicOutcome(state.publicMechanicOutcome)
+    if (state.mechanicFailed !== undefined) setMechanicFailed(state.mechanicFailed)
+    if (state.doublePointsActive !== undefined) setDoublePointsActive(state.doublePointsActive)
+    if (state.insuranceActive !== undefined) setInsuranceActive(state.insuranceActive)
+    if (state.mechanicActionUsed !== undefined) setMechanicActionUsed(state.mechanicActionUsed)
+    if (state.noBounceRequired !== undefined) setNoBounceRequired(state.noBounceRequired)
+    if (state.kph100Required !== undefined) setKph100Required(state.kph100Required)
+    if (state.topCornerRequired !== undefined) setTopCornerRequired(state.topCornerRequired)
+    if (state.secondChanceActive !== undefined) setSecondChanceActive(state.secondChanceActive)
+    if (state.secondChanceRolls !== undefined) setSecondChanceRolls(state.secondChanceRolls)
+    if (state.tradeOfferState !== undefined) setTradeOfferState(state.tradeOfferState)
+    if (state.actionCardUsedThisTurn !== undefined) setActionCardUsedThisTurn(state.actionCardUsedThisTurn)
+    if (state.turnDirection !== undefined) setTurnDirection(state.turnDirection)
+    if (state.jackpotActive !== undefined) setJackpotActive(state.jackpotActive)
+    if (state.awaitingMechanicDraw !== undefined) setAwaitingMechanicDraw(state.awaitingMechanicDraw)
+    if (state.battleDeck !== undefined) setBattleDeck(state.battleDeck)
+    if (state.battleState !== undefined) setBattleState(state.battleState)
+    if (state.battleResolved !== undefined) setBattleResolved(state.battleResolved)
+    if (state.eventDeck !== undefined) setEventDeck(state.eventDeck)
+    if (state.eventState !== undefined) setEventState(state.eventState)
+    if (state.eventResolved !== undefined) setEventResolved(state.eventResolved)
+    if (state.specialState !== undefined) setSpecialState(state.specialState)
+    if (state.specialResolved !== undefined) setSpecialResolved(state.specialResolved)
+    if (state.generatedBoard !== undefined) setGeneratedBoard(state.generatedBoard)
+    if (state.landingAnnouncement !== undefined) {
+      setLandingAnnouncement(state.landingAnnouncement)
+      setLandingAnnouncementClock(Date.now())
+    }
+  }
+
+  // Restore a local/pass-and-play match after an accidental refresh.
+  useEffect(() => {
+    if (onlineSession?.roomCode) return
+
+    try {
+      const saved = JSON.parse(
+        window.localStorage.getItem(LOCAL_GAME_STORAGE_KEY) || 'null'
+      )
+
+      if (saved?.state) {
+        applyRecoveredGameState(saved.state)
+      }
+    } catch (error) {
+      console.warn('Could not restore local game:', error)
+    }
+    // This intentionally runs only once on page load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Watch the room itself as well as the shared game snapshot. This lets the
+  // host close the room for everybody, even if another player's browser is idle
+  // or it is not their turn.
   useEffect(() => {
     if (!onlineSession?.roomCode) return
+
+    return listenToRoom(onlineSession.roomCode, (room) => {
+      if (room && room.status !== 'ended') {
+        // Keep host identity fresh in case room ownership ever changes.
+        if (room.hostId && room.hostId !== onlineSession.hostId) {
+          setOnlineSession((current) =>
+            current ? { ...current, hostId: room.hostId } : current
+          )
+        }
+        return
+      }
+
+      try {
+        window.localStorage.removeItem(ONLINE_SESSION_STORAGE_KEY)
+      } catch (error) {
+        console.warn('Could not clear ended-room recovery data:', error)
+      }
+
+      setGameEndedNotice(
+        room?.endedBy === onlineSession.clientId
+          ? 'You ended the online game for everyone.'
+          : 'The host ended the online game.'
+      )
+      setLeaveConfirmOpen(false)
+      setOnlineSession(null)
+      setScreen('game-ended')
+    })
+  }, [
+    onlineSession?.roomCode,
+    onlineSession?.clientId,
+    onlineSession?.hostId,
+  ])
+
+  // Listen for game-state changes made by the other player's browser. The first
+  // Firebase snapshot is always accepted, even if this same browser wrote it
+  // before a refresh. That is what makes accidental-refresh recovery work.
+  useEffect(() => {
+    if (!onlineSession?.roomCode) return
+
+    hasHydratedOnlineStateRef.current = false
 
     return listenToGame(onlineSession.roomCode, (payload) => {
       if (!payload?.state) return
 
-      // Ignore our own write coming back from Firebase.
-      if (payload.updatedBy === onlineSession.clientId) return
+      const isOwnEcho = payload.updatedBy === onlineSession.clientId
+      if (isOwnEcho && hasHydratedOnlineStateRef.current) return
 
-      const state = payload.state
-      skipNextOnlineSyncRef.current = true
-
-      if (state.screen !== undefined) setScreen(state.screen)
-      if (state.players !== undefined) setPlayers(state.players)
-      if (state.currentPlayerIndex !== undefined) setCurrentPlayerIndex(state.currentPlayerIndex)
-      if (state.spinResult !== undefined) setSpinResult(state.spinResult)
-      if (state.hasSpun !== undefined) setHasSpun(state.hasSpun)
-      if (state.landedSpace !== undefined) setLandedSpace(state.landedSpace)
-      if (state.mechanicCard !== undefined) setMechanicCard(state.mechanicCard)
-      if (state.lastScoredMechanic !== undefined) setLastScoredMechanic(state.lastScoredMechanic)
-      if (state.mechanicDeck !== undefined) setMechanicDeck(state.mechanicDeck)
-      if (state.mechanicChoices !== undefined) setMechanicChoices(state.mechanicChoices)
-      if (state.actionDeck !== undefined) setActionDeck(state.actionDeck)
-      if (state.actionDiscardPile !== undefined) setActionDiscardPile(state.actionDiscardPile)
-      if (state.actionResolved !== undefined) setActionResolved(state.actionResolved)
-      if (state.actionMessage !== undefined) setActionMessage(state.actionMessage)
-      if (state.attemptsLeft !== undefined) setAttemptsLeft(state.attemptsLeft)
-      if (state.mechanicResolved !== undefined) setMechanicResolved(state.mechanicResolved)
-      if (state.mechanicMessage !== undefined) setMechanicMessage(state.mechanicMessage)
-      if (state.mechanicFailed !== undefined) setMechanicFailed(state.mechanicFailed)
-      if (state.doublePointsActive !== undefined) setDoublePointsActive(state.doublePointsActive)
-      if (state.insuranceActive !== undefined) setInsuranceActive(state.insuranceActive)
-      if (state.mechanicActionUsed !== undefined) setMechanicActionUsed(state.mechanicActionUsed)
-      if (state.noBounceRequired !== undefined) setNoBounceRequired(state.noBounceRequired)
-      if (state.kph100Required !== undefined) setKph100Required(state.kph100Required)
-      if (state.topCornerRequired !== undefined) setTopCornerRequired(state.topCornerRequired)
-      if (state.secondChanceActive !== undefined) setSecondChanceActive(state.secondChanceActive)
-      if (state.secondChanceRolls !== undefined) setSecondChanceRolls(state.secondChanceRolls)
-      if (state.tradeOfferState !== undefined) setTradeOfferState(state.tradeOfferState)
-      if (state.actionCardUsedThisTurn !== undefined) setActionCardUsedThisTurn(state.actionCardUsedThisTurn)
-      if (state.turnDirection !== undefined) setTurnDirection(state.turnDirection)
-      if (state.jackpotActive !== undefined) setJackpotActive(state.jackpotActive)
-      if (state.awaitingMechanicDraw !== undefined) setAwaitingMechanicDraw(state.awaitingMechanicDraw)
-      if (state.battleDeck !== undefined) setBattleDeck(state.battleDeck)
-      if (state.battleState !== undefined) setBattleState(state.battleState)
-      if (state.battleResolved !== undefined) setBattleResolved(state.battleResolved)
-      if (state.eventDeck !== undefined) setEventDeck(state.eventDeck)
-      if (state.eventState !== undefined) setEventState(state.eventState)
-      if (state.eventResolved !== undefined) setEventResolved(state.eventResolved)
-      if (state.specialState !== undefined) setSpecialState(state.specialState)
-      if (state.specialResolved !== undefined) setSpecialResolved(state.specialResolved)
+      hasHydratedOnlineStateRef.current = true
+      // Remember the exact remote snapshot we just applied. The sync effect
+      // below skips only that exact snapshot. This avoids a stale "skip next"
+      // flag accidentally swallowing the host's Start Game update.
+      lastAppliedRemoteStateKeyRef.current = JSON.stringify(payload.state)
+      applyRecoveredGameState(payload.state)
     })
   }, [onlineSession?.roomCode, onlineSession?.clientId])
 
@@ -863,9 +1152,14 @@ function App() {
     // Before the actual game starts, only the host owns the Rules snapshot.
     if (screen === 'rules' && !isOnlineHost) return
 
-    if (skipNextOnlineSyncRef.current) {
-      skipNextOnlineSyncRef.current = false
-      return
+    if (lastAppliedRemoteStateKeyRef.current !== null) {
+      if (lastAppliedRemoteStateKeyRef.current === onlineStateKey) {
+        lastAppliedRemoteStateKeyRef.current = null
+        return
+      }
+      // A real local change happened after the remote snapshot (for example,
+      // the host pressed Start Game). Do not let an old remote key suppress it.
+      lastAppliedRemoteStateKeyRef.current = null
     }
 
     if (onlineSyncTimerRef.current) {
@@ -895,10 +1189,174 @@ function App() {
     onlineStateKey,
   ])
 
+  // Keep a browser-local backup for pass-and-play games too. Online games use
+  // Firebase as the source of truth, so they do not write this backup.
+  useEffect(() => {
+    if (isOnlineGame) return
+    if (!['rules', 'game', 'results'].includes(screen)) return
+    if (players.length === 0) return
+
+    try {
+      window.localStorage.setItem(
+        LOCAL_GAME_STORAGE_KEY,
+        JSON.stringify({ savedAt: Date.now(), state: onlineStateSnapshot })
+      )
+    } catch (error) {
+      console.warn('Could not save local game recovery snapshot:', error)
+    }
+  }, [isOnlineGame, screen, players.length, onlineStateKey])
+
+  function goHomeAndClearRecovery() {
+    try {
+      window.localStorage.removeItem(ONLINE_SESSION_STORAGE_KEY)
+      window.localStorage.removeItem(LOCAL_GAME_STORAGE_KEY)
+    } catch (error) {
+      console.warn('Could not clear saved game recovery data:', error)
+    }
+
+    setOnlineSession(null)
+    setScreen('home')
+  }
+
+  function openLeaveGameConfirmation() {
+    setLeaveGameError('')
+    setLeaveConfirmOpen(true)
+  }
+
+  function cancelLeaveGame() {
+    setLeaveGameError('')
+    setLeaveConfirmOpen(false)
+  }
+
+  async function confirmLeaveGame() {
+    // The host owns the room. If the host leaves, close the room for everybody
+    // so the match can never be left orphaned. Non-host players simply leave
+    // this browser's session without affecting the room.
+    if (isOnlineHost && onlineSession?.roomCode && onlineSession?.clientId) {
+      try {
+        setLeaveGameError('')
+        await endRoom(onlineSession.roomCode, onlineSession.clientId)
+        goHomeAndClearRecovery()
+      } catch (error) {
+        setLeaveGameError(error.message || 'Could not end the game.')
+      }
+      return
+    }
+
+    setLeaveConfirmOpen(false)
+    goHomeAndClearRecovery()
+  }
+
+  function backToLocalLobby() {
+    try {
+      window.localStorage.removeItem(LOCAL_GAME_STORAGE_KEY)
+    } catch (error) {
+      console.warn('Could not clear local recovery data:', error)
+    }
+    setScreen('lobby')
+  }
+
+  // Permanent emergency controls for online games. These live directly on
+  // document.body so they remain clickable even when this browser is waiting
+  // on another player's turn or the app is showing a Battle/Event/Special
+  // sub-screen. Nothing inside the game layout can cover them.
+  useEffect(() => {
+    const overlayId = 'rl-persistent-online-controls'
+    document.getElementById(overlayId)?.remove()
+
+    if (
+      !isOnlineGame ||
+      screen === 'home' ||
+      screen === 'game-ended' ||
+      leaveConfirmOpen
+    ) {
+      return
+    }
+
+    const overlay = document.createElement('div')
+    overlay.id = overlayId
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      top: '12px',
+      right: '12px',
+      zIndex: '2147483647',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '7px',
+      alignItems: 'stretch',
+      pointerEvents: 'auto',
+      maxWidth: '210px',
+    })
+
+    const makeButton = (label, onClick, danger = false) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = label
+      button.dataset.onlineAllowed = 'true'
+      Object.assign(button.style, {
+        padding: '9px 12px',
+        borderRadius: '10px',
+        border: danger
+          ? '1px solid rgba(248,113,113,.9)'
+          : '1px solid rgba(255,255,255,.28)',
+        background: danger
+          ? 'rgba(127,29,29,.96)'
+          : 'rgba(15,23,42,.96)',
+        color: '#fff',
+        fontWeight: '800',
+        fontSize: '12px',
+        boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+        cursor: 'pointer',
+        backdropFilter: 'blur(8px)',
+      })
+      button.addEventListener('click', onClick)
+      overlay.appendChild(button)
+      return button
+    }
+
+    // Non-hosts can leave without affecting the room. For the host, this same
+    // Leave Game button ends the room for everybody after confirmation.
+    const leaveButton = makeButton(
+      'Leave Game',
+      openLeaveGameConfirmation,
+      isOnlineHost
+    )
+
+    document.body.appendChild(overlay)
+
+    return () => {
+      leaveButton.removeEventListener('click', openLeaveGameConfirmation)
+      overlay.remove()
+    }
+  }, [
+    isOnlineGame,
+    isOnlineHost,
+    screen,
+    leaveConfirmOpen,
+  ])
+
   // Friendly-client prototype security: while a game is running, only the
   // browser belonging to the current player can operate game controls.
+  // When this browser is waiting, controls it cannot use are also hidden so
+  // the spectator view stays clean. Buttons that are intentionally usable
+  // off-turn are marked with data-online-allowed="true" and remain visible.
   useEffect(() => {
-    if (!isOnlineGame || screen !== 'game') return
+    const spectatorLocked =
+      isOnlineGame &&
+      screen === 'game' &&
+      !leaveConfirmOpen &&
+      !canUseOnlineControls
+
+    document.body.classList.toggle(
+      'rl-online-spectator',
+      spectatorLocked
+    )
+
+    if (!isOnlineGame || screen !== 'game' || leaveConfirmOpen) {
+      return () => {
+        document.body.classList.remove('rl-online-spectator')
+      }
+    }
 
     function blockSpectatorControls(event) {
       if (canUseOnlineControls) return
@@ -909,6 +1367,11 @@ function App() {
 
       if (!interactive) return
 
+      // A few multiplayer interactions intentionally belong to someone other
+      // than the current turn owner (for example, the second Battle player
+      // casting or cancelling their own concede vote).
+      if (interactive.dataset?.onlineAllowed === 'true') return
+
       event.preventDefault()
       event.stopPropagation()
     }
@@ -916,9 +1379,15 @@ function App() {
     document.addEventListener('click', blockSpectatorControls, true)
 
     return () => {
+      document.body.classList.remove('rl-online-spectator')
       document.removeEventListener('click', blockSpectatorControls, true)
     }
-  }, [isOnlineGame, canUseOnlineControls, screen])
+  }, [
+    isOnlineGame,
+    canUseOnlineControls,
+    screen,
+    leaveConfirmOpen,
+  ])
 
   function addPlayer() {
     const name = playerName.trim()
@@ -933,6 +1402,8 @@ function App() {
         name,
         points: 0,
         position: 0,
+        boardNodeId: null,
+        routeHistory: [],
         hotStreakActive: false,
         pressureActive: false,
         shieldActive: false,
@@ -956,11 +1427,17 @@ function App() {
   }
 
   function startGame() {
+    const newBoard = generateBoard(
+      `${Date.now()}-${Math.floor(Math.random() * 1000000)}`
+    )
+
     setPlayers((currentPlayers) =>
       currentPlayers.map((player) => ({
         ...player,
         points: 0,
         position: 0,
+        boardNodeId: newBoard.startId,
+        routeHistory: [newBoard.startId],
         hotStreakActive: false,
         pressureActive: false,
         shieldActive: false,
@@ -979,7 +1456,7 @@ function App() {
     setSpinResult(null)
     setHasSpun(false)
     setLandedSpace(null)
-    
+
     setMechanicDeck(shuffleDeck(mechanicCards))
     setActionDeck(shuffleDeck(actionCards))
     setBattleDeck(shuffleDeck(battleCards))
@@ -991,6 +1468,7 @@ function App() {
     setMechanicChoices([])
     setMechanicResolved(true)
     setMechanicMessage('')
+    setPublicMechanicOutcome('')
     setMechanicFailed(false)
     setDoublePointsActive(false)
     setInsuranceActive(false)
@@ -1012,6 +1490,10 @@ function App() {
     setEventResolved(true)
     setSpecialState(null)
     setSpecialResolved(true)
+    setLandingAnnouncement(null)
+    setLandingAnnouncementClock(Date.now())
+    setGeneratedBoard(newBoard)
+
     setScreen('game')
   }
 
@@ -1134,6 +1616,7 @@ setActionDiscardPile((currentPile) => [
   setAttemptsLeft(1)
   setMechanicResolved(false)
   setMechanicFailed(false)
+  setPublicMechanicOutcome('')
   setMechanicActionUsed(true)
   setActionCardUsedThisTurn(true)
   setMechanicMessage(
@@ -1738,7 +2221,7 @@ function usePressure(targetIndex) {
   setActionCardUsedThisTurn(true)
 
   setActionMessage(
-    'A secret Action effect was played.'
+    `Pressure activated on ${targetPlayer.name}. They will not be notified until their next Mechanic.`
   )
 }
 
@@ -2051,10 +2534,12 @@ function useSabotage(targetIndex) {
     return
   }
 
-  const newPosition = Math.max(
-    0,
-    targetPlayer.position - 5
-  )
+  const graphMove = generatedBoard
+    ? forceMoveGeneratedPlayer(targetPlayer, 5, 'backward')
+    : null
+  const newPosition = graphMove
+    ? graphMove.player.position
+    : Math.max(0, targetPlayer.position - 5)
 
   setPlayers((currentPlayers) =>
     currentPlayers.map((player, index) => {
@@ -2068,10 +2553,9 @@ function useSabotage(targetIndex) {
       }
 
       if (index === targetIndex) {
-        return {
-          ...player,
-          position: newPosition,
-        }
+        return graphMove
+          ? graphMove.player
+          : { ...player, position: newPosition }
       }
 
       return player
@@ -2403,54 +2887,70 @@ function useEasyRoute() {
     return
   }
 
-  const newPosition = Math.min(
-    BOARD_LENGTH,
-    currentPlayer.position + 5
-  )
-
-  const spacesMoved =
-    newPosition - currentPlayer.position
   const remainingHand = (currentPlayer.actionCards || []).filter(
     (_, index) => index !== cardIndex
   )
-  const reachedFinish = newPosition >= BOARD_LENGTH && !currentPlayer.finished
+
+  let movedPlayer
+  let spacesMoved
+  let reachedFinish
+  let discardedAtFinish = []
+
+  if (generatedBoard) {
+    const playerWithoutCard = {
+      ...currentPlayer,
+      actionCards: remainingHand,
+    }
+    const movement = forceMoveGeneratedPlayer(playerWithoutCard, 5, 'forward')
+    movedPlayer = movement.player
+    spacesMoved = movement.spacesMoved
+    reachedFinish = movement.reachedFinish
+    discardedAtFinish = movement.discardedCards
+  } else {
+    const newPosition = Math.min(
+      BOARD_LENGTH,
+      currentPlayer.position + 5
+    )
+    spacesMoved = newPosition - currentPlayer.position
+    reachedFinish = newPosition >= BOARD_LENGTH && !currentPlayer.finished
+    movedPlayer = reachedFinish
+      ? movePlayerAndHandleFinish(
+          { ...currentPlayer, actionCards: remainingHand },
+          newPosition,
+          remainingHand
+        )
+      : {
+          ...currentPlayer,
+          position: newPosition,
+          shortcutGateResolved:
+            currentPlayer.shortcutGateResolved ||
+            (currentPlayer.position < SHORTCUT_GATE_POSITION &&
+              newPosition >= SHORTCUT_GATE_POSITION),
+          actionCards: remainingHand,
+        }
+    discardedAtFinish = reachedFinish ? remainingHand : []
+  }
 
   setPlayers((currentPlayers) =>
-    currentPlayers.map((player, index) => {
-      if (index !== currentPlayerIndex) {
-        return player
-      }
-
-      if (reachedFinish) {
-        return movePlayerAndHandleFinish(player, newPosition, remainingHand)
-      }
-
-      return {
-        ...player,
-        position: newPosition,
-        shortcutGateResolved:
-          player.shortcutGateResolved ||
-          (player.position < SHORTCUT_GATE_POSITION &&
-            newPosition >= SHORTCUT_GATE_POSITION),
-        actionCards: remainingHand,
-      }
-    })
+    currentPlayers.map((player, index) =>
+      index === currentPlayerIndex ? movedPlayer : player
+    )
   )
 
   setActionDiscardPile((currentPile) => [
     ...currentPile,
     currentPlayer.actionCards[cardIndex],
-    ...(reachedFinish ? remainingHand : []),
+    ...discardedAtFinish,
   ])
 
   setAttemptsLeft(0)
   setMechanicResolved(true)
   setMechanicFailed(false)
-
   setMechanicActionUsed(true)
   setActionCardUsedThisTurn(true)
 
-  const finishCashoutBonus = reachedFinish && remainingHand.length === 3 ? 1 : 0
+  const finishCashoutBonus =
+    reachedFinish && discardedAtFinish.length === 3 ? 1 : 0
 
   setMechanicMessage(
     reachedFinish
@@ -3252,6 +3752,9 @@ function drawMechanicCard() {
     return
   }
 
+  // A new normal Mechanic starts a new public outcome. Action Card details stay private.
+  setPublicMechanicOutcome('')
+
   const currentPlayer = players[currentPlayerIndex]
 
   let deck = mechanicDeck
@@ -3435,41 +3938,59 @@ function voteToConcedeBattle(voterIndex) {
     return
   }
 
-  setBattleState((currentBattle) => ({
-    ...currentBattle,
-    concedeVoteBy: voterIndex,
-  }))
-}
-
-function cancelBattleConcede() {
-  if (!battleState || battleResolved) return
-
-  setBattleState((currentBattle) => ({
-    ...currentBattle,
-    concedeVoteBy: null,
-  }))
-}
-
-function confirmBattleConcede(confirmerIndex) {
+  // In online play, a browser may only cast the vote for its own player.
   if (
-    !battleState ||
-    battleResolved ||
-    !battleState.card?.allowMutualConcede ||
-    battleState.opponentIndex === null ||
-    battleState.concedeVoteBy === null ||
-    confirmerIndex === battleState.concedeVoteBy ||
-    (confirmerIndex !== currentPlayerIndex &&
-      confirmerIndex !== battleState.opponentIndex)
+    isOnlineGame &&
+    players[voterIndex]?.id !== localClientId
   ) {
     return
   }
 
-  setBattleResolved(true)
+  setBattleState((currentBattle) => {
+    if (!currentBattle || currentBattle.concedeVoteBy === voterIndex) {
+      return currentBattle
+    }
+
+    // First player casts their vote. The Battle keeps going until the other
+    // participant independently votes as well.
+    if (currentBattle.concedeVoteBy === null) {
+      return {
+        ...currentBattle,
+        concedeVoteBy: voterIndex,
+      }
+    }
+
+    // The other participant has now also voted: both votes are required.
+    setBattleResolved(true)
+    return {
+      ...currentBattle,
+      concedeVoteBy: null,
+      resultMessage:
+        'Both players voted to concede. The Battle ends with 0 board points awarded.',
+    }
+  })
+}
+
+function cancelBattleConcede(voterIndex) {
+  if (
+    !battleState ||
+    battleResolved ||
+    battleState.concedeVoteBy !== voterIndex
+  ) {
+    return
+  }
+
+  // In online play, only the player who cast the pending vote can cancel it.
+  if (
+    isOnlineGame &&
+    players[voterIndex]?.id !== localClientId
+  ) {
+    return
+  }
+
   setBattleState((currentBattle) => ({
     ...currentBattle,
     concedeVoteBy: null,
-    resultMessage:
-      'Both players agreed to concede. The Battle ends with 0 board points awarded.',
   }))
 }
 
@@ -3542,29 +4063,36 @@ function resolveEvent() {
   let message = card.description
 
   if (card.id === 'everyone-advances') {
-    const finishingPlayers = players.filter(
-      (player) => !player.finished && player.position + 5 >= BOARD_LENGTH
-    )
-    const finishingCards = finishingPlayers.flatMap(
-      (player) => player.actionCards || []
+    const moveResults = players.map((player) =>
+      player.finished
+        ? { player, spacesMoved: 0, reachedFinish: false, discardedCards: [] }
+        : generatedBoard
+          ? forceMoveGeneratedPlayer(player, 5, 'forward')
+          : (() => {
+              const newPosition = Math.min(BOARD_LENGTH, player.position + 5)
+              const movedPlayer = movePlayerAndHandleFinish(player, newPosition)
+              return {
+                player: {
+                  ...movedPlayer,
+                  shortcutGateResolved:
+                    movedPlayer.shortcutGateResolved ||
+                    (player.position < SHORTCUT_GATE_POSITION &&
+                      newPosition >= SHORTCUT_GATE_POSITION),
+                },
+                spacesMoved: newPosition - player.position,
+                reachedFinish: newPosition >= BOARD_LENGTH,
+                discardedCards:
+                  newPosition >= BOARD_LENGTH ? [...(player.actionCards || [])] : [],
+              }
+            })()
     )
 
-    setPlayers((currentPlayers) =>
-      currentPlayers.map((player) => {
-        if (player.finished) return player
+    const finishingPlayers = moveResults
+      .map((result, index) => ({ result, player: players[index] }))
+      .filter(({ result, player }) => result.reachedFinish && !player.finished)
+    const finishingCards = moveResults.flatMap((result) => result.discardedCards || [])
 
-        const newPosition = Math.min(BOARD_LENGTH, player.position + 5)
-        const movedPlayer = movePlayerAndHandleFinish(player, newPosition)
-
-        return {
-          ...movedPlayer,
-          shortcutGateResolved:
-            movedPlayer.shortcutGateResolved ||
-            (player.position < SHORTCUT_GATE_POSITION &&
-              newPosition >= SHORTCUT_GATE_POSITION),
-        }
-      })
-    )
+    setPlayers(moveResults.map((result) => result.player))
 
     if (finishingCards.length > 0) {
       setActionDiscardPile((currentPile) => [
@@ -3574,18 +4102,20 @@ function resolveEvent() {
     }
 
     const finishText = finishingPlayers.length
-      ? ` ${finishingPlayers.map((player) => player.name).join(', ')} reached Finish.`
+      ? ` ${finishingPlayers.map(({ player }) => player.name).join(', ')} reached Finish.`
       : ''
-    message = `Every unfinished player moved forward 5 spaces. No landed spaces activate.${finishText}`
+    message = `Every unfinished player moved forward up to 5 spaces. No landed spaces activate.${finishText}`
   } else if (card.id === 'everyone-retreats') {
     setPlayers((currentPlayers) =>
       currentPlayers.map((player) =>
         player.finished
           ? player
-          : { ...player, position: Math.max(0, player.position - 5) }
+          : generatedBoard
+            ? forceMoveGeneratedPlayer(player, 5, 'backward').player
+            : { ...player, position: Math.max(0, player.position - 5) }
       )
     )
-    message = 'Every unfinished player moved back 5 spaces. Finished players stay at Finish. No landed spaces activate.'
+    message = 'Every unfinished player moved back up to 5 spaces along the route they actually traveled. Finished players stay at Finish. No landed spaces activate.'
   } else if (card.id === 'catch-up-boost') {
     const eligiblePlayers = players
       .map((player, index) => ({ player, index }))
@@ -3594,43 +4124,63 @@ function resolveEvent() {
     if (eligiblePlayers.length === 0) {
       message = 'Everyone has already finished, so Catch-Up Boost has no effect.'
     } else {
-      const lowestPosition = Math.min(
-        ...eligiblePlayers.map(({ player }) => player.position)
+      const lowestProgress = Math.min(
+        ...eligiblePlayers.map(({ player }) =>
+          generatedBoard ? getGeneratedProgress(player) : player.position
+        )
       )
       const tiedIndexes = eligiblePlayers
-        .filter(({ player }) => player.position === lowestPosition)
+        .filter(({ player }) => {
+          const progress = generatedBoard
+            ? getGeneratedProgress(player)
+            : player.position
+          return Math.abs(progress - lowestProgress) < 0.0001
+        })
         .map(({ index }) => index)
       const chosenIndex = chooseRandomIndex(tiedIndexes)
       const chosenPlayer = players[chosenIndex]
-      const newPosition = Math.min(BOARD_LENGTH, chosenPlayer.position + 5)
-      const reachesFinish = newPosition >= BOARD_LENGTH
 
-      if (reachesFinish && (chosenPlayer.actionCards || []).length > 0) {
+      const movement = generatedBoard
+        ? forceMoveGeneratedPlayer(chosenPlayer, 5, 'forward')
+        : (() => {
+            const newPosition = Math.min(BOARD_LENGTH, chosenPlayer.position + 5)
+            const movedPlayer = movePlayerAndHandleFinish(chosenPlayer, newPosition)
+            return {
+              player: {
+                ...movedPlayer,
+                shortcutGateResolved:
+                  movedPlayer.shortcutGateResolved ||
+                  (chosenPlayer.position < SHORTCUT_GATE_POSITION &&
+                    newPosition >= SHORTCUT_GATE_POSITION),
+              },
+              spacesMoved: newPosition - chosenPlayer.position,
+              reachedFinish: newPosition >= BOARD_LENGTH,
+              discardedCards:
+                newPosition >= BOARD_LENGTH
+                  ? [...(chosenPlayer.actionCards || [])]
+                  : [],
+            }
+          })()
+
+      if (movement.discardedCards.length > 0) {
         setActionDiscardPile((currentPile) => [
           ...currentPile,
-          ...(chosenPlayer.actionCards || []),
+          ...movement.discardedCards,
         ])
       }
 
       setPlayers((currentPlayers) =>
-        currentPlayers.map((player, index) => {
-          if (index !== chosenIndex) return player
-
-          const movedPlayer = movePlayerAndHandleFinish(player, newPosition)
-          return {
-            ...movedPlayer,
-            shortcutGateResolved:
-              movedPlayer.shortcutGateResolved ||
-              (player.position < SHORTCUT_GATE_POSITION &&
-                newPosition >= SHORTCUT_GATE_POSITION),
-          }
-        })
+        currentPlayers.map((player, index) =>
+          index === chosenIndex ? movement.player : player
+        )
       )
 
       message = `${chosenPlayer.name} was furthest back${
         tiedIndexes.length > 1 ? ' (randomly chosen from the tie)' : ''
-      } and moves forward 5 spaces. The new space does not activate.${
-        reachesFinish ? ` ${chosenPlayer.name} reached Finish.` : ''
+      } and moves forward ${movement.spacesMoved} space${
+        movement.spacesMoved === 1 ? '' : 's'
+      }. The new space does not activate.${
+        movement.reachedFinish ? ` ${chosenPlayer.name} reached Finish.` : ''
       }`
     }
   } else if (card.id === 'leader-tax') {
@@ -3641,25 +4191,41 @@ function resolveEvent() {
     if (eligiblePlayers.length === 0) {
       message = 'Everyone has already finished, so Leader Tax has no effect.'
     } else {
-      const highestPosition = Math.max(
-        ...eligiblePlayers.map(({ player }) => player.position)
+      const highestProgress = Math.max(
+        ...eligiblePlayers.map(({ player }) =>
+          generatedBoard ? getGeneratedProgress(player) : player.position
+        )
       )
       const tiedIndexes = eligiblePlayers
-        .filter(({ player }) => player.position === highestPosition)
+        .filter(({ player }) => {
+          const progress = generatedBoard
+            ? getGeneratedProgress(player)
+            : player.position
+          return Math.abs(progress - highestProgress) < 0.0001
+        })
         .map(({ index }) => index)
       const chosenIndex = chooseRandomIndex(tiedIndexes)
       const chosenPlayer = players[chosenIndex]
+      const movement = generatedBoard
+        ? forceMoveGeneratedPlayer(chosenPlayer, 5, 'backward')
+        : {
+            player: {
+              ...chosenPlayer,
+              position: Math.max(0, chosenPlayer.position - 5),
+            },
+            spacesMoved: Math.min(5, chosenPlayer.position),
+          }
 
       setPlayers((currentPlayers) =>
         currentPlayers.map((player, index) =>
-          index === chosenIndex
-            ? { ...player, position: Math.max(0, player.position - 5) }
-            : player
+          index === chosenIndex ? movement.player : player
         )
       )
       message = `${chosenPlayer.name} was furthest ahead${
         tiedIndexes.length > 1 ? ' (randomly chosen from the tie)' : ''
-      } and moves back 5 spaces. Finished players are not affected. The new space does not activate.`
+      } and moves back ${movement.spacesMoved} space${
+        movement.spacesMoved === 1 ? '' : 's'
+      }. Finished players are not affected. The new space does not activate.`
     }
   } else if (card.id === 'position-swap') {
     const eligibleIndexes = players
@@ -3678,27 +4244,49 @@ function resolveEvent() {
 
       const firstPlayer = players[firstIndex]
       const secondPlayer = players[secondIndex]
-      const firstPosition = firstPlayer.position
-      const secondPosition = secondPlayer.position
 
       setPlayers((currentPlayers) =>
         currentPlayers.map((player, index) => {
           if (index === firstIndex) {
             return {
               ...player,
-              position: secondPosition,
+              position: secondPlayer.position,
+              boardNodeId: generatedBoard
+                ? secondPlayer.boardNodeId
+                : player.boardNodeId,
+              routeHistory: generatedBoard
+                ? [...(secondPlayer.routeHistory || buildGeneratedPathToNode(secondPlayer.boardNodeId))]
+                : player.routeHistory,
               shortcutGateResolved:
                 player.shortcutGateResolved ||
-                secondPosition >= SHORTCUT_GATE_POSITION,
+                Boolean(
+                  generatedBoard &&
+                    (secondPlayer.routeHistory || []).includes(
+                      generatedBoard.shortcut?.gateId
+                    )
+                ) ||
+                (!generatedBoard && secondPlayer.position >= SHORTCUT_GATE_POSITION),
             }
           }
           if (index === secondIndex) {
             return {
               ...player,
-              position: firstPosition,
+              position: firstPlayer.position,
+              boardNodeId: generatedBoard
+                ? firstPlayer.boardNodeId
+                : player.boardNodeId,
+              routeHistory: generatedBoard
+                ? [...(firstPlayer.routeHistory || buildGeneratedPathToNode(firstPlayer.boardNodeId))]
+                : player.routeHistory,
               shortcutGateResolved:
                 player.shortcutGateResolved ||
-                firstPosition >= SHORTCUT_GATE_POSITION,
+                Boolean(
+                  generatedBoard &&
+                    (firstPlayer.routeHistory || []).includes(
+                      generatedBoard.shortcut?.gateId
+                    )
+                ) ||
+                (!generatedBoard && firstPlayer.position >= SHORTCUT_GATE_POSITION),
             }
           }
           return player
@@ -3752,7 +4340,8 @@ function resolveEvent() {
 
       const drawnCard = deck.shift()
       player.actionCards.push(drawnCard)
-      draws.push(`${player.name} drew ${drawnCard.name}`)
+      // Action Card identity is private. The Event may reveal only that a draw occurred.
+      draws.push(player.name)
     }
 
     setPlayers(updatedPlayers)
@@ -3763,7 +4352,7 @@ function resolveEvent() {
 
     message =
       draws.length > 0
-        ? `${draws.join('; ')}.`
+        ? `${draws.join(', ')} ${draws.length === 1 ? 'drew' : 'each drew'} 1 Action Card. Card identities remain private.`
         : 'Nobody drew a card because every eligible hand was full or no Action Cards were available.'
   } else if (card.id === 'action-purge') {
     const discardedCards = []
@@ -3791,9 +4380,9 @@ function resolveEvent() {
 
     message =
       discardedCards.length > 0
-        ? `${discardedCards
-            .map((entry) => `${entry.playerName} discarded ${entry.card.name}`)
-            .join('; ')}.`
+        ? `${discardedCards.map((entry) => entry.playerName).join(', ')} ${
+            discardedCards.length === 1 ? 'discarded' : 'each discarded'
+          } 1 random Action Card. Card identities remain private.`
         : 'Nobody had an eligible Action Card to discard.'
   } else if (card.id === 'shuffle-up') {
     const currentPlayer = players[currentPlayerIndex]
@@ -3889,12 +4478,38 @@ function takeActionShopOffers(count = 3) {
   return { offers, deck, discard }
 }
 
-function activateLandingAtPosition(newPosition) {
+function activateLandingAtPosition(newPosition, boardOptions = null) {
   const currentPlayer = players[currentPlayerIndex]
   const safePosition = Math.max(0, Math.min(BOARD_LENGTH, newPosition))
-  const spaceType = boardSpaces[safePosition]
+  const boardNodeId = boardOptions?.boardNodeId || null
+  const routeHistory = boardOptions?.routeHistory || null
+  const boardNode =
+    boardNodeId && generatedBoard
+      ? generatedBoard.nodes.find((node) => node.id === boardNodeId)
+      : null
+  const spaceType = boardOptions?.spaceType || boardNode?.type || boardSpaces[safePosition]
+  const effectivePosition = spaceType === 'Finish' ? BOARD_LENGTH : safePosition
 
   setLandedSpace(spaceType)
+
+  const revealBeforeScreenTypes = new Set([
+    'Battle',
+    'Event',
+    'Gamble',
+    'Choose Difficulty',
+    'Action Shop',
+  ])
+
+  if (revealBeforeScreenTypes.has(spaceType)) {
+    setLandingAnnouncement({
+      spaceType,
+      playerName: currentPlayer.name,
+      until: Date.now() + LANDING_REVEAL_MS,
+    })
+    setLandingAnnouncementClock(Date.now())
+  } else {
+    setLandingAnnouncement(null)
+  }
 
   // Clear only the UI/state for the previous landing. Pending player effects
   // (Pressure, Hot Streak, Zero Bounce, 100+ KPH, Top Corner, Shield, etc.)
@@ -3933,7 +4548,12 @@ function activateLandingAtPosition(newPosition) {
     setPlayers((currentPlayers) =>
       currentPlayers.map((player, index) =>
         index === currentPlayerIndex
-          ? movePlayerAndHandleFinish(player, safePosition)
+          ? {
+              ...movePlayerAndHandleFinish(player, effectivePosition),
+              boardNodeId:
+                boardNodeId || generatedBoard?.finishId || player.boardNodeId || null,
+              routeHistory: routeHistory || player.routeHistory || [],
+            }
           : player
       )
     )
@@ -4067,11 +4687,19 @@ function activateLandingAtPosition(newPosition) {
     }
 
     const drawnBattle = deck[0]
+    const randomOpponentIndex = drawnBattle?.allPlayers
+      ? null
+      : chooseRandomIndex(
+          players
+            .map((_, index) => index)
+            .filter((index) => index !== currentPlayerIndex)
+        )
+
     setBattleDeck(deck.slice(1))
     setBattleResolved(false)
     setBattleState({
       card: drawnBattle,
-      opponentIndex: null,
+      opponentIndex: randomOpponentIndex,
       battleMechanic: null,
       concedeVoteBy: null,
       luckySpins: [],
@@ -4145,10 +4773,453 @@ function activateLandingAtPosition(newPosition) {
   setPlayers((currentPlayers) =>
     currentPlayers.map((player, index) =>
       index === currentPlayerIndex
-        ? { ...player, position: safePosition }
+        ? {
+            ...player,
+            position: effectivePosition,
+            boardNodeId: boardNodeId || player.boardNodeId || null,
+            routeHistory: routeHistory || player.routeHistory || [],
+          }
         : player
     )
   )
+}
+
+
+function getGeneratedBoardNode(nodeId) {
+  if (!generatedBoard || !nodeId) return null
+  return generatedBoard.nodes.find((node) => node.id === nodeId) || null
+}
+
+function buildGeneratedPathToNode(targetNodeId) {
+  if (!generatedBoard || !targetNodeId) return []
+
+  const startId = generatedBoard.startId
+  if (targetNodeId === startId) return [startId]
+
+  const nodeMap = new Map(
+    generatedBoard.nodes.map((node) => [node.id, node])
+  )
+  const queue = [[startId]]
+  const visited = new Set([startId])
+
+  while (queue.length > 0) {
+    const path = queue.shift()
+    const currentId = path[path.length - 1]
+    const currentNode = nodeMap.get(currentId)
+
+    for (const nextId of currentNode?.next || []) {
+      if (visited.has(nextId)) continue
+      const nextPath = [...path, nextId]
+      if (nextId === targetNodeId) return nextPath
+      visited.add(nextId)
+      queue.push(nextPath)
+    }
+  }
+
+  return [startId]
+}
+
+function normalizePlayerRouteHistory(player) {
+  if (!generatedBoard) return []
+
+  const currentNodeId = player?.boardNodeId || generatedBoard.startId
+  const existing = Array.isArray(player?.routeHistory)
+    ? player.routeHistory.filter(Boolean)
+    : []
+
+  const currentIndex = existing.lastIndexOf(currentNodeId)
+  if (currentIndex >= 0) {
+    return existing.slice(0, currentIndex + 1)
+  }
+
+  return buildGeneratedPathToNode(currentNodeId)
+}
+
+function chooseForcedForwardNext(currentNode, nodeMap) {
+  const choices = currentNode?.next || []
+  if (choices.length <= 1) return choices[0] || null
+
+  if (currentNode.id === generatedBoard?.shortcut?.gateId) {
+    return generatedBoard.shortcut.normalRoute || choices[0]
+  }
+
+  const mainChoice = choices.find(
+    (nextId) => nodeMap.get(nextId)?.route === 'main'
+  )
+
+  return mainChoice || choices[0]
+}
+
+function forceMoveGeneratedPlayer(player, spaces, direction = 'forward') {
+  if (!generatedBoard || !player || player.finished) {
+    return {
+      player,
+      spacesMoved: 0,
+      reachedFinish: Boolean(player?.finished),
+      discardedCards: [],
+    }
+  }
+
+  const amount = Math.max(0, Math.floor(spaces || 0))
+  const nodeMap = new Map(
+    generatedBoard.nodes.map((node) => [node.id, node])
+  )
+  let history = normalizePlayerRouteHistory(player)
+  let currentNodeId =
+    player.boardNodeId || history[history.length - 1] || generatedBoard.startId
+
+  if (history.length === 0) history = [generatedBoard.startId]
+  if (history[history.length - 1] !== currentNodeId) {
+    history = buildGeneratedPathToNode(currentNodeId)
+  }
+
+  if (direction === 'backward') {
+    const steps = Math.min(amount, Math.max(0, history.length - 1))
+    const newHistory = history.slice(0, history.length - steps)
+    const newNodeId = newHistory[newHistory.length - 1] || generatedBoard.startId
+
+    return {
+      player: {
+        ...player,
+        position: Math.max(0, (player.position || 0) - steps),
+        boardNodeId: newNodeId,
+        routeHistory: newHistory,
+      },
+      spacesMoved: steps,
+      reachedFinish: false,
+      discardedCards: [],
+    }
+  }
+
+  let steps = 0
+  let passedShortcutGate = Boolean(player.shortcutGateResolved)
+
+  while (steps < amount) {
+    const currentNode = nodeMap.get(currentNodeId)
+    if (!currentNode || currentNode.type === 'Finish') break
+
+    const nextId = chooseForcedForwardNext(currentNode, nodeMap)
+    if (!nextId) break
+
+    currentNodeId = nextId
+    history.push(nextId)
+    steps += 1
+
+    if (
+      currentNode.id === generatedBoard.shortcut?.gateId ||
+      currentNodeId === generatedBoard.shortcut?.gateId
+    ) {
+      passedShortcutGate = true
+    }
+
+    if (nodeMap.get(currentNodeId)?.type === 'Finish') break
+  }
+
+  const destination = nodeMap.get(currentNodeId)
+  const reachedFinish = destination?.type === 'Finish'
+
+  if (reachedFinish) {
+    const discardedCards = [...(player.actionCards || [])]
+    const finishedPlayer = movePlayerAndHandleFinish(
+      player,
+      BOARD_LENGTH,
+      discardedCards
+    )
+
+    return {
+      player: {
+        ...finishedPlayer,
+        boardNodeId: generatedBoard.finishId,
+        routeHistory: history,
+        shortcutGateResolved: passedShortcutGate,
+      },
+      spacesMoved: steps,
+      reachedFinish: true,
+      discardedCards,
+    }
+  }
+
+  return {
+    player: {
+      ...player,
+      position: Math.min(
+        BOARD_LENGTH - 1,
+        Math.max(0, (player.position || 0) + steps)
+      ),
+      boardNodeId: currentNodeId,
+      routeHistory: history,
+      shortcutGateResolved: passedShortcutGate,
+    },
+    spacesMoved: steps,
+    reachedFinish: false,
+    discardedCards: [],
+  }
+}
+
+function getGeneratedProgress(player) {
+  if (!generatedBoard || !player?.boardNodeId) {
+    return player?.position || 0
+  }
+
+  if (player.finished || player.boardNodeId === generatedBoard.finishId) {
+    return generatedBoard.mainPath.length
+  }
+
+  const mainIndexes = new Map(
+    generatedBoard.mainPath.map((id, index) => [id, index])
+  )
+
+  if (mainIndexes.has(player.boardNodeId)) {
+    return mainIndexes.get(player.boardNodeId)
+  }
+
+  for (const fork of generatedBoard.forks || []) {
+    const branchIndex = (fork.alternatePath || []).indexOf(player.boardNodeId)
+    if (branchIndex === -1) continue
+
+    const splitIndex = mainIndexes.get(fork.splitId) ?? 0
+    const rejoinIndex = mainIndexes.get(fork.rejoinId) ?? splitIndex
+    const t = (branchIndex + 1) / ((fork.alternatePath || []).length + 1)
+    return splitIndex + (rejoinIndex - splitIndex) * t
+  }
+
+  const shortcutIndex = (generatedBoard.shortcut?.shortcutPath || []).indexOf(
+    player.boardNodeId
+  )
+  if (shortcutIndex !== -1) {
+    const gateIndex = mainIndexes.get(generatedBoard.shortcut.gateId) ?? 0
+    const rejoinIndex = mainIndexes.get(generatedBoard.shortcut.rejoinId) ?? gateIndex
+    const t =
+      (shortcutIndex + 1) /
+      ((generatedBoard.shortcut.shortcutPath || []).length + 1)
+    return gateIndex + (rejoinIndex - gateIndex) * t
+  }
+
+  return player.position || 0
+}
+
+
+function generatedRouteLabel(nextId) {
+  const node = getGeneratedBoardNode(nextId)
+  if (!node) return 'Route'
+
+  if (nextId === generatedBoard?.shortcut?.shortcutRoute) {
+    return 'Risky Shortcut'
+  }
+
+  if (nextId === generatedBoard?.shortcut?.normalRoute) {
+    return 'Main Route'
+  }
+
+  if (node.route === 'fork') return 'Alternate Route'
+  if (node.route === 'main') return 'Main Route'
+  return 'Route'
+}
+
+function clearLandingUiForRouteChoice() {
+  setMechanicCard(null)
+  setMechanicChoices([])
+  setAttemptsLeft(0)
+  setMechanicResolved(true)
+  setMechanicMessage('')
+  setMechanicFailed(false)
+  setDoublePointsActive(false)
+  setInsuranceActive(false)
+  setJackpotActive(false)
+  setMechanicActionUsed(false)
+  setAwaitingMechanicDraw(false)
+  setNoBounceRequired(false)
+  setKph100Required(false)
+  setTopCornerRequired(false)
+  setActionResolved(true)
+  setBattleState(null)
+  setBattleResolved(true)
+  setEventState(null)
+  setEventResolved(true)
+}
+
+function continueGeneratedMovement({
+  startNodeId,
+  remainingMovement,
+  basePosition,
+  chosenNextId = null,
+  routeHistory = null,
+}) {
+  if (!generatedBoard) return
+
+  const nodeMap = new Map(
+    generatedBoard.nodes.map((node) => [node.id, node])
+  )
+
+  let currentNodeId = startNodeId || generatedBoard.startId
+  let remaining = Math.max(0, remainingMovement || 0)
+  let movedSpaces = 0
+  let history = Array.isArray(routeHistory)
+    ? [...routeHistory]
+    : normalizePlayerRouteHistory(players[currentPlayerIndex])
+
+  const existingCurrentIndex = history.lastIndexOf(currentNodeId)
+  if (existingCurrentIndex >= 0) {
+    history = history.slice(0, existingCurrentIndex + 1)
+  } else {
+    history = buildGeneratedPathToNode(currentNodeId)
+  }
+
+  if (chosenNextId) {
+    const currentNode = nodeMap.get(currentNodeId)
+
+    if (!currentNode?.next?.includes(chosenNextId) || remaining <= 0) {
+      return
+    }
+
+    currentNodeId = chosenNextId
+    history.push(chosenNextId)
+    remaining -= 1
+    movedSpaces += 1
+  }
+
+  while (remaining > 0) {
+    const currentNode = nodeMap.get(currentNodeId)
+    if (!currentNode) break
+
+    if (currentNode.type === 'Finish' || (currentNode.next || []).length === 0) {
+      break
+    }
+
+    const choices = currentNode.next || []
+
+    // The risky Shortcut Gate can only be resolved once per player. If this
+    // player later moves backward past the gate and reaches it again, do not
+    // offer the shortcut a second time; automatically continue on Main Route.
+    const shortcutAlreadyResolved =
+      currentNodeId === generatedBoard.shortcut?.gateId &&
+      Boolean(players[currentPlayerIndex]?.shortcutGateResolved)
+
+    if (shortcutAlreadyResolved && choices.length > 1) {
+      const mainNextId = generatedBoard.shortcut?.normalRoute
+
+      if (mainNextId && choices.includes(mainNextId)) {
+        currentNodeId = mainNextId
+        history.push(mainNextId)
+        remaining -= 1
+        movedSpaces += 1
+        continue
+      }
+    }
+
+    if (choices.length > 1) {
+      const pausedPosition = Math.min(
+        BOARD_LENGTH - 1,
+        Math.max(0, (basePosition || 0) + movedSpaces)
+      )
+
+      setPlayers((currentPlayers) =>
+        currentPlayers.map((player, index) =>
+          index === currentPlayerIndex
+            ? {
+                ...player,
+                position: pausedPosition,
+                boardNodeId: currentNodeId,
+                routeHistory: history,
+              }
+            : player
+        )
+      )
+
+      clearLandingUiForRouteChoice()
+      setLandedSpace(
+        currentNodeId === generatedBoard.shortcut?.gateId
+          ? 'Shortcut Gate'
+          : 'Fork in the Road'
+      )
+      setSpecialResolved(false)
+
+      if (currentNodeId === generatedBoard.shortcut?.gateId) {
+        setLandingAnnouncement({
+          spaceType: 'Shortcut Gate',
+          playerName: players[currentPlayerIndex]?.name || 'Player',
+          until: Date.now() + LANDING_REVEAL_MS,
+        })
+        setLandingAnnouncementClock(Date.now())
+
+        setSpecialState({
+          type: 'shortcut-gate',
+          stage: 'choose-route',
+          generatedGraph: true,
+          currentNodeId,
+          remainingMovement: remaining,
+          basePosition: pausedPosition,
+          routeHistory: history,
+          mainNextId: generatedBoard.shortcut.normalRoute,
+          shortcutNextId: generatedBoard.shortcut.shortcutRoute,
+          shortcutMechanic: null,
+          routeResult: null,
+          resultMessage: '',
+        })
+      } else {
+        setSpecialState({
+          type: 'board-fork',
+          stage: 'choose-route',
+          currentNodeId,
+          remainingMovement: remaining,
+          basePosition: pausedPosition,
+          routeHistory: history,
+          options: choices.map((nextId) => ({
+            nextId,
+            label: generatedRouteLabel(nextId),
+            firstSpaceType: nodeMap.get(nextId)?.type || 'Space',
+          })),
+        })
+      }
+
+      return
+    }
+
+    currentNodeId = choices[0]
+    history.push(currentNodeId)
+    remaining -= 1
+    movedSpaces += 1
+  }
+
+  const destination = nodeMap.get(currentNodeId)
+  if (!destination) return
+
+  const reachedFinish = destination.type === 'Finish'
+  const finalPosition = reachedFinish
+    ? BOARD_LENGTH
+    : Math.min(
+        BOARD_LENGTH - 1,
+        Math.max(0, (basePosition || 0) + movedSpaces)
+      )
+
+  activateLandingAtPosition(finalPosition, {
+    boardNodeId: currentNodeId,
+    spaceType: destination.type,
+    routeHistory: history,
+  })
+}
+
+function chooseBoardForkRoute(nextId) {
+  if (
+    !specialState ||
+    specialState.type !== 'board-fork' ||
+    specialState.stage !== 'choose-route' ||
+    !(specialState.options || []).some((option) => option.nextId === nextId)
+  ) {
+    return
+  }
+
+  const movementState = {
+    startNodeId: specialState.currentNodeId,
+    remainingMovement: specialState.remainingMovement,
+    basePosition: specialState.basePosition,
+    chosenNextId: nextId,
+    routeHistory: specialState.routeHistory || null,
+  }
+
+  setSpecialState(null)
+  setSpecialResolved(true)
+  continueGeneratedMovement(movementState)
 }
 
 function chooseGambleRisk(riskId) {
@@ -4455,6 +5526,18 @@ function chooseMainShortcutRoute() {
     return
   }
 
+  if (specialState.generatedGraph) {
+    setSpecialState((currentSpecial) => ({
+      ...currentSpecial,
+      stage: 'continue-movement',
+      routeResult: 'main',
+      resultMessage: `Main Route chosen. ${currentSpecial.remainingMovement} movement space${
+        currentSpecial.remainingMovement === 1 ? '' : 's'
+      } remain from the original spin.`,
+    }))
+    return
+  }
+
   setSpecialState((currentSpecial) => ({
     ...currentSpecial,
     stage: 'continue-movement',
@@ -4495,17 +5578,44 @@ function resolveShortcutChallenge(scored) {
     return
   }
 
+  let pointsLost = 0
+
+  if (specialState.generatedGraph && !scored) {
+    const currentPoints = players[currentPlayerIndex]?.points || 0
+    pointsLost = Math.min(1, currentPoints)
+
+    setPlayers((currentPlayers) =>
+      currentPlayers.map((player, index) =>
+        index === currentPlayerIndex
+          ? { ...player, points: Math.max(0, player.points - 1) }
+          : player
+      )
+    )
+  }
+
   setSpecialState((currentSpecial) => ({
     ...currentSpecial,
     stage: 'continue-movement',
     routeResult: scored ? 'shortcut' : 'main',
-    resultMessage: scored
-      ? `Shortcut cleared with ${currentSpecial.shortcutMechanic.name}! You take the shorter route and rejoin at Space ${SHORTCUT_EXIT_POSITION}. ${currentSpecial.remainingMovement} movement space${
-          currentSpecial.remainingMovement === 1 ? '' : 's'
-        } remain.`
-      : `Shortcut missed. You are sent down the Main Route. ${currentSpecial.remainingMovement} movement space${
-          currentSpecial.remainingMovement === 1 ? '' : 's'
-        } remain.`,
+    resultMessage: currentSpecial.generatedGraph
+      ? scored
+        ? `Shortcut cleared with ${currentSpecial.shortcutMechanic.name}! Continue the remaining ${currentSpecial.remainingMovement} movement space${
+            currentSpecial.remainingMovement === 1 ? '' : 's'
+          } on the shortcut.`
+        : pointsLost > 0
+          ? `Shortcut missed. -1 point. Continue the remaining ${currentSpecial.remainingMovement} movement space${
+              currentSpecial.remainingMovement === 1 ? '' : 's'
+            } on the Main Route.`
+          : `Shortcut missed. You had no points to lose. Continue the remaining ${currentSpecial.remainingMovement} movement space${
+              currentSpecial.remainingMovement === 1 ? '' : 's'
+            } on the Main Route.`
+      : scored
+        ? `Shortcut cleared with ${currentSpecial.shortcutMechanic.name}! You take the shorter route and rejoin at Space ${SHORTCUT_EXIT_POSITION}. ${currentSpecial.remainingMovement} movement space${
+            currentSpecial.remainingMovement === 1 ? '' : 's'
+          } remain.`
+        : `Shortcut missed. You are sent down the Main Route. ${currentSpecial.remainingMovement} movement space${
+            currentSpecial.remainingMovement === 1 ? '' : 's'
+          } remain.`,
   }))
 }
 
@@ -4516,6 +5626,32 @@ function continueAfterShortcutGate() {
     specialState.stage !== 'continue-movement' ||
     !specialState.routeResult
   ) {
+    return
+  }
+
+  if (specialState.generatedGraph) {
+    const movementState = {
+      startNodeId: specialState.currentNodeId,
+      remainingMovement: specialState.remainingMovement || 0,
+      basePosition: specialState.basePosition || 0,
+      chosenNextId:
+        specialState.routeResult === 'shortcut'
+          ? specialState.shortcutNextId
+          : specialState.mainNextId,
+      routeHistory: specialState.routeHistory || null,
+    }
+
+    setPlayers((currentPlayers) =>
+      currentPlayers.map((player, index) =>
+        index === currentPlayerIndex
+          ? { ...player, shortcutGateResolved: true }
+          : player
+      )
+    )
+
+    setSpecialState(null)
+    setSpecialResolved(true)
+    continueGeneratedMovement(movementState)
     return
   }
 
@@ -4605,6 +5741,16 @@ function continueAfterShortcutGate() {
 
     setSecondChanceActive(false)
     setSecondChanceRolls([])
+
+    if (generatedBoard) {
+      continueGeneratedMovement({
+        startNodeId: currentPlayer.boardNodeId || generatedBoard.startId,
+        remainingMovement: result,
+        basePosition: currentPlayer.position || 0,
+        routeHistory: currentPlayer.routeHistory || null,
+      })
+      return
+    }
 
     const distanceToGate =
       SHORTCUT_GATE_POSITION - currentPlayer.position
@@ -4708,6 +5854,11 @@ if (currentPlayer.hotStreakActive) {
     setJackpotActive(false)
     setMechanicFailed(false)
 
+    // Everyone may know the normal game result, but not which Action Cards changed it.
+    setPublicMechanicOutcome(
+      `${currentPlayer.name} scored ${mechanicCard.name}!`
+    )
+
    setMechanicMessage(
   `Scored! +${pointsEarned} point${
     pointsEarned === 1 ? '' : 's'
@@ -4720,6 +5871,7 @@ if (currentPlayer.hotStreakActive) {
 
     if (attemptsLeft > 1) {
       setAttemptsLeft(attemptsLeft - 1)
+      // Intermediate attempts stay private so extra-attempt Action Cards are not exposed.
       setMechanicMessage('Missed! You have 1 attempt left.')
     } else {
   setAttemptsLeft(0)
@@ -4727,6 +5879,12 @@ if (currentPlayer.hotStreakActive) {
   setMechanicFailed(true)
   setDoublePointsActive(false)
   const currentPlayer = players[currentPlayerIndex]
+
+  // Public result is intentionally generic so Jackpot, Insurance, Hot Streak,
+  // Pressure, and every other Action Card remain secret.
+  setPublicMechanicOutcome(
+    `${currentPlayer.name} missed ${mechanicCard.name}.`
+  )
 
 if (currentPlayer.hotStreakActive) {
   setPlayers((currentPlayers) =>
@@ -4855,6 +6013,7 @@ if (currentPlayer.hotStreakActive) {
     setSpinResult(null)
     setHasSpun(false)
     setLandedSpace(null)
+    setLandingAnnouncement(null)
 
     setMechanicCard(null)
     setMechanicChoices([])
@@ -4911,6 +6070,77 @@ if (currentPlayer.hotStreakActive) {
     } else {
       setActionMessage(bonusMessage.trim())
     }
+  }
+
+  if (leaveConfirmOpen) {
+    const hostLeavingOnlineGame = isOnlineHost && isOnlineGame
+
+    return (
+      <div className="game">
+        <h1>{hostLeavingOnlineGame ? 'Leave & End Game?' : 'Leave Game?'}</h1>
+
+        <div className="rules-box">
+          <h2>Are you sure?</h2>
+          {hostLeavingOnlineGame ? (
+            <>
+              <p>
+                You are the host. Leaving will <strong>end this online game for everyone</strong>
+                and close the room.
+              </p>
+              <p>
+                Every connected player will be sent out of the match, and nobody
+                will be able to recover this room after a refresh.
+              </p>
+              <p><strong>This cannot be undone.</strong></p>
+            </>
+          ) : (
+            <>
+              <p>
+                Leaving will take you back to the home screen and stop this browser
+                from automatically reopening this game after a refresh.
+              </p>
+              {isOnlineGame && onlineSession?.roomCode && (
+                <p>
+                  Room <strong>{onlineSession.roomCode}</strong> will no longer be
+                  remembered on this browser.
+                </p>
+              )}
+              <p>
+                <strong>This does not happen from a normal refresh.</strong> You only
+                leave when you confirm below.
+              </p>
+            </>
+          )}
+          {leaveGameError && <p><strong>{leaveGameError}</strong></p>}
+        </div>
+
+        <div className="menu">
+          <button data-online-allowed="true" onClick={cancelLeaveGame}>
+            Cancel
+          </button>
+          <button data-online-allowed="true" onClick={confirmLeaveGame}>
+            {hostLeavingOnlineGame ? 'Yes, End Game & Leave' : 'Yes, Leave Game'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (screen === 'game-ended') {
+    return (
+      <div className="game">
+        <h1>Online Game Ended</h1>
+        <div className="rules-box">
+          <p>{gameEndedNotice || 'This online game has ended.'}</p>
+          <p>You can safely create or join another game now.</p>
+        </div>
+        <div className="menu">
+          <button onClick={() => setScreen('home')}>
+            Home
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (screen === 'lobby') {
@@ -5002,7 +6232,7 @@ if (currentPlayer.hotStreakActive) {
 
         <div className="menu">
           {!isOnlineGame && (
-            <button onClick={() => setScreen('lobby')}>
+            <button onClick={backToLocalLobby}>
               Back to Lobby
             </button>
           )}
@@ -5053,9 +6283,11 @@ if (currentPlayer.hotStreakActive) {
               Play Again
             </button>
           )}
-          <button onClick={() => setScreen('home')}>
-            Home
-          </button>
+          {!isOnlineGame && (
+            <button onClick={goHomeAndClearRecovery}>
+              Home
+            </button>
+          )}
         </div>
       </div>
     )
@@ -5069,7 +6301,142 @@ if (currentPlayer.hotStreakActive) {
     players.length) %
   players.length
 )
-    
+
+    const gameHud = (
+      <header className="game-hud">
+        <div className="game-hud__identity">
+          <div className="game-hud__eyebrow">ROCKET LEAGUE · FREESTYLE BOARD</div>
+          <div className="game-hud__title-row">
+            <h1>Freestyle Board</h1>
+            {isOnlineGame && (
+              <span className="room-pill">Room {onlineSession.roomCode}</span>
+            )}
+          </div>
+          <div
+            className={`turn-status ${
+              isOnlineGame && !isMyOnlineTurn ? 'turn-status--waiting' : ''
+            }`}
+          >
+            <span className="turn-status__dot" />
+            {currentPlayer.finished
+              ? `${currentPlayer.name} finished`
+              : isOnlineGame && !isMyOnlineTurn
+                ? `Watching ${currentPlayer.name}'s turn`
+                : `${currentPlayer.name}'s turn`}
+          </div>
+        </div>
+
+        <div className="game-hud__players" aria-label="Player standings">
+          {playerDisplayOrder.map((playerIndex) => {
+            const player = players[playerIndex]
+            const isCurrent = playerIndex === currentPlayerIndex && !player.finished
+            const isYou = isOnlineGame && player.id === localClientId
+
+            return (
+              <div
+                className={`hud-player ${isCurrent ? 'hud-player--current' : ''} ${
+                  player.finished ? 'hud-player--finished' : ''
+                }`}
+                key={player.id ?? playerIndex}
+                style={{ '--player-accent': PLAYER_ACCENTS[playerIndex % PLAYER_ACCENTS.length] }}
+              >
+                <span className="hud-player__dot" />
+                <div className="hud-player__name">
+                  {player.name}{isYou ? ' · You' : ''}
+                </div>
+                <div className="hud-player__meta">
+                  <strong>{player.points}</strong> pts · {player.finished ? 'Finished' : `Space ${player.position}/75`}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <button
+          type="button"
+          className="hud-sound-button"
+          data-online-allowed="true"
+          onClick={() => setSoundEnabled((value) => !value)}
+          aria-pressed={soundEnabled}
+          title={soundEnabled ? 'Mute game sounds' : 'Turn game sounds on'}
+        >
+          <span aria-hidden="true">{soundEnabled ? '🔊' : '🔇'}</span>
+          <span>{soundEnabled ? 'Sound' : 'Muted'}</span>
+        </button>
+      </header>
+    )
+
+    function GameOverlayCard({ children }) {
+      return (
+        <div
+          className={`game game--play game--overlay ${
+            isOnlineGame && !canUseOnlineControls ? 'online-waiting' : ''
+          }`}
+        >
+          {gameHud}
+          <div className="game-overlay-stage">
+            {generatedBoard && (
+              <GameBoard
+                board={generatedBoard}
+                players={players}
+                currentPlayerIndex={currentPlayerIndex}
+                boardLength={BOARD_LENGTH}
+                localPlayerId={localClientId}
+                ambient
+              />
+            )}
+            <div className="game-overlay-layer">
+              <section className="game-modal-card">
+                {children}
+              </section>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+if (landingAnnouncementActive && landingAnnouncement) {
+  const announcementText = {
+    Battle: 'BATTLE!',
+    Event: 'EVENT!',
+    Gamble: 'GAMBLE!',
+    'Choose Difficulty': 'CHOOSE DIFFICULTY!',
+    'Action Shop': 'ACTION SHOP!',
+    'Shortcut Gate': 'SHORTCUT GATE!',
+  }[landingAnnouncement.spaceType] || landingAnnouncement.spaceType
+
+  const announcementSubtext = {
+    Battle: 'Get ready for a head-to-head challenge.',
+    Event: 'A random event is about to happen.',
+    Gamble: 'Choose how much risk you want to take.',
+    'Choose Difficulty': 'You get to choose the challenge difficulty.',
+    'Action Shop': 'Three Action Cards are waiting for you.',
+    'Shortcut Gate': 'Choose the safe route or risk the shortcut.',
+  }[landingAnnouncement.spaceType] || 'Resolving your landing...'
+
+  return (
+    <GameOverlayCard>
+      <div
+        className="mechanic-card"
+        style={{
+          textAlign: 'center',
+          padding: '28px 18px',
+          border: '2px solid rgba(255,255,255,.22)',
+          boxShadow: '0 18px 55px rgba(0,0,0,.3)',
+        }}
+      >
+        <div style={{ fontSize: '13px', opacity: 0.75, marginBottom: '7px' }}>
+          {landingAnnouncement.playerName} landed on
+        </div>
+        <h1 style={{ margin: '0 0 8px', letterSpacing: '0.04em' }}>
+          {announcementText}
+        </h1>
+        <p style={{ margin: 0 }}><strong>{announcementSubtext}</strong></p>
+      </div>
+    </GameOverlayCard>
+  )
+}
+
 
 if (battleState) {
   const battleCard = battleState.card
@@ -5080,7 +6447,7 @@ if (battleState) {
 
   if (battleResolved) {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Battle Complete</h1>
         <h2>#{battleCard.number} — {battleCard.name}</h2>
 
@@ -5100,7 +6467,7 @@ if (battleState) {
         <button onClick={returnFromBattle}>
           Return to Board
         </button>
-      </div>
+      </GameOverlayCard>
     )
   }
 
@@ -5108,7 +6475,7 @@ if (battleState) {
     const spinPlayer = players[battleState.luckySpinCursor]
 
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Battle Card #{battleCard.number}</h1>
         <h2>{battleCard.name}</h2>
 
@@ -5138,40 +6505,17 @@ if (battleState) {
             Spin 1–10 for {spinPlayer.name}
           </button>
         )}
-      </div>
+      </GameOverlayCard>
     )
   }
 
   if (battleState.opponentIndex === null) {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Battle Card #{battleCard.number}</h1>
         <h2>{battleCard.name}</h2>
-
-        <div className="mechanic-card">
-          <h3>Rules</h3>
-          {battleCard.rules.map((rule, index) => (
-            <p key={index}>{index + 1}. {rule}</p>
-          ))}
-          <p>
-            <strong>Outside Action Cards and normal Mechanic effects do not affect this Battle.</strong>
-          </p>
-        </div>
-
-        <h3>{currentPlayer.name}, choose your opponent:</h3>
-        {players.map((player, targetIndex) => {
-          if (targetIndex === currentPlayerIndex) return null
-
-          return (
-            <button
-              key={player.id ?? targetIndex}
-              onClick={() => chooseBattleOpponent(targetIndex)}
-            >
-              Battle {player.name}
-            </button>
-          )
-        })}
-      </div>
+        <p>No 1v1 opponent is available for this Battle.</p>
+      </GameOverlayCard>
     )
   }
 
@@ -5180,7 +6524,7 @@ if (battleState) {
     Boolean(battleState.battleMechanic)
 
   return (
-    <div className="game">
+    <GameOverlayCard>
       <h1>Battle Card #{battleCard.number}</h1>
       <h2>{battleCard.name}</h2>
       <h3>{currentPlayer.name} vs. {opponent.name}</h3>
@@ -5236,14 +6580,32 @@ if (battleState) {
           {battleState.concedeVoteBy === null ? (
             <>
               <p>
-                Use this only if the challenge has become too difficult. One player voting is not enough.
+                Both Battle players must independently vote to concede. One vote never ends the Battle.
               </p>
-              <button onClick={() => voteToConcedeBattle(currentPlayerIndex)}>
-                {currentPlayer.name} Votes to Concede
-              </button>
-              <button onClick={() => voteToConcedeBattle(battleState.opponentIndex)}>
-                {opponent.name} Votes to Concede
-              </button>
+
+              {isOnlineGame ? (
+                [currentPlayerIndex, battleState.opponentIndex].includes(
+                  localOnlinePlayerIndex
+                ) ? (
+                  <button
+                    data-online-allowed="true"
+                    onClick={() => voteToConcedeBattle(localOnlinePlayerIndex)}
+                  >
+                    Vote to Concede
+                  </button>
+                ) : (
+                  <p>Only the two Battle players can vote.</p>
+                )
+              ) : (
+                <>
+                  <button onClick={() => voteToConcedeBattle(currentPlayerIndex)}>
+                    {currentPlayer.name} Votes to Concede
+                  </button>
+                  <button onClick={() => voteToConcedeBattle(battleState.opponentIndex)}>
+                    {opponent.name} Votes to Concede
+                  </button>
+                </>
+              )}
             </>
           ) : (
             <>
@@ -5252,26 +6614,60 @@ if (battleState) {
                   {players[battleState.concedeVoteBy].name} voted to concede.
                 </strong>
               </p>
-              <p>
-                {battleState.concedeVoteBy === currentPlayerIndex
-                  ? opponent.name
-                  : currentPlayer.name}{' '}
-                must confirm. Either player can cancel before confirmation.
-              </p>
-              <button
-                onClick={() =>
-                  confirmBattleConcede(
-                    battleState.concedeVoteBy === currentPlayerIndex
-                      ? battleState.opponentIndex
-                      : currentPlayerIndex
-                  )
-                }
-              >
-                Confirm Mutual Concede — 0 Points Each
-              </button>
-              <button onClick={cancelBattleConcede}>
-                Cancel Concede Vote
-              </button>
+
+              {isOnlineGame ? (
+                localOnlinePlayerIndex === battleState.concedeVoteBy ? (
+                  <>
+                    <p>
+                      Your vote is waiting for the other Battle player. You can cancel it before they vote.
+                    </p>
+                    <button
+                      data-online-allowed="true"
+                      onClick={() => cancelBattleConcede(localOnlinePlayerIndex)}
+                    >
+                      Cancel My Concede Vote
+                    </button>
+                  </>
+                ) : [currentPlayerIndex, battleState.opponentIndex].includes(
+                    localOnlinePlayerIndex
+                  ) ? (
+                  <>
+                    <p>
+                      If you also vote to concede, the Battle ends with 0 points for both players.
+                    </p>
+                    <button
+                      data-online-allowed="true"
+                      onClick={() => voteToConcedeBattle(localOnlinePlayerIndex)}
+                    >
+                      Vote to Concede Too
+                    </button>
+                  </>
+                ) : (
+                  <p>Waiting for the other Battle player to decide.</p>
+                )
+              ) : (
+                <>
+                  <p>
+                    The other Battle player must also vote. The first voter can cancel before that happens.
+                  </p>
+                  <button
+                    onClick={() =>
+                      voteToConcedeBattle(
+                        battleState.concedeVoteBy === currentPlayerIndex
+                          ? battleState.opponentIndex
+                          : currentPlayerIndex
+                      )
+                    }
+                  >
+                    Other Player Votes to Concede Too
+                  </button>
+                  <button
+                    onClick={() => cancelBattleConcede(battleState.concedeVoteBy)}
+                  >
+                    Cancel Concede Vote
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -5282,7 +6678,7 @@ if (battleState) {
           Battle rule: Action Cards, normal Mechanic effects, Hot Streak, Pressure, Zero Bounce, 100+ KPH, Top Corner, and all other outside effects do not affect this mini-game.
         </strong>
       </p>
-    </div>
+    </GameOverlayCard>
   )
 }
 
@@ -5290,7 +6686,7 @@ if (eventState) {
   const eventCard = eventState.card
 
   return (
-    <div className="game">
+    <GameOverlayCard>
       <h1>Event Card #{eventCard.number}</h1>
       <h2>{eventCard.name}</h2>
 
@@ -5310,7 +6706,7 @@ if (eventState) {
           </button>
         </>
       )}
-    </div>
+    </GameOverlayCard>
   )
 }
 
@@ -5318,7 +6714,7 @@ if (eventState) {
 if (specialState) {
   if (specialState.type === 'gamble') {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Special Space — Gamble</h1>
 
         <div className="mechanic-card">
@@ -5364,13 +6760,13 @@ if (specialState) {
             <button onClick={returnFromSpecial}>Return to Board</button>
           </>
         )}
-      </div>
+      </GameOverlayCard>
     )
   }
 
   if (specialState.type === 'choose-difficulty') {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Special Space — Choose Difficulty</h1>
 
         <div className="mechanic-card">
@@ -5415,20 +6811,20 @@ if (specialState) {
             <button onClick={returnFromSpecial}>Return to Board</button>
           </>
         )}
-      </div>
+      </GameOverlayCard>
     )
   }
 
   if (specialState.type === 'action-shop') {
     if (isOnlineGame && !isMyOnlineTurn) {
       return (
-        <div className="game">
+        <GameOverlayCard>
           <h1>Action Shop</h1>
           <p>
             <strong>{currentPlayer.name}</strong> is choosing privately from the Action Shop.
           </p>
           <p>Your own Action Cards are hidden from the other players too.</p>
-        </div>
+        </GameOverlayCard>
       )
     }
 
@@ -5438,7 +6834,7 @@ if (specialState) {
         : null
 
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Action Shop</h1>
 
         <div className="mechanic-card">
@@ -5512,25 +6908,63 @@ if (specialState) {
             <button onClick={returnFromSpecial}>Return to Board</button>
           </>
         )}
-      </div>
+      </GameOverlayCard>
+    )
+  }
+
+
+  if (specialState.type === 'board-fork') {
+    if (isOnlineGame && !isMyOnlineTurn) {
+      return (
+        <GameOverlayCard>
+          <h1>Fork in the Road</h1>
+          <p>
+            <strong>{currentPlayer.name}</strong> is choosing which path to take.
+          </p>
+        </GameOverlayCard>
+      )
+    }
+
+    return (
+      <GameOverlayCard>
+        <h1>Fork in the Road</h1>
+
+        <div className="mechanic-card">
+          <h3>Choose Your Path</h3>
+          <p>
+            Your spin paused at the fork with{' '}
+            <strong>{specialState.remainingMovement}</strong> movement space
+            {specialState.remainingMovement === 1 ? '' : 's'} remaining.
+          </p>
+          <p>Your route choice does not use extra movement; entering the first space of the chosen route uses the next movement space normally.</p>
+
+          {(specialState.options || []).map((option) => (
+            <button
+              key={option.nextId}
+              onClick={() => chooseBoardForkRoute(option.nextId)}
+            >
+              {option.label} — next space: {option.firstSpaceType}
+            </button>
+          ))}
+        </div>
+      </GameOverlayCard>
     )
   }
 
   if (specialState.type === 'shortcut-gate') {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Shortcut Gate</h1>
 
         <div className="mechanic-card">
           <h3>Mandatory Mid-Spin Stop</h3>
           <p>
-            Your spin has paused at Space <strong>{SHORTCUT_GATE_POSITION}</strong> with <strong>{specialState.remainingMovement}</strong> movement space{specialState.remainingMovement === 1 ? '' : 's'} remaining.
+            Your spin has paused{specialState.generatedGraph ? '' : <> at Space <strong>{SHORTCUT_GATE_POSITION}</strong></>} with <strong>{specialState.remainingMovement}</strong> movement space{specialState.remainingMovement === 1 ? '' : 's'} remaining.
           </p>
           <p><strong>Main Route:</strong> no challenge. Continue the exact remaining movement on the normal path.</p>
           <p><strong>Shortcut:</strong> draw a random Hard Mechanic and get exactly 1 attempt.</p>
-          <p>If you score it, take the shorter route and rejoin at Space {SHORTCUT_EXIT_POSITION}, then finish the remaining movement.</p>
-          <p>If you miss it, take the Main Route and still finish the remaining movement.</p>
-          <p>The gate can only be resolved once by a player. Forced movement from cards/events bypasses the gate on the Main Route.</p>
+          <p>If you score it, take the shorter route and finish the remaining movement there.</p>
+          <p>If you miss it, lose <strong>1 point</strong> (minimum 0), take the Main Route, and still finish the remaining movement.</p>
           <p><strong>Outside Action Cards and pending normal Mechanic effects do not affect the Shortcut challenge.</strong></p>
         </div>
 
@@ -5560,7 +6994,7 @@ if (specialState) {
             </button>
           </div>
         )}
-      </div>
+      </GameOverlayCard>
     )
   }
 }
@@ -5598,12 +7032,12 @@ if (tradeOfferState) {
 
   if (isOnlineGame && !localIsTradeParticipant) {
     return (
-      <div className="game">
-        <h1>Trade Offer</h1>
+      <GameOverlayCard>
+        <h1>Private Choice</h1>
         <p>
-          <strong>{initiator?.name}</strong> and <strong>{target?.name || 'another player'}</strong> are resolving a private trade.
+          <strong>{initiator?.name}</strong> is resolving something privately.
         </p>
-      </div>
+      </GameOverlayCard>
     )
   }
 
@@ -5613,10 +7047,10 @@ if (tradeOfferState) {
     !localIsTradeInitiator
   ) {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Trade Offer</h1>
         <p>Waiting for {initiator?.name} to choose their side of the trade...</p>
-      </div>
+      </GameOverlayCard>
     )
   }
 
@@ -5626,17 +7060,17 @@ if (tradeOfferState) {
     !localIsTradeTarget
   ) {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Trade Offer</h1>
         <p>Waiting for {target?.name} to choose a private return card...</p>
-      </div>
+      </GameOverlayCard>
     )
   }
 
   // STEP 1: Choose who to trade with
   if (tradeOfferState.stage === 'choose-target') {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Trade Offer</h1>
 
         <h2>
@@ -5671,14 +7105,14 @@ if (tradeOfferState) {
             </button>
           )
         })}
-      </div>
+      </GameOverlayCard>
     )
   }
 
   // STEP 2: Initiator chooses their card
   if (tradeOfferState.stage === 'choose-offer') {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Trade Offer</h1>
 
         <h2>
@@ -5706,14 +7140,14 @@ if (tradeOfferState) {
 >
   Cancel Trade
 </button>
-      </div>
+      </GameOverlayCard>
     )
   }
 
   // STEP 3: Pass screen to target
   if (tradeOfferState.stage === 'handoff-target') {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Trade Offer</h1>
 
         <p>
@@ -5738,14 +7172,14 @@ if (tradeOfferState) {
         >
           I'm {target.name} — Continue
         </button>
-      </div>
+      </GameOverlayCard>
     )
   }
 
   // STEP 4: Target chooses their card
   if (tradeOfferState.stage === 'target-choose') {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Trade Offer</h1>
 
         <p>
@@ -5780,7 +7214,7 @@ if (tradeOfferState) {
 >
   Decline Trade
 </button>
-      </div>
+      </GameOverlayCard>
     )
   }
 
@@ -5790,7 +7224,7 @@ if (tradeOfferState) {
     'handoff-initiator-review'
   ) {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Trade Selected</h1>
 
         <p>
@@ -5813,7 +7247,7 @@ if (tradeOfferState) {
         >
           I'm {initiator.name} — Review
         </button>
-      </div>
+      </GameOverlayCard>
     )
   }
 
@@ -5822,7 +7256,7 @@ if (tradeOfferState) {
     tradeOfferState.stage === 'initiator-review'
   ) {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Trade Review</h1>
 
         <h2>{initiator.name} gives:</h2>
@@ -5850,7 +7284,7 @@ if (tradeOfferState) {
 >
   {initiator.name} — Change Trade
 </button>
-      </div>
+      </GameOverlayCard>
     )
   }
 
@@ -5860,7 +7294,7 @@ if (tradeOfferState) {
     'handoff-target-review'
   ) {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Trade Confirmation</h1>
 
         <p>
@@ -5883,14 +7317,14 @@ if (tradeOfferState) {
         >
           I'm {target.name} — Review
         </button>
-      </div>
+      </GameOverlayCard>
     )
   }
 
   // STEP 8: Target reviews BOTH cards
   if (tradeOfferState.stage === 'target-review') {
     return (
-      <div className="game">
+      <GameOverlayCard>
         <h1>Final Trade Review</h1>
 
         <h2>{initiator.name} gives:</h2>
@@ -5917,7 +7351,7 @@ if (tradeOfferState) {
 >
   {target.name} — Change Card
 </button>
-      </div>
+      </GameOverlayCard>
     )
   }
 }
@@ -5940,29 +7374,26 @@ if (tradeOfferState) {
 
     return (
       <div
-        className={`game ${
+        className={`game game--play ${
           isOnlineGame && !canUseOnlineControls ? 'online-waiting' : ''
         }`}
       >
-        <h1>Rocket League Freestyle</h1>
+        {gameHud}
 
-        {isOnlineGame && (
-          <>
-            <p>Room: <strong>{onlineSession.roomCode}</strong></p>
-            {!canUseOnlineControls && (
-              <p>
-                <strong>
-                  Waiting for {currentPlayer.name} to finish their turn...
-                </strong>
-              </p>
-            )}
-          </>
+        {generatedBoard && (
+          <GameBoard
+            board={generatedBoard}
+            players={players}
+            currentPlayerIndex={currentPlayerIndex}
+            boardLength={BOARD_LENGTH}
+            localPlayerId={localClientId}
+          />
         )}
 
         <div className="turn-box">
           <h2>{currentPlayer.name}'s Turn</h2>
 
-          <div className="spinner">
+          <div className={`spinner ${spinResult !== null ? 'spinner--result' : ''}`}>
             {spinResult === null ? '?' : spinResult}
           </div>
 
@@ -5990,56 +7421,72 @@ if (tradeOfferState) {
               </div>
             </>
           )}
-          {actionMessage && (
+          {actionMessage && (!isOnlineGame || isMyOnlineTurn) && (
   <p>
     <strong>{actionMessage}</strong>
   </p>
 )}
 {secondChanceRolls.length === 2 && (
   <div>
-    <p>
-      <strong>Choose your spin:</strong>
-    </p>
+    {isOnlineGame && !isMyOnlineTurn ? (
+      <p>
+        <strong>{currentPlayer.name}</strong> is choosing a spin privately.
+      </p>
+    ) : (
+      <>
+        <p>
+          <strong>Choose your spin:</strong>
+        </p>
 
-    <button
-      onClick={() => spin(secondChanceRolls[0])}
-    >
-      Choose {secondChanceRolls[0]}
-    </button>
+        <button
+          onClick={() => spin(secondChanceRolls[0])}
+        >
+          Choose {secondChanceRolls[0]}
+        </button>
 
-    <button
-      onClick={() => spin(secondChanceRolls[1])}
-    >
-      Choose {secondChanceRolls[1]}
-    </button>
+        <button
+          onClick={() => spin(secondChanceRolls[1])}
+        >
+          Choose {secondChanceRolls[1]}
+        </button>
+      </>
+    )}
   </div>
 )}
 {landedSpace === 'Mechanic' && awaitingMechanicDraw && (
   <div className="mechanic-card">
     <h2>Mechanic Space</h2>
 
-    {!jackpotActive && (
-  <p>
-    You have a Jackpot card. Use it now or draw your mechanic normally.
-  </p>
-)}
-
-    {jackpotActive && (
+    {isOnlineGame && !isMyOnlineTurn ? (
       <p>
-        <strong>
-          JACKPOT ACTIVE: +3 if you score, -3 if you fail.
-        </strong>
+        <strong>{currentPlayer.name}</strong> is preparing their Mechanic privately.
       </p>
-    )}
+    ) : (
+      <>
+        {!jackpotActive && (
+          <p>
+            You have a Jackpot card. Use it now or draw your mechanic normally.
+          </p>
+        )}
 
-    <button onClick={drawMechanicCard}>
-      Draw Mechanic
-    </button>
+        {jackpotActive && (
+          <p>
+            <strong>
+              JACKPOT ACTIVE: +3 if you score, -3 if you fail.
+            </strong>
+          </p>
+        )}
 
-    {mechanicMessage && (
-      <p>
-        <strong>{mechanicMessage}</strong>
-      </p>
+        <button onClick={drawMechanicCard}>
+          Draw Mechanic
+        </button>
+
+        {mechanicMessage && (
+          <p>
+            <strong>{mechanicMessage}</strong>
+          </p>
+        )}
+      </>
     )}
   </div>
 )}
@@ -6063,14 +7510,14 @@ if (tradeOfferState) {
               <p>
                 Bounce Rule:{' '}
                 <strong>
-                  {noBounceRequired ||
+                  {((!isOnlineGame || isMyOnlineTurn) && noBounceRequired) ||
                   mechanicCard.name.toLowerCase().includes('no bounce')
                     ? 'NO BOUNCE'
                     : '1 bounce max'}
                 </strong>
               </p>
 
-              {noBounceRequired && (
+              {(!isOnlineGame || isMyOnlineTurn) && noBounceRequired && (
                 <p>
                   <strong>
                     🚫 ZERO BOUNCE REQUIRED — This Mechanic must go directly in.
@@ -6078,7 +7525,7 @@ if (tradeOfferState) {
                 </p>
               )}
 
-              {kph100Required &&
+              {(!isOnlineGame || isMyOnlineTurn) && kph100Required &&
                 !mechanicCard.name.includes('100+') &&
                 !mechanicCard.name.includes('120+') && (
                   <p>
@@ -6088,7 +7535,7 @@ if (tradeOfferState) {
                   </p>
                 )}
 
-              {topCornerRequired &&
+              {(!isOnlineGame || isMyOnlineTurn) && topCornerRequired &&
                 !mechanicCard.name.toLowerCase().includes('top corner') && (
                   <p>
                     <strong>
@@ -6099,10 +7546,16 @@ if (tradeOfferState) {
 
               {!mechanicResolved && (
                 <>
-                  <p>
-                    Attempts Left:{' '}
-                    <strong>{attemptsLeft}</strong>
-                  </p>
+                  {(!isOnlineGame || isMyOnlineTurn) ? (
+                    <p>
+                      Attempts Left:{' '}
+                      <strong>{attemptsLeft}</strong>
+                    </p>
+                  ) : (
+                    <p>
+                      <strong>{currentPlayer.name}</strong> is attempting this Mechanic.
+                    </p>
+                  )}
 
                   <div className="mechanic-buttons">
                     <button onClick={scoreMechanic}>
@@ -6116,27 +7569,40 @@ if (tradeOfferState) {
                 </>
               )}
 
-              {mechanicMessage && (
+              {mechanicMessage && (!isOnlineGame || isMyOnlineTurn) && (
                 <p>
                   <strong>{mechanicMessage}</strong>
+                </p>
+              )}
+
+              {isOnlineGame && !isMyOnlineTurn && publicMechanicOutcome && (
+                <p>
+                  <strong>{publicMechanicOutcome}</strong>
                 </p>
               )}
             </div>
           )}
           {mechanicChoices.length > 0 && (
   <div className="mechanic-card">
-    <h2>Pick Your Poison</h2>
-
-    <p>Choose one mechanic:</p>
-
-    {mechanicChoices.map((card, index) => (
-      <button
-        key={index}
-        onClick={() => chooseMechanicChoice(index)}
-      >
-        {card.name} — {card.difficulty}
-      </button>
-    ))}
+    {isOnlineGame && !isMyOnlineTurn ? (
+      <>
+        <h2>Mechanic Choice</h2>
+        <p><strong>{currentPlayer.name}</strong> is choosing privately.</p>
+      </>
+    ) : (
+      <>
+        <h2>Pick Your Poison</h2>
+        <p>Choose one mechanic:</p>
+        {mechanicChoices.map((card, index) => (
+          <button
+            key={index}
+            onClick={() => chooseMechanicChoice(index)}
+          >
+            {card.name} — {card.difficulty}
+          </button>
+        ))}
+      </>
+    )}
   </div>
 )}
 
@@ -6182,7 +7648,7 @@ if (tradeOfferState) {
           <button
             onClick={endTurn}
             disabled={
-             !hasSpun ||
+             (!currentPlayer.finished && !hasSpun) ||
              mustFinishMechanic ||
              mustResolveAction ||
              mustResolveBattle ||
@@ -6190,7 +7656,7 @@ if (tradeOfferState) {
              mustResolveSpecial
 }
           >
-            End Turn
+            {currentPlayer.finished ? 'Continue' : 'End Turn'}
           </button>
         </div>
 
@@ -6628,35 +8094,6 @@ if (tradeOfferState) {
 
 </div>
 
-        <h2>Players</h2>
-
-        <div className="player-list">
-  {playerDisplayOrder.map((playerIndex) => {
-    const player = players[playerIndex]
-
-    return (
-      <div className="player" key={playerIndex}>
-        <span>
-          {player.name}
-          {' — '}
-          {player.points} Points
-          {' — '}
-          Space {player.position}/{BOARD_LENGTH}
-          {player.finished && (
-            <>
-              {' — '}🏁 Finished
-              {' — '}Waiting Bonus {player.finishWaitingBonus || 0}/{FINISH_WAITING_BONUS_CAP}
-            </>
-          )}
-        </span>
-
-        {playerIndex === currentPlayerIndex && !player.finished && (
-          <strong>Current Turn</strong>
-        )}
-      </div>
-    )
-  })}
-</div>
       </div>
     )
   }
@@ -6680,12 +8117,15 @@ if (screen === 'online-join') {
   )
 }
   return (
-    <div className="game">
-      <h1>Rocket League Freestyle Board Game</h1>
+    <div className="game home-screen">
+      <h1 className="home-screen__title">
+        <span>Rocket League Freestyle</span>
+        <span>Board Game</span>
+      </h1>
 
-      <p>2–4 Players</p>
+      <p className="home-screen__subtitle">2–4 Players</p>
 
-      <div className="menu">
+      <div className="menu home-screen__menu">
         <button onClick={() => setScreen('online-create')}>
   Create Game
 </button>
