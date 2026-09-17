@@ -4,6 +4,7 @@ import OnlineLobby from './OnlineLobby'
 import { endRoom, getClientId, kickPlayer, leaveRoom, listenToGame, listenToRoom, saveGameState } from './multiplayer'
 import { generateBoard } from './boardGenerator'
 import GameBoard from './GameBoard'
+import PartyMode from './PartyMode'
 
 const BOARD_LENGTH = 75
 const FINISH_WAITING_BONUS_CAP = 3
@@ -245,7 +246,7 @@ const actionCards = [
   {
   name: 'Trade Offer',
   description:
-    'Choose another player. You each choose 1 Action Card to exchange, then both players confirm the trade.',
+    'Choose another player and force a trade. You choose 1 Action Card to give them, then they must choose 1 Action Card to give you. The trade cannot be declined or cancelled.',
 },
   {
   name: 'Snatch',
@@ -797,6 +798,7 @@ function App() {
   const [actionDiscardPile, setActionDiscardPile] = useState([])
   const [actionResolved, setActionResolved] = useState(true)
   const [actionMessage, setActionMessage] = useState('')
+  const [privateActionNotice, setPrivateActionNotice] = useState('')
   const [attemptsLeft, setAttemptsLeft] = useState(0)
   const [mechanicResolved, setMechanicResolved] = useState(true)
   const [mechanicMessage, setMechanicMessage] = useState('')
@@ -1171,7 +1173,20 @@ function App() {
         return
       }
 
-      if (room && room.status !== 'ended') {
+      // A brief Firebase reconnect can occasionally produce an empty room
+      // snapshot before the real room data arrives again. Treating that as an
+      // ended room would wrongly throw everybody out of a healthy match.
+      // Rooms in this app are ended explicitly with status: 'ended', so a
+      // missing snapshot is safe to ignore and the next live snapshot can
+      // recover the session normally.
+      if (!room) {
+        console.warn(
+          'Room snapshot was temporarily unavailable; keeping the online session active.'
+        )
+        return
+      }
+
+      if (room.status !== 'ended') {
         // Keep host identity fresh in case room ownership ever changes.
         if (room.hostId && room.hostId !== onlineSession.hostId) {
           setOnlineSession((current) =>
@@ -1206,6 +1221,8 @@ function App() {
         return
       }
 
+      // Only an explicit ended status is allowed to eject a player from an
+      // active room. This prevents network hiccups from looking like a host-end.
       try {
         window.localStorage.removeItem(ONLINE_SESSION_STORAGE_KEY)
       } catch (error) {
@@ -1213,7 +1230,7 @@ function App() {
       }
 
       setGameEndedNotice(
-        room?.endedBy === onlineSession.clientId
+        room.endedBy === onlineSession.clientId
           ? 'You ended the online game for everyone.'
           : 'The host ended the online game.'
       )
@@ -1237,7 +1254,15 @@ function App() {
 
     return listenToGame(onlineSession.roomCode, (payload) => {
       if (kickedFromRoomRef.current) return
-      if (!payload?.state) return
+      if (!payload?.state || typeof payload.state !== 'object') return
+
+      // Never apply an obviously incomplete/corrupt live snapshot. A bad
+      // network write should be ignored instead of replacing the playable
+      // state and leaving every browser on a broken screen.
+      if (!Array.isArray(payload.state.players) || payload.state.players.length === 0) {
+        console.warn('Ignored an incomplete multiplayer game snapshot.')
+        return
+      }
 
       const isOwnEcho = payload.updatedBy === onlineSession.clientId
       if (isOwnEcho && hasHydratedOnlineStateRef.current) return
@@ -1590,15 +1615,16 @@ function App() {
     battleResolved,
   ])
 
-  // Likewise, a pending private Trade Offer cannot keep waiting on a player
-  // who has left or was kicked.
+  // A mandatory Trade Offer should not become stuck if its target leaves.
+  // If another eligible player remains, the initiator must choose a new target.
   useEffect(() => {
     if (
       !isOnlineGame ||
       !isOnlineHost ||
       screen !== 'game' ||
       !tradeOfferState ||
-      tradeOfferState.targetIndex === null
+      tradeOfferState.targetIndex === null ||
+      tradeOfferState.stage === 'complete'
     ) {
       return
     }
@@ -1606,8 +1632,33 @@ function App() {
     const target = players[tradeOfferState.targetIndex]
     if (!target?.leftGame) return
 
-    setTradeOfferState(null)
-    setActionMessage(`${target.name} left the game. Trade cancelled.`)
+    const replacementExists = players.some(
+      (player, index) =>
+        index !== tradeOfferState.initiatorIndex &&
+        !player.leftGame &&
+        !player.finished &&
+        (player.actionCards || []).length > 0
+    )
+
+    if (replacementExists) {
+      setTradeOfferState((currentTrade) => ({
+        ...currentTrade,
+        targetIndex: null,
+        offeredCardIndex: null,
+        returnCardIndex: null,
+        offeredCardName: null,
+        returnCardName: null,
+        stage: 'choose-target',
+      }))
+      setActionMessage(
+        `${target.name} left. Choose a different player for the mandatory trade.`
+      )
+    } else {
+      setTradeOfferState(null)
+      setActionMessage(
+        `${target.name} left and no other player can trade, so Trade Offer ended.`
+      )
+    }
   }, [
     isOnlineGame,
     isOnlineHost,
@@ -1693,6 +1744,7 @@ function App() {
     setActionDiscardPile([])
     setActionResolved(true)
     setActionMessage('')
+    setPrivateActionNotice('')
     setMechanicCard(null)
     setMechanicChoices([])
     setMechanicResolved(true)
@@ -2357,6 +2409,13 @@ function useHotStreak() {
   )
 }
 
+function confirmInflictedAction(cardName, targetName, effectText = '') {
+  const suffix = effectText ? ` ${effectText}` : ''
+  setPrivateActionNotice(
+    `${cardName} successfully inflicted on ${targetName}.${suffix}`
+  )
+}
+
 function usePressure(targetIndex) {
   const currentPlayer = players[currentPlayerIndex]
 
@@ -2451,6 +2510,11 @@ function usePressure(targetIndex) {
 
   setActionMessage(
     `Pressure activated on ${targetPlayer.name}. They will not be notified until their next Mechanic.`
+  )
+  confirmInflictedAction(
+    'Pressure',
+    targetPlayer.name,
+    'Their next Mechanic will have only 1 attempt.'
   )
 }
 
@@ -2603,6 +2667,7 @@ function useSteal(targetIndex) {
   setActionMessage(
     `An Action Card was stolen from ${targetPlayer.name}.`
   )
+  confirmInflictedAction('Steal', targetPlayer.name)
 }
 
 function useSwapHands(targetIndex) {
@@ -2702,6 +2767,7 @@ function useSwapHands(targetIndex) {
   setActionMessage(
     `You swapped Action Card hands with ${targetPlayer.name}!`
   )
+  confirmInflictedAction('Swap Hands', targetPlayer.name)
 }
 
 function useSabotage(targetIndex) {
@@ -2801,6 +2867,11 @@ function useSabotage(targetIndex) {
   setActionMessage(
     `${targetPlayer.name} was Sabotaged and moved back 5 spaces!`
   )
+  confirmInflictedAction(
+    'Sabotage',
+    targetPlayer.name,
+    'They moved back 5 spaces.'
+  )
 }
 
 function usePointTax(targetIndex) {
@@ -2899,6 +2970,11 @@ function usePointTax(targetIndex) {
       pointsLost === 1 ? '' : 's'
     } from Point Tax!`
   )
+  confirmInflictedAction(
+    'Point Tax',
+    targetPlayer.name,
+    `They lost ${pointsLost} point${pointsLost === 1 ? '' : 's'}.`
+  )
 }
 
 function useLockout(targetIndex) {
@@ -2992,6 +3068,11 @@ function useLockout(targetIndex) {
 
   setActionMessage(
     `${targetPlayer.name} has been Locked Out of using Action Cards on their next turn!`
+  )
+  confirmInflictedAction(
+    'Lockout',
+    targetPlayer.name,
+    'They cannot use Action Cards on their next turn.'
   )
 }
 
@@ -3250,6 +3331,8 @@ function useTradeOffer() {
   const hasPlayerToTradeWith = players.some(
     (player, index) =>
       index !== currentPlayerIndex &&
+      !player.finished &&
+      !player.leftGame &&
       (player.actionCards || []).length > 0
   )
 
@@ -3265,7 +3348,6 @@ function useTradeOffer() {
   const tradeOfferCard =
     currentPlayer.actionCards[tradeOfferIndex]
 
-  // Remove Trade Offer itself from the player's hand
   setPlayers((currentPlayers) =>
     currentPlayers.map((player, index) => {
       if (index !== currentPlayerIndex) {
@@ -3281,20 +3363,23 @@ function useTradeOffer() {
     })
   )
 
-  // Trade Offer itself goes to the discard pile
   setActionDiscardPile((currentPile) => [
     ...currentPile,
     tradeOfferCard,
   ])
 
-  // This is the player's one Action Card for the turn
   setActionCardUsedThisTurn(true)
+  setPrivateActionNotice(
+    'Trade Offer activated. Once you choose a player, the trade is mandatory.'
+  )
 
   setTradeOfferState({
     initiatorIndex: currentPlayerIndex,
     targetIndex: null,
     offeredCardIndex: null,
     returnCardIndex: null,
+    offeredCardName: null,
+    returnCardName: null,
     stage: 'choose-target',
   })
 
@@ -3312,6 +3397,8 @@ function chooseTradeTarget(targetIndex) {
   if (
     targetIndex === tradeOfferState.initiatorIndex ||
     !targetPlayer ||
+    targetPlayer.finished ||
+    targetPlayer.leftGame ||
     (targetPlayer.actionCards || []).length === 0
   ) {
     return
@@ -3322,6 +3409,10 @@ function chooseTradeTarget(targetIndex) {
     targetIndex,
     stage: 'choose-offer',
   }))
+
+  setPrivateActionNotice(
+    `Trade Offer successfully inflicted on ${targetPlayer.name}. They must trade one Action Card with you.`
+  )
 }
 
 
@@ -3343,7 +3434,8 @@ function chooseTradeOfferedCard(cardIndex) {
   setTradeOfferState((currentTrade) => ({
     ...currentTrade,
     offeredCardIndex: cardIndex,
-    stage: 'handoff-target',
+    offeredCardName: offeredCard.name,
+    stage: isOnlineGame ? 'target-choose' : 'handoff-target',
   }))
 }
 
@@ -3351,104 +3443,31 @@ function chooseTradeOfferedCard(cardIndex) {
 function chooseTradeReturnCard(cardIndex) {
   if (
     !tradeOfferState ||
-    tradeOfferState.targetIndex === null
+    tradeOfferState.targetIndex === null ||
+    tradeOfferState.offeredCardIndex === null
   ) {
     return
   }
 
-  const target =
-    players[tradeOfferState.targetIndex]
+  const initiatorIndex = tradeOfferState.initiatorIndex
+  const targetIndex = tradeOfferState.targetIndex
+  const initiator = players[initiatorIndex]
+  const target = players[targetIndex]
 
+  const offeredCard =
+    initiator?.actionCards?.[tradeOfferState.offeredCardIndex]
   const returnCard =
     target?.actionCards?.[cardIndex]
 
-  if (!returnCard) {
-    return
-  }
-
-  setTradeOfferState((currentTrade) => ({
-    ...currentTrade,
-    returnCardIndex: cardIndex,
-    stage: 'handoff-initiator-review',
-  }))
-}
-
-
-function acceptTradeAsInitiator() {
-  if (
-    !tradeOfferState ||
-    tradeOfferState.offeredCardIndex === null ||
-    tradeOfferState.returnCardIndex === null
-  ) {
-    return
-  }
-
-  setTradeOfferState((currentTrade) => ({
-    ...currentTrade,
-    stage: 'handoff-target-review',
-  }))
-}
-
-function cancelTradeOffer(message) {
-  setTradeOfferState(null)
-
-  setActionMessage(
-    `${message} Trade Offer was still used for this turn.`
-  )
-}
-
-function completeTradeOffer() {
-  if (
-    !tradeOfferState ||
-    tradeOfferState.targetIndex === null ||
-    tradeOfferState.offeredCardIndex === null ||
-    tradeOfferState.returnCardIndex === null
-  ) {
-    return
-  }
-
-  const initiatorIndex =
-    tradeOfferState.initiatorIndex
-
-  const targetIndex =
-    tradeOfferState.targetIndex
-
-  const initiator =
-    players[initiatorIndex]
-
-  const target =
-    players[targetIndex]
-
-  const offeredCard =
-    initiator?.actionCards?.[
-      tradeOfferState.offeredCardIndex
-    ]
-
-  const returnCard =
-    target?.actionCards?.[
-      tradeOfferState.returnCardIndex
-    ]
-
   if (!offeredCard || !returnCard) {
-    setTradeOfferState(null)
-
-    setActionMessage(
-      'Trade could not be completed.'
-    )
-
     return
   }
 
   setPlayers((currentPlayers) =>
     currentPlayers.map((player, index) => {
       if (index === initiatorIndex) {
-        const newHand = [
-          ...(player.actionCards || []),
-        ]
-
-        newHand[
-          tradeOfferState.offeredCardIndex
-        ] = returnCard
+        const newHand = [...(player.actionCards || [])]
+        newHand[tradeOfferState.offeredCardIndex] = returnCard
 
         return {
           ...player,
@@ -3457,13 +3476,8 @@ function completeTradeOffer() {
       }
 
       if (index === targetIndex) {
-        const newHand = [
-          ...(player.actionCards || []),
-        ]
-
-        newHand[
-          tradeOfferState.returnCardIndex
-        ] = offeredCard
+        const newHand = [...(player.actionCards || [])]
+        newHand[cardIndex] = offeredCard
 
         return {
           ...player,
@@ -3475,12 +3489,27 @@ function completeTradeOffer() {
     })
   )
 
-  setTradeOfferState(null)
+  setTradeOfferState((currentTrade) => ({
+    ...currentTrade,
+    returnCardIndex: cardIndex,
+    returnCardName: returnCard.name,
+    stage: 'complete',
+  }))
 
   setActionMessage(
     `Trade complete between ${initiator.name} and ${target.name}.`
   )
 }
+
+
+function finishTradeOffer() {
+  if (!tradeOfferState || tradeOfferState.stage !== 'complete') {
+    return
+  }
+
+  setTradeOfferState(null)
+}
+
 
 function useSnatch(targetIndex) {
   const currentPlayer = players[currentPlayerIndex]
@@ -3578,6 +3607,7 @@ function useSnatch(targetIndex) {
   setActionMessage(
     `You Snatched 1 point from ${targetPlayer.name}!`
   )
+  confirmInflictedAction('Snatch', targetPlayer.name, 'You stole 1 point.')
 }
 
 function useCleanSlate() {
@@ -3789,6 +3819,11 @@ function useZeroBounce(targetIndex) {
   setActionMessage(
     `${targetPlayer.name}'s next Mechanic must be NO BOUNCE!`
   )
+  confirmInflictedAction(
+    'Zero Bounce',
+    targetPlayer.name,
+    'Their next Mechanic must be scored with no bounce.'
+  )
 }
 
 
@@ -3882,6 +3917,11 @@ function use100KPH(targetIndex) {
   setActionMessage(
     `${targetPlayer.name}'s next Mechanic must be scored at 100+ KPH!`
   )
+  confirmInflictedAction(
+    '100+ KPH',
+    targetPlayer.name,
+    'Their next Mechanic now requires a 100+ KPH goal.'
+  )
 }
 
 function useTopCorner(targetIndex) {
@@ -3974,6 +4014,11 @@ function useTopCorner(targetIndex) {
   setActionMessage(
     `${targetPlayer.name}'s next Mechanic must be scored TOP CORNER!`
   )
+  confirmInflictedAction(
+    'Top Corner',
+    targetPlayer.name,
+    'Their next Mechanic must finish in a top corner.'
+  )
 }
 
 function drawMechanicCard() {
@@ -4052,21 +4097,41 @@ setTopCornerRequired(isTopCorner)
     )
   }
 
-  if (jackpotActive && isPressured) {
-    setMechanicMessage(
-      `SURPRISE — PRESSURE! You only have 1 attempt at ${drawnCard.name}. Jackpot is active: +3 if you score, -3 if you miss.`
-    )
-  } else if (jackpotActive) {
-    setMechanicMessage(
-      `Jackpot is active! Score ${drawnCard.name} for +3 bonus points. Miss both attempts and lose 3 points.`
-    )
-  } else if (isPressured) {
-    setMechanicMessage(
+  const mechanicNotices = []
+
+  if (isPressured) {
+    mechanicNotices.push(
       `SURPRISE — PRESSURE! You only have 1 attempt at ${drawnCard.name}.`
     )
-  } else {
-    setMechanicMessage('')
   }
+
+  if (jackpotActive) {
+    mechanicNotices.push(
+      'Jackpot is active: +3 bonus points if you score, -3 points if you fail.'
+    )
+  }
+
+  if (isNoBounce) {
+    mechanicNotices.push(
+      'ZERO BOUNCE is active: this Mechanic must go directly in.'
+    )
+  }
+
+  if (is100KPH) {
+    mechanicNotices.push(
+      drawnCard.name.includes('100+') || drawnCard.name.includes('120+')
+        ? '100+ KPH is active. This Mechanic already carries the required speed.'
+        : '100+ KPH is active: the goal must be scored at 100 KPH or faster.'
+    )
+  }
+
+  if (isTopCorner) {
+    mechanicNotices.push(
+      'TOP CORNER is active: the goal must finish in a top corner.'
+    )
+  }
+
+  setMechanicMessage(mechanicNotices.join(' '))
 }
 
 function skipActionDraw() {
@@ -4871,15 +4936,36 @@ function activateLandingAtPosition(newPosition, boardOptions = null) {
         )
       }
 
+      const hotStreakRequirements = []
+
       if (hadPressure) {
-        setMechanicMessage(
-          `HOT STREAK! You have 1 attempt at ${drawnCard.name}. SURPRISE — you were also Pressured! Pressure is now consumed.`
-        )
-      } else {
-        setMechanicMessage(
-          `HOT STREAK! You have 1 attempt at ${drawnCard.name}. Score it for +2 bonus points.`
+        hotStreakRequirements.push(
+          'SURPRISE — you were also Pressured! Pressure is now consumed.'
         )
       }
+      if (isNoBounce) {
+        hotStreakRequirements.push(
+          'ZERO BOUNCE is active: the goal must go directly in.'
+        )
+      }
+      if (is100KPH) {
+        hotStreakRequirements.push(
+          drawnCard.name.includes('100+') || drawnCard.name.includes('120+')
+            ? '100+ KPH is active, and this Mechanic already carries that speed requirement.'
+            : '100+ KPH is active: the goal must be 100 KPH or faster.'
+        )
+      }
+      if (isTopCorner) {
+        hotStreakRequirements.push(
+          'TOP CORNER is active: the goal must finish in a top corner.'
+        )
+      }
+
+      setMechanicMessage(
+        `HOT STREAK! You have 1 attempt at ${drawnCard.name}. Score it for +2 bonus points.${
+          hotStreakRequirements.length ? ` ${hotStreakRequirements.join(' ')}` : ''
+        }`
+      )
     } else if (hasJackpot) {
       setMechanicCard(null)
       setAttemptsLeft(0)
@@ -4924,15 +5010,40 @@ function activateLandingAtPosition(newPosition, boardOptions = null) {
         )
       }
 
+      const requirementMessages = []
+
       if (isPressured) {
-        setMechanicMessage(
+        requirementMessages.push(
           `SURPRISE — PRESSURE! You only have 1 attempt at ${drawnCard.name}.`
         )
       }
+
+      if (isNoBounce) {
+        requirementMessages.push(
+          'ZERO BOUNCE is active: this Mechanic must go directly in.'
+        )
+      }
+
+      if (is100KPH) {
+        requirementMessages.push(
+          drawnCard.name.includes('100+') || drawnCard.name.includes('120+')
+            ? '100+ KPH is active. This Mechanic already satisfies the speed requirement if completed correctly.'
+            : '100+ KPH is active: this Mechanic only counts if the goal is 100 KPH or faster.'
+        )
+      }
+
+      if (isTopCorner) {
+        requirementMessages.push(
+          'TOP CORNER is active: this Mechanic must finish in a top corner.'
+        )
+      }
+
+      setMechanicMessage(requirementMessages.join(' '))
     }
 
     setActionResolved(true)
   } else if (spaceType === 'Action') {
+    setPrivateActionNotice('')
     setMechanicResolved(true)
     setActionResolved(false)
   } else if (spaceType === 'Battle') {
@@ -6370,6 +6481,7 @@ if (currentPlayer.hotStreakActive) {
     }
 
     setActionResolved(true)
+    setPrivateActionNotice('')
 
     const bonusMessage =
       bonusRecipients.length > 0
@@ -7469,13 +7581,6 @@ if (tradeOfferState) {
         ]
       : null
 
-  const returnCard =
-    tradeOfferState.returnCardIndex !== null && target
-      ? target.actionCards?.[
-          tradeOfferState.returnCardIndex
-        ]
-      : null
-
   const localIsTradeInitiator =
     !isOnlineGame || initiator?.id === localClientId
   const localIsTradeTarget =
@@ -7502,7 +7607,9 @@ if (tradeOfferState) {
     return (
       <GameOverlayCard>
         <h1>Trade Offer</h1>
-        <p>Waiting for {initiator?.name} to choose their side of the trade...</p>
+        <p>
+          Waiting for {initiator?.name} to make their private trade choice...
+        </p>
       </GameOverlayCard>
     )
   }
@@ -7515,299 +7622,156 @@ if (tradeOfferState) {
     return (
       <GameOverlayCard>
         <h1>Trade Offer</h1>
-        <p>Waiting for {target?.name} to choose a private return card...</p>
+        <p>
+          <strong>{target?.name}</strong> must choose one Action Card to trade back.
+        </p>
       </GameOverlayCard>
     )
   }
 
-  // STEP 1: Choose who to trade with
   if (tradeOfferState.stage === 'choose-target') {
     return (
       <GameOverlayCard>
         <h1>Trade Offer</h1>
+        <p>
+          <strong>This trade is mandatory once you choose a player.</strong>
+        </p>
+        <h2>Choose the player you want to force a trade with:</h2>
 
-        <h2>
-          {initiator.name}, choose who you want
-          to trade with:
-        </h2>
+        <div className="menu">
+          {players.map((player, targetIndex) => {
+            if (
+              targetIndex === tradeOfferState.initiatorIndex ||
+              player.finished ||
+              player.leftGame ||
+              (player.actionCards || []).length === 0
+            ) {
+              return null
+            }
 
-        {players.map((player, targetIndex) => {
-          if (
-            targetIndex ===
-              tradeOfferState.initiatorIndex ||
-            (player.actionCards || []).length === 0
-          ) {
-            return null
-          }
-          <button
-  onClick={() =>
-    cancelTradeOffer('Trade cancelled.')
-  }
->
-  Cancel Trade
-</button>
-
-          return (
-            <button
-              key={targetIndex}
-              onClick={() =>
-                chooseTradeTarget(targetIndex)
-              }
-            >
-              Trade with {player.name}
-            </button>
-          )
-        })}
+            return (
+              <button
+                key={targetIndex}
+                onClick={() => chooseTradeTarget(targetIndex)}
+              >
+                Force Trade with {player.name}
+              </button>
+            )
+          })}
+        </div>
       </GameOverlayCard>
     )
   }
 
-  // STEP 2: Initiator chooses their card
   if (tradeOfferState.stage === 'choose-offer') {
     return (
       <GameOverlayCard>
         <h1>Trade Offer</h1>
+        <p>
+          You chose <strong>{target.name}</strong>. They cannot decline.
+        </p>
+        <h2>Choose the Action Card you will give them:</h2>
 
-        <h2>
-          {initiator.name}, choose the card you
-          want to offer to {target.name}:
-        </h2>
-
-        {(initiator.actionCards || []).map(
-          (card, cardIndex) => (
-            <button
-              key={cardIndex}
-              onClick={() =>
-                chooseTradeOfferedCard(cardIndex)
-              }
-              
-            >
-              Offer {card.name}
-            </button>
-          )
-        )}
-        <button
-  onClick={() =>
-    cancelTradeOffer('Trade cancelled.')
-  }
->
-  Cancel Trade
-</button>
+        <div className="menu">
+          {(initiator.actionCards || []).map(
+            (card, cardIndex) => (
+              <button
+                key={cardIndex}
+                onClick={() => chooseTradeOfferedCard(cardIndex)}
+              >
+                Give {card.name}
+              </button>
+            )
+          )}
+        </div>
       </GameOverlayCard>
     )
   }
 
-  // STEP 3: Pass screen to target
   if (tradeOfferState.stage === 'handoff-target') {
     return (
       <GameOverlayCard>
-        <h1>Trade Offer</h1>
-
+        <h1>Mandatory Trade</h1>
         <p>
-          {initiator.name} is offering:
+          {initiator.name} is giving <strong>{offeredCard?.name}</strong> to {target.name}.
         </p>
-
-        <h2>{offeredCard.name}</h2>
-
         <p>
-          Pass the screen to {target.name}.
+          Pass the screen to <strong>{target.name}</strong>. They must choose one Action Card to give back.
         </p>
 
         <button
           onClick={() =>
-            setTradeOfferState(
-              (currentTrade) => ({
-                ...currentTrade,
-                stage: 'target-choose',
-              })
-            )
+            setTradeOfferState((currentTrade) => ({
+              ...currentTrade,
+              stage: 'target-choose',
+            }))
           }
         >
-          I'm {target.name} — Continue
+          I'm {target.name} — Choose My Card
         </button>
       </GameOverlayCard>
     )
   }
 
-  // STEP 4: Target chooses their card
   if (tradeOfferState.stage === 'target-choose') {
     return (
       <GameOverlayCard>
-        <h1>Trade Offer</h1>
+        <h1>Mandatory Trade</h1>
 
         <p>
-          {initiator.name} is offering you:
+          <strong>{initiator.name}</strong> used Trade Offer on you.
         </p>
-
-        <h2>{offeredCard.name}</h2>
-
+        <p>
+          You receive <strong>{offeredCard?.name}</strong>.
+        </p>
         <h2>
-          {target.name}, choose the card you
-          want to trade back:
+          {target.name}, choose one Action Card to give {initiator.name}.
         </h2>
+        <p>
+          <strong>You cannot decline this trade.</strong>
+        </p>
 
-        {(target.actionCards || []).map(
-          (card, cardIndex) => (
-            <button
-              key={cardIndex}
-              onClick={() =>
-                chooseTradeReturnCard(cardIndex)
-              }
-            >
-              Trade {card.name}
-            </button>
-          )
+        <div className="menu">
+          {(target.actionCards || []).map(
+            (card, cardIndex) => (
+              <button
+                key={cardIndex}
+                onClick={() => chooseTradeReturnCard(cardIndex)}
+              >
+                Give {card.name}
+              </button>
+            )
+          )}
+        </div>
+      </GameOverlayCard>
+    )
+  }
+
+  if (tradeOfferState.stage === 'complete') {
+    return (
+      <GameOverlayCard>
+        <h1>Trade Complete</h1>
+
+        <p>
+          <strong>{initiator.name}</strong> gave <strong>{tradeOfferState.offeredCardName}</strong>.
+        </p>
+        <p>
+          <strong>{target?.name}</strong> gave <strong>{tradeOfferState.returnCardName}</strong>.
+        </p>
+        <p>The forced trade is complete.</p>
+
+        {(!isOnlineGame || localIsTradeInitiator) ? (
+          <button onClick={finishTradeOffer}>
+            Done
+          </button>
+        ) : (
+          <p>Waiting for {initiator.name} to continue...</p>
         )}
-        <button
-  onClick={() =>
-    cancelTradeOffer(
-      `${target.name} declined the trade.`
-    )
-  }
->
-  Decline Trade
-</button>
-      </GameOverlayCard>
-    )
-  }
-
-  // STEP 5: Give screen back to initiator
-  if (
-    tradeOfferState.stage ===
-    'handoff-initiator-review'
-  ) {
-    return (
-      <GameOverlayCard>
-        <h1>Trade Selected</h1>
-
-        <p>
-          Both cards have been chosen.
-        </p>
-
-        <p>
-          Pass the screen back to {initiator.name}.
-        </p>
-
-        <button
-          onClick={() =>
-            setTradeOfferState(
-              (currentTrade) => ({
-                ...currentTrade,
-                stage: 'initiator-review',
-              })
-            )
-          }
-        >
-          I'm {initiator.name} — Review
-        </button>
-      </GameOverlayCard>
-    )
-  }
-
-  // STEP 6: Initiator reviews BOTH cards
-  if (
-    tradeOfferState.stage === 'initiator-review'
-  ) {
-    return (
-      <GameOverlayCard>
-        <h1>Trade Review</h1>
-
-        <h2>{initiator.name} gives:</h2>
-        <p>
-          <strong>{offeredCard.name}</strong>
-        </p>
-
-        <h2>{target.name} gives:</h2>
-        <p>
-          <strong>{returnCard.name}</strong>
-        </p>
-
-        <button onClick={acceptTradeAsInitiator}>
-          {initiator.name} — Accept
-        </button>
-        <button
-  onClick={() =>
-    setTradeOfferState((currentTrade) => ({
-      ...currentTrade,
-      offeredCardIndex: null,
-      returnCardIndex: null,
-      stage: 'choose-offer',
-    }))
-  }
->
-  {initiator.name} — Change Trade
-</button>
-      </GameOverlayCard>
-    )
-  }
-
-  // STEP 7: Pass to target for confirmation
-  if (
-    tradeOfferState.stage ===
-    'handoff-target-review'
-  ) {
-    return (
-      <GameOverlayCard>
-        <h1>Trade Confirmation</h1>
-
-        <p>
-          {initiator.name} accepted the trade.
-        </p>
-
-        <p>
-          Pass the screen to {target.name}.
-        </p>
-
-        <button
-          onClick={() =>
-            setTradeOfferState(
-              (currentTrade) => ({
-                ...currentTrade,
-                stage: 'target-review',
-              })
-            )
-          }
-        >
-          I'm {target.name} — Review
-        </button>
-      </GameOverlayCard>
-    )
-  }
-
-  // STEP 8: Target reviews BOTH cards
-  if (tradeOfferState.stage === 'target-review') {
-    return (
-      <GameOverlayCard>
-        <h1>Final Trade Review</h1>
-
-        <h2>{initiator.name} gives:</h2>
-        <p>
-          <strong>{offeredCard.name}</strong>
-        </p>
-
-        <h2>{target.name} gives:</h2>
-        <p>
-          <strong>{returnCard.name}</strong>
-        </p>
-
-        <button onClick={completeTradeOffer}>
-          {target.name} — Accept & Complete
-        </button>
-        <button
-  onClick={() =>
-    setTradeOfferState((currentTrade) => ({
-      ...currentTrade,
-      returnCardIndex: null,
-      stage: 'target-choose',
-    }))
-  }
->
-  {target.name} — Change Card
-</button>
       </GameOverlayCard>
     )
   }
 }
+
     const mustFinishMechanic =
       landedSpace === 'Mechanic' && !mechanicResolved
 
@@ -7881,6 +7845,11 @@ if (tradeOfferState) {
           {actionMessage && (!isOnlineGame || isMyOnlineTurn) && (
   <p>
     <strong>{actionMessage}</strong>
+  </p>
+)}
+{privateActionNotice && (!isOnlineGame || isMyOnlineTurn) && (
+  <p className="private-action-notice">
+    <strong>{privateActionNotice}</strong>
   </p>
 )}
 {secondChanceRolls.length === 2 && (
@@ -8025,7 +7994,7 @@ if (tradeOfferState) {
 
                   <div className="mechanic-buttons">
                     <button onClick={scoreMechanic}>
-                      Scored
+                      {kph100Required ? 'Scored at 100+ KPH' : 'Scored'}
                     </button>
 
                     <button onClick={missMechanic}>
@@ -8511,6 +8480,7 @@ if (tradeOfferState) {
         if (
           targetIndex === currentPlayerIndex ||
           player.finished ||
+          player.leftGame ||
           player.kph100Active
         ) {
           return null
@@ -8563,6 +8533,14 @@ if (tradeOfferState) {
       </div>
     )
   }
+if (screen === 'party-mode') {
+  return (
+    <PartyMode
+      onBack={() => setScreen('home')}
+    />
+  )
+}
+
 if (screen === 'online-create') {
   return (
     <OnlineLobby
@@ -8591,14 +8569,37 @@ if (screen === 'online-join') {
 
       <p className="home-screen__subtitle">2–4 Players</p>
 
-      <div className="menu home-screen__menu">
-        <button onClick={() => setScreen('online-create')}>
-  Create Game
-</button>
+      <div className="home-mode-grid">
+        <section className="home-mode-card">
+          <div>
+            <p className="home-mode-card__eyebrow">Original game</p>
+            <h2>Classic Mode</h2>
+            <p>Race from Start to Finish using the board game you already know.</p>
+          </div>
 
-<button onClick={() => setScreen('online-join')}>
-  Join Game
-</button>
+          <div className="menu home-mode-card__menu">
+            <button onClick={() => setScreen('online-create')}>
+              Create Classic Game
+            </button>
+            <button onClick={() => setScreen('online-join')}>
+              Join Classic Game
+            </button>
+          </div>
+        </section>
+
+        <section className="home-mode-card home-mode-card--party">
+          <div>
+            <p className="home-mode-card__eyebrow">New game</p>
+            <h2>Party Mode</h2>
+            <p>Trophies, Tokens, special dice, fixed maps, rounds, and end-of-round challenges.</p>
+          </div>
+
+          <div className="menu home-mode-card__menu">
+            <button onClick={() => setScreen('party-mode')}>
+              Enter Party Mode
+            </button>
+          </div>
+        </section>
       </div>
     </div>
   )

@@ -1304,3 +1304,1715 @@ body.rl-online-spectator #root button:not([data-online-allowed="true"]) {
     padding: 15px;
   }
 }
+
+/* =========================
+   V2 fixed-board preview
+   ========================= */
+.v2-preview-screen {
+  width: min(1180px, calc(100% - 24px));
+}
+
+.v2-preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.v2-preview-header h1 {
+  margin: 4px 0 6px;
+}
+
+.v2-preview-header p {
+  margin: 0;
+  max-width: 720px;
+}
+
+.v2-preview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.v2-preview-summary span {
+  padding: 8px 11px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.7);
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+
+.v2-board-scroll {
+  overflow: auto;
+  max-width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 20px;
+  background: rgba(2, 6, 23, 0.8);
+  margin-bottom: 16px;
+}
+
+.v2-board-svg {
+  display: block;
+  width: 100%;
+  min-width: 760px;
+  height: auto;
+}
+
+.v2-board-bg {
+  fill: #081321;
+  stroke: rgba(148, 163, 184, 0.18);
+  stroke-width: 2;
+}
+
+.v2-board-ruins rect {
+  fill: rgba(30, 41, 59, 0.44);
+  stroke: rgba(100, 116, 139, 0.2);
+  stroke-width: 3;
+}
+
+.v2-board-edges line {
+  stroke: rgba(226, 232, 240, 0.48);
+  stroke-width: 7;
+  stroke-linecap: square;
+}
+
+.v2-board-node {
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 3;
+}
+
+.v2-board-trophy-ring {
+  fill: rgba(250, 204, 21, 0.06);
+  stroke: #facc15;
+  stroke-width: 4;
+  stroke-dasharray: 7 5;
+}
+
+.v2-board-trophy-label {
+  fill: #fde68a;
+  font-weight: 900;
+  font-size: 16px;
+}
+
+.v2-board-node-label {
+  fill: #06131f;
+  font-weight: 900;
+  font-size: 14px;
+}
+
+.v2-board-specials text {
+  fill: #f8fafc;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.v2-board-shop {
+  fill: #0f766e;
+  stroke: #5eead4;
+  stroke-width: 2;
+}
+
+.v2-board-gate {
+  fill: #7c2d12;
+  stroke: #fdba74;
+  stroke-width: 2;
+}
+
+.v2-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.v2-space-legend {
+  display: grid;
+  gap: 8px;
+}
+
+.v2-space-legend__item {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.v2-space-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.16);
+}
+
+.v2-preview-note {
+  margin-top: 0;
+}
+
+@media (max-width: 760px) {
+  .v2-preview-screen {
+    width: calc(100% - 16px);
+  }
+
+  .v2-preview-header {
+    flex-direction: column;
+  }
+
+  .v2-preview-header button {
+    width: 100%;
+  }
+
+  .v2-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .v2-board-svg {
+    min-width: 700px;
+  }
+}
+
+/* Classic / Party mode split */
+.home-mode-grid {
+  width: min(980px, 100%);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.home-mode-card {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(24, 52, 78, 0.92), rgba(12, 31, 50, 0.92));
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 20px;
+  text-align: left;
+}
+
+.home-mode-card--party {
+  border-color: rgba(94, 234, 212, 0.36);
+}
+
+.home-mode-card h2 {
+  margin: 4px 0 8px;
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.home-mode-card p {
+  margin: 0;
+}
+
+.home-mode-card__eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 12px;
+  font-weight: 900;
+  opacity: 0.72;
+}
+
+.home-mode-card__menu {
+  width: 100%;
+}
+
+.home-mode-card__menu button {
+  width: 100%;
+}
+
+.party-mode-home__topbar {
+  width: min(980px, 100%);
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 8px;
+}
+
+.party-mode-home__topbar button {
+  width: auto;
+}
+
+.home-mode-grid--party-menu {
+  align-items: stretch;
+}
+
+.party-coming-soon-card {
+  opacity: 0.82;
+}
+
+@media (max-width: 760px) {
+  .home-mode-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .party-mode-home__topbar button {
+    width: 100%;
+  }
+}
+
+/* Party Mode online lobby - isolated from Classic Mode */
+.party-lobby-screen,
+.party-form-screen {
+  width: min(980px, calc(100% - 28px));
+}
+
+.party-lobby-title {
+  margin: 4px 0 8px;
+  font-size: clamp(34px, 6vw, 62px);
+  line-height: 1;
+}
+
+.party-lobby-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.party-lobby-card {
+  width: 100%;
+}
+
+.party-player-list {
+  display: grid;
+  gap: 9px;
+}
+
+.party-player-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.42);
+}
+
+.party-player-number,
+.party-host-badge {
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.party-player-number {
+  opacity: 0.68;
+}
+
+.party-host-badge {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(94, 234, 212, 0.14);
+  border: 1px solid rgba(94, 234, 212, 0.3);
+}
+
+.party-round-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.party-round-option {
+  min-width: 0;
+}
+
+.party-round-option--active {
+  border-color: rgba(125, 211, 252, 0.92) !important;
+  background: rgba(14, 116, 144, 0.34) !important;
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.24);
+}
+
+.party-lobby-hint,
+.party-stage-note,
+.party-home-notice {
+  color: #cbd5e1;
+}
+
+.party-lobby-actions {
+  width: min(620px, 100%);
+  margin-top: 20px;
+}
+
+.party-lobby-actions > button {
+  width: 100%;
+}
+
+.party-waiting-box,
+.party-stage-note,
+.party-home-notice {
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.68);
+}
+
+.party-stage-note {
+  width: min(760px, 100%);
+  margin-top: 14px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.party-home-notice {
+  width: min(720px, 100%);
+  margin: 12px 0 0;
+  text-align: center;
+}
+
+.party-online-form {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+  padding: 22px;
+  border: 1px solid rgba(94, 234, 212, 0.28);
+  border-radius: 20px;
+  background: rgba(15, 37, 57, 0.88);
+}
+
+.party-online-form label {
+  display: grid;
+  gap: 7px;
+  text-align: left;
+  font-weight: 800;
+}
+
+.party-online-form input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 12px 13px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(2, 6, 23, 0.72);
+  color: #f8fafc;
+  font: inherit;
+  font-size: 16px;
+}
+
+.party-online-form input:focus {
+  outline: 2px solid rgba(125, 211, 252, 0.7);
+  outline-offset: 2px;
+}
+
+.party-form-error {
+  margin: 0;
+  color: #fecaca;
+}
+
+.party-live-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.party-live-strip span {
+  padding: 8px 11px;
+  border: 1px solid rgba(94, 234, 212, 0.25);
+  border-radius: 999px;
+  background: rgba(13, 54, 65, 0.66);
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 760px) {
+  .party-lobby-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .party-lobby-screen,
+  .party-form-screen {
+    width: calc(100% - 16px);
+  }
+
+  .party-online-form {
+    padding: 16px;
+  }
+}
+
+/* Party Mode car selection */
+.party-player-row__identity {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.party-player-row__identity span {
+  color: #cbd5e1;
+  font-size: 0.84rem;
+}
+
+.party-car-select-panel {
+  width: 100%;
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid rgba(94, 234, 212, 0.28);
+  border-radius: 20px;
+  background: rgba(15, 37, 57, 0.88);
+}
+
+.party-car-select-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.party-car-select-panel__header h2 {
+  margin: 2px 0 6px;
+}
+
+.party-car-select-panel__header p {
+  margin-bottom: 0;
+}
+
+.party-car-clear {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.party-selected-dice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.party-selected-dice > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.46);
+}
+
+.party-selected-dice span {
+  color: #dbeafe;
+  line-height: 1.45;
+}
+
+.party-car-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.party-car-option {
+  min-width: 0;
+  min-height: 122px;
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  border-radius: 14px !important;
+  background: rgba(2, 6, 23, 0.5) !important;
+}
+
+.party-car-option:disabled {
+  cursor: not-allowed;
+}
+
+.party-car-option--selected {
+  border-color: rgba(125, 211, 252, 0.92) !important;
+  background: rgba(14, 116, 144, 0.28) !important;
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.22);
+}
+
+.party-car-option__name {
+  font-size: 1rem;
+  font-weight: 900;
+  color: #f8fafc;
+}
+
+.party-car-option__die {
+  min-width: 0;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.party-car-option__status {
+  color: #bae6fd;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.party-car-option:disabled:not(.party-car-option--selected) {
+  opacity: 0.46;
+}
+
+@media (max-width: 920px) {
+  .party-car-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .party-car-select-panel {
+    padding: 15px;
+  }
+
+  .party-car-select-panel__header {
+    display: grid;
+  }
+
+  .party-car-clear {
+    width: 100%;
+  }
+
+  .party-selected-dice {
+    grid-template-columns: 1fr;
+  }
+
+  .party-car-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 410px) {
+  .party-car-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Party Mode live dice + movement prototype */
+.party-car-option__die-label {
+  color: #7dd3fc;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: -5px;
+}
+
+.party-game-screen {
+  width: min(1500px, calc(100% - 24px));
+  margin: 0 auto;
+  padding: 20px 0 42px;
+}
+
+.party-game-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.party-game-topbar h1,
+.party-game-topbar p {
+  margin-top: 0;
+}
+
+.party-game-topbar h1 {
+  margin-bottom: 4px;
+}
+
+.party-game-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  gap: 16px;
+  align-items: start;
+}
+
+.party-game-board-card,
+.party-turn-panel {
+  border: 1px solid rgba(94, 234, 212, 0.24);
+  border-radius: 22px;
+  background: rgba(15, 23, 42, 0.88);
+  box-shadow: 0 18px 45px rgba(2, 6, 23, 0.28);
+}
+
+.party-game-board-card {
+  min-width: 0;
+  padding: 12px;
+}
+
+.party-live-board-svg {
+  min-width: 880px;
+}
+
+.party-turn-panel {
+  position: sticky;
+  top: 12px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.party-turn-panel__section {
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 16px;
+  background: rgba(2, 6, 23, 0.46);
+}
+
+.party-turn-panel__section h2,
+.party-turn-panel__section h3,
+.party-turn-panel__section p {
+  margin-top: 0;
+}
+
+.party-turn-panel__section p:last-child {
+  margin-bottom: 0;
+}
+
+.party-turn-player-list {
+  display: grid;
+  gap: 7px;
+}
+
+.party-turn-player {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 13px;
+  background: rgba(2, 6, 23, 0.36);
+}
+
+.party-turn-player--active {
+  border-color: rgba(125, 211, 252, 0.75);
+  background: rgba(14, 116, 144, 0.2);
+}
+
+.party-turn-player > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.party-turn-player > div:first-child span {
+  color: #cbd5e1;
+  font-size: 0.78rem;
+}
+
+.party-turn-player__stats {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  color: #f8fafc;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.party-dice-choice {
+  display: grid;
+  gap: 8px;
+}
+
+.party-dice-choice h3 {
+  margin-bottom: 2px;
+}
+
+.party-dice-choice button,
+.party-path-choice__buttons button {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+
+.party-dice-choice button small,
+.party-path-choice__buttons button small {
+  color: #dbeafe;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.party-roll-result h3 {
+  font-size: 1.65rem;
+  margin-bottom: 7px;
+  color: #f8fafc;
+}
+
+.party-primary-action {
+  width: 100%;
+  min-height: 48px;
+}
+
+.party-path-choice__buttons {
+  display: grid;
+  gap: 8px;
+}
+
+.party-player-marker circle {
+  fill: #0f172a;
+  stroke: #f8fafc;
+  stroke-width: 2.5;
+}
+
+.party-player-marker text {
+  fill: #f8fafc;
+  font-size: 8px;
+  font-weight: 900;
+  pointer-events: none;
+}
+
+.party-player-marker--active circle {
+  stroke: #facc15;
+  stroke-width: 4;
+  filter: drop-shadow(0 0 5px rgba(250, 204, 21, 0.75));
+}
+
+.party-game-stage-note {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 1080px) {
+  .party-game-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .party-turn-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 680px) {
+  .party-game-screen {
+    width: calc(100% - 12px);
+  }
+
+  .party-game-topbar {
+    display: grid;
+  }
+
+  .party-game-topbar button {
+    width: 100%;
+  }
+}
+
+/* Party Mode — active Trophy pass-by prototype */
+.v2-board-trophy-ring--inactive {
+  opacity: 0.22;
+  stroke-dasharray: 4 7;
+}
+
+.v2-board-trophy-ring--active {
+  fill: rgba(250, 204, 21, 0.16);
+  stroke-width: 5;
+  stroke-dasharray: none;
+  filter: drop-shadow(0 0 8px rgba(250, 204, 21, 0.72));
+}
+
+.party-active-trophy-halo {
+  fill: rgba(250, 204, 21, 0.08);
+  stroke: rgba(254, 240, 138, 0.95);
+  stroke-width: 2;
+}
+
+.party-active-trophy-label {
+  font-size: 19px;
+  paint-order: stroke;
+  stroke: rgba(15, 23, 42, 0.95);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.party-trophy-status {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.party-trophy-status > div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 11px;
+  border: 1px solid rgba(250, 204, 21, 0.3);
+  border-radius: 13px;
+  background: rgba(113, 63, 18, 0.15);
+}
+
+.party-trophy-status span {
+  color: #fde68a;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.party-trophy-status strong {
+  color: #fff7cc;
+  font-size: 0.9rem;
+}
+
+.party-trophy-offer {
+  border-color: rgba(250, 204, 21, 0.5);
+  background: linear-gradient(180deg, rgba(113, 63, 18, 0.25), rgba(2, 6, 23, 0.55));
+}
+
+.party-trophy-offer h2 {
+  color: #fef3c7;
+}
+
+.party-trophy-offer__actions {
+  display: grid;
+  gap: 8px;
+}
+
+.party-trophy-offer__actions .party-primary-action {
+  display: grid;
+  gap: 2px;
+}
+
+.party-trophy-offer__actions .party-primary-action small {
+  font-size: 0.72rem;
+  opacity: 0.9;
+}
+
+.party-secondary-action {
+  width: 100%;
+  min-height: 42px;
+  background: rgba(51, 65, 85, 0.86);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.party-trophy-result {
+  color: #fde68a;
+  font-weight: 800;
+}
+
+/* Party Mode — Mechanic / Danger Mechanic landing effects */
+.party-landing-effect {
+  display: grid;
+  gap: 10px;
+  border-color: rgba(59, 130, 246, 0.5);
+  background: linear-gradient(180deg, rgba(30, 64, 175, 0.22), rgba(2, 6, 23, 0.58));
+}
+
+.party-landing-effect--danger {
+  border-color: rgba(239, 68, 68, 0.58);
+  background: linear-gradient(180deg, rgba(127, 29, 29, 0.28), rgba(2, 6, 23, 0.62));
+}
+
+.party-landing-effect h2 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1.3rem;
+}
+
+.party-landing-effect__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.party-final-five-note {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.party-mechanic-result {
+  color: #93c5fd;
+  font-weight: 800;
+}
+
+.party-mechanic-result--danger {
+  color: #fca5a5;
+}
+
+@media (max-width: 520px) {
+  .party-landing-effect__actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Party Mode — 3-card inventory + shared activity prototype */
+.party-inventory-panel,
+.party-activity-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 15px;
+  background: rgba(2, 6, 23, 0.42);
+}
+
+.party-inventory-panel__header,
+.party-activity-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.party-inventory-panel__header h3,
+.party-activity-panel__header h3 {
+  margin: 2px 0 0;
+  color: #f8fafc;
+  font-size: 1rem;
+}
+
+.party-inventory-panel__header > span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(168, 85, 247, 0.16);
+  color: #e9d5ff;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.party-inventory-slots {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.party-inventory-slot {
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 9px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+  color: #64748b;
+  background: rgba(15, 23, 42, 0.48);
+  text-align: left;
+}
+
+.party-inventory-slot--filled {
+  border-style: solid;
+  border-color: rgba(168, 85, 247, 0.48);
+  background: linear-gradient(180deg, rgba(88, 28, 135, 0.24), rgba(15, 23, 42, 0.55));
+  color: #e2e8f0;
+}
+
+.party-inventory-slot strong {
+  color: #f5f3ff;
+  font-size: 0.82rem;
+}
+
+.party-inventory-slot span {
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.party-inventory-slot small {
+  margin-top: auto;
+  color: #a78bfa;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.party-activity-list {
+  display: grid;
+  gap: 6px;
+}
+
+.party-activity-entry {
+  padding: 8px 10px;
+  border-left: 3px solid rgba(148, 163, 184, 0.45);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.58);
+  color: #cbd5e1;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.party-activity-entry--roll {
+  border-left-color: #7dd3fc;
+}
+
+.party-activity-entry--landing {
+  border-left-color: #94a3b8;
+}
+
+.party-activity-entry--trophy {
+  border-left-color: #facc15;
+}
+
+.party-activity-entry--mechanic {
+  border-left-color: #60a5fa;
+}
+
+.party-activity-entry--card {
+  border-left-color: #c084fc;
+}
+
+.party-card-result {
+  color: #d8b4fe;
+  font-weight: 800;
+}
+
+.party-card-result--full {
+  color: #cbd5e1;
+}
+
+@media (max-width: 620px) {
+  .party-inventory-slots {
+    grid-template-columns: 1fr;
+  }
+
+  .party-inventory-slot {
+    min-height: 72px;
+  }
+}
+
+/* =========================================================
+   Booststone Ruins — readable pseudo-3D board rebuild
+   ========================================================= */
+.party-game-board-card--ruins {
+  padding: 10px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(45, 86, 68, 0.2), transparent 36%),
+    rgba(6, 15, 18, 0.96);
+  border-color: rgba(143, 210, 163, 0.24);
+}
+
+.party-board-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 11px;
+  align-items: center;
+  padding: 8px 10px 10px;
+  color: #dbece2;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.015em;
+}
+
+.party-board-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.party-board-legend__dot,
+.party-board-legend__junction {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.92);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-style: normal;
+  font-size: 8px;
+  line-height: 1;
+  font-weight: 1000;
+}
+.party-board-legend__dot--mechanic { background: #3b82f6; }
+.party-board-legend__dot--danger { background: #ef4444; }
+.party-board-legend__dot--card { background: #a855f7; }
+.party-board-legend__dot--event { background: #22c55e; font-size: 11px; }
+.party-board-legend__dot--lucky { background: #10b981; font-size: 10px; }
+.party-board-legend__dot--bad,
+.party-board-legend__dot--very-bad {
+  border-radius: 0;
+  clip-path: polygon(50% 0%, 61% 17%, 79% 8%, 82% 29%, 100% 35%, 86% 50%, 100% 65%, 80% 72%, 79% 92%, 61% 83%, 50% 100%, 39% 83%, 21% 92%, 20% 72%, 0% 65%, 14% 50%, 0% 35%, 18% 29%, 21% 8%, 39% 17%);
+  border: 0;
+  width: 19px;
+  height: 19px;
+  font-size: 10px;
+}
+.party-board-legend__dot--bad { background: #e11d48; }
+.party-board-legend__dot--very-bad { background: #020617; }
+.party-board-legend__dot--battle {
+  background: #f59e0b;
+  border-radius: 2px;
+  transform: rotate(45deg);
+  font-size: 6px;
+}
+.party-board-legend__dot--battle b {
+  transform: rotate(-45deg);
+  font-size: 6px;
+  line-height: 1;
+}
+.party-board-legend__junction { background: #0a0a0a; border-color: #eefbf3; box-shadow: 0 0 0 3px rgba(10,10,10,.75); }
+
+.party-ruins-scroll {
+  position: relative;
+  border-radius: 18px;
+  border: 1px solid rgba(146, 180, 158, 0.22);
+  background: #020708;
+  box-shadow: inset 0 0 60px rgba(0,0,0,.72);
+}
+
+.party-ruins-board-svg {
+  min-width: 980px;
+  background: #020708;
+  aspect-ratio: 1.26 / 1;
+}
+
+.party-ruins-abyss-glow {
+  fill: rgba(29, 92, 60, .16);
+  filter: blur(10px);
+}
+
+.party-ruins-backdrop path,
+.party-ruins-backdrop rect {
+  fill: #14261f;
+  stroke: #263c32;
+  stroke-width: 3;
+  opacity: .9;
+}
+
+.party-ruins-backdrop rect {
+  fill: #1c3027;
+}
+
+.party-ruins-slab-deep {
+  fill: #122119;
+  stroke: #0a1510;
+  stroke-width: 4;
+}
+
+.party-ruins-slab-side {
+  fill: url(#ruins-stone-side);
+  stroke: #17271f;
+  stroke-width: 3;
+}
+
+.party-ruins-slab {
+  fill: url(#ruins-stone);
+  stroke: #9aada1;
+  stroke-width: 2.5;
+}
+
+.party-ruins-slab-tiles {
+  fill: url(#ruins-tile-pattern);
+  stroke: none;
+  opacity: .95;
+  pointer-events: none;
+}
+
+.party-ruins-slab-rim {
+  fill: none;
+  stroke: rgba(226, 240, 230, .52);
+  stroke-width: 2;
+  stroke-linejoin: bevel;
+  pointer-events: none;
+}
+.party-ruins-slab--2 { fill: #64796d; }
+.party-ruins-slab--3 { fill: #708578; }
+.party-ruins-slab--4 { fill: url(#ruins-stone-top); }
+
+.party-ruins-stone-details path {
+  fill: none;
+  stroke: rgba(35, 55, 46, .5);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 18 15;
+}
+
+.party-ruins-block-side {
+  fill: #263a30;
+  stroke: #142219;
+  stroke-width: 2.5;
+}
+
+.party-ruins-block-top {
+  fill: linear-gradient(#85988d, #61766a);
+  fill: #718579;
+  stroke: #b8c7bd;
+  stroke-width: 2;
+}
+
+.party-ruins-block-crack {
+  fill: none;
+  stroke: rgba(35, 55, 46, .5);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.party-ruins-foliage circle {
+  fill: url(#ruins-moss);
+  stroke: rgba(113, 210, 105, .38);
+  stroke-width: 1.5;
+}
+
+.party-ruins-grid line {
+  stroke: rgba(38, 63, 52, .28);
+  stroke-width: 1.2;
+}
+
+.party-ruins-start-connector {
+  stroke: #d9e7dd;
+  stroke-width: 6;
+  stroke-linecap: square;
+}
+
+.party-ruins-start-pad {
+  fill: #8d6c46;
+  stroke: #e6cf9e;
+  stroke-width: 3;
+  filter: drop-shadow(0 8px 5px rgba(0,0,0,.4));
+}
+
+.party-ruins-start-plank {
+  stroke: rgba(67, 42, 21, .72);
+  stroke-width: 3;
+}
+
+.party-ruins-start-label {
+  fill: #fff9e9;
+  font-size: 16px;
+  font-weight: 1000;
+  letter-spacing: .12em;
+}
+
+.party-ruins-start-sub {
+  fill: #fff0c9;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.party-ruins-path-shadow {
+  fill: none;
+  stroke: rgba(0, 0, 0, .46);
+  stroke-width: 13;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.party-ruins-path {
+  fill: none;
+  stroke: rgba(238, 255, 243, .9);
+  stroke-width: 6;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.party-ruins-direction-arrow {
+  fill: #050706;
+  stroke: rgba(238, 255, 243, .92);
+  stroke-width: .75;
+  pointer-events: none;
+}
+
+.party-ruins-lane-exit-hints polyline {
+  fill: none;
+  stroke: rgba(238,255,243,.88);
+  stroke-width: 6;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-dasharray: 7 6;
+  opacity: .58;
+}
+
+.party-ruins-nodes .v2-board-node {
+  stroke: rgba(244, 255, 247, .98);
+  stroke-width: 3.4;
+}
+
+.party-ruins-space--current .v2-board-node,
+.party-ruins-space--current .party-ruins-badluck {
+  stroke-width: 5;
+  stroke: #fef08a;
+}
+
+.party-ruins-space-symbol {
+  fill: #f8fff9;
+  font-size: 11px;
+  font-weight: 1000;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0,0,0,.8);
+}
+
+.party-ruins-space-symbol--bad {
+  font-size: 13px;
+}
+
+.party-ruins-space-symbol--lucky {
+  font-size: 14px;
+}
+
+.party-ruins-badluck {
+  fill: #e11d48;
+  stroke: #fff1f2;
+  stroke-width: 3;
+}
+
+.party-ruins-badluck--very {
+  fill: #050505;
+  stroke: #e5e7eb;
+}
+
+.party-ruins-junction-ring {
+  fill: none;
+  stroke: rgba(5, 5, 5, .96);
+  stroke-width: 7;
+  stroke-dasharray: 7 5;
+}
+
+.party-ruins-junction-dot {
+  fill: #050505;
+  stroke: #f8fafc;
+  stroke-width: 1.5;
+}
+
+.party-ruins-landmark text,
+.party-ruins-specials text {
+  font-family: inherit;
+  font-weight: 900;
+}
+
+.party-ruins-object-pad {
+  fill: rgba(25, 47, 38, .92);
+  stroke: rgba(207, 234, 214, .8);
+  stroke-width: 2;
+}
+
+.party-ruins-shop-mound-shadow {
+  fill: rgba(0,0,0,.32);
+}
+
+.party-ruins-shop-mound {
+  fill: #4a6455;
+  stroke: #cde3d2;
+  stroke-width: 2;
+}
+
+.party-ruins-shop-link {
+  stroke: rgba(255, 235, 145, .92);
+  stroke-width: 4;
+  stroke-dasharray: 5 4;
+}
+
+
+.party-ruins-stop-label {
+  fill: #f8fff8;
+  font-size: 8px;
+  font-weight: 1000;
+  letter-spacing: .07em;
+  paint-order: stroke;
+  stroke: rgba(4, 12, 8, .92);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.party-ruins-stop-label--sub {
+  font-size: 6.5px;
+  fill: #d6e9dc;
+  letter-spacing: .08em;
+}
+.party-ruins-shop-stop-label {
+  fill: #ffffff;
+  font-size: 9px;
+  font-weight: 1000;
+  letter-spacing: .08em;
+  paint-order: stroke;
+  stroke: rgba(8,18,12,.92);
+  stroke-width: 3px;
+}
+
+.party-ruins-shop-sign rect {
+  fill: #f1d24f;
+  stroke: #fff5c4;
+  stroke-width: 2.5;
+}
+
+.party-ruins-shop-sign text {
+  fill: #213526;
+}
+
+.party-ruins-shop-sign .party-ruins-small-label {
+  fill: #ffffff;
+  stroke: rgba(0, 0, 0, .88);
+  stroke-width: 3.2px;
+}
+
+.party-ruins-shop-sign--elevated .party-ruins-small-label {
+  transform: translateY(4px);
+}
+
+.party-ruins-crates rect {
+  stroke-width: 2;
+}
+
+.party-ruins-crate-platform {
+  fill: url(#ruins-stone-top);
+  stroke: #c9dbcf;
+  stroke-width: 3;
+  filter: drop-shadow(0 12px 9px rgba(0,0,0,.38));
+}
+
+.party-ruins-crate-entrance polygon {
+  fill: #6d8176;
+  stroke: #c9dbcf;
+  stroke-width: 2;
+  filter: drop-shadow(0 5px 4px rgba(0,0,0,.32));
+}
+
+.party-ruins-crate-entrance path {
+  fill: none;
+  stroke: rgba(239,255,244,.82);
+  stroke-width: 4;
+  stroke-linecap: square;
+}
+
+.party-ruins-chest-shadow {
+  fill: rgba(0,0,0,.34);
+}
+
+.party-ruins-chest-body {
+  fill: #9b5524;
+  stroke: #f0b05a;
+  stroke-width: 2.4;
+}
+
+.party-ruins-chest-lid {
+  fill: #bc6f2c;
+  stroke: #ffd17a;
+  stroke-width: 2.4;
+}
+
+.party-ruins-chest-plank {
+  fill: none;
+  stroke: rgba(90,42,16,.7);
+  stroke-width: 2;
+}
+
+.party-ruins-chest-band {
+  fill: #59625e;
+  stroke: #d7dfda;
+  stroke-width: 1.4;
+}
+
+.party-ruins-chest-lock {
+  fill: #d8aa45;
+  stroke: #fff0a6;
+  stroke-width: 1.4;
+}
+
+.party-ruins-chest-lock-loop {
+  fill: none;
+  stroke: #f5d476;
+  stroke-width: 2.2;
+}
+
+.party-ruins-landmark--lakitu > text:first-of-type,
+.party-ruins-landmark--paratroopa > text:first-of-type {
+  fill: #f8fafc;
+  font-size: 24px;
+  text-anchor: middle;
+}
+
+.party-ruins-reactor {
+  fill: #772312;
+  stroke: #ffbd73;
+  stroke-width: 3;
+}
+.party-ruins-reactor--used { opacity: .35; }
+.party-ruins-landmark--reactor path {
+  fill: #ff8b22;
+  stroke: #ffe0aa;
+  stroke-width: 1.5;
+}
+
+.party-ruins-landmark-label,
+.party-ruins-small-label {
+  fill: #effff2;
+  font-size: 10px;
+  font-weight: 950;
+  paint-order: stroke;
+  stroke: rgba(0,0,0,.72);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  text-anchor: middle;
+}
+
+.party-ruins-shop-sign circle {
+  fill: #e7c932;
+  stroke: #fff2a0;
+  stroke-width: 3;
+}
+.party-ruins-shop-sign > text:first-of-type {
+  fill: #17230f;
+  font-size: 15px;
+  font-weight: 1000;
+}
+
+.party-ruins-gate rect {
+  fill: #596359;
+  stroke: #d7e2d8;
+  stroke-width: 3;
+}
+.party-ruins-gate path {
+  fill: none;
+  stroke: #242b27;
+  stroke-width: 5;
+  stroke-linecap: square;
+}
+.party-ruins-gate--closed rect {
+  fill: #65402e;
+  stroke: #ffbd7b;
+}
+.party-ruins-gate--open { opacity: .48; }
+
+.party-ruins-trophy-price {
+  fill: #fff7b2;
+  font-size: 10px;
+  font-weight: 1000;
+  paint-order: stroke;
+  stroke: #342b00;
+  stroke-width: 3px;
+}
+
+.party-ruins-player-markers .party-player-marker circle {
+  stroke-width: 3;
+}
+
+.party-ruins-player-name {
+  fill: #ffffff;
+  font-size: 9px;
+  font-weight: 950;
+  paint-order: stroke;
+  stroke: rgba(0,0,0,.9);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.party-board-caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  padding: 9px 4px 2px;
+  color: #abc3b5;
+  font-size: .74rem;
+  line-height: 1.4;
+}
+.party-board-caption strong { color: #eaf7ee; }
+
+@media (min-width: 1280px) {
+  .party-game-layout {
+    grid-template-columns: minmax(0, 1fr) 330px;
+  }
+  .party-game-screen {
+    width: min(1540px, calc(100% - 20px));
+  }
+}
+
+@media (max-width: 1080px) {
+  .party-ruins-board-svg { min-width: 920px; }
+}
+
+
+/* Fixed-camera 2.5D polish: depth, light, and material separation without changing routes. */
+.party-ruins-board-svg {
+  filter: saturate(1.04) contrast(1.02);
+}
+
+.party-ruins-terrain {
+  transform-origin: 50% 50%;
+}
+
+.party-ruins-nodes .v2-board-node {
+  filter: drop-shadow(0 3px 1px rgba(0,0,0,.34));
+}
+
+.party-ruins-gate,
+.party-ruins-shop-sign,
+.party-ruins-landmark {
+  filter: drop-shadow(0 6px 4px rgba(0,0,0,.4));
+}
+
+.party-ruins-foliage {
+  filter: drop-shadow(0 5px 3px rgba(0,0,0,.28));
+}
+
+/* ===== Top-left route + turn-order deck polish ===== */
+.party-ruins-battle-space {
+  fill: #f59e0b;
+  stroke: #fff7ed;
+  stroke-width: 3.2;
+}
+
+.party-ruins-space-symbol--battle {
+  fill: #fffaf0;
+  font-size: 9px;
+  font-weight: 1000;
+  letter-spacing: -0.02em;
+}
+
+.party-ruins-route-stub {
+  fill: #111827;
+  stroke: rgba(226, 232, 240, 0.55);
+  stroke-width: 1.5;
+  opacity: 0.55;
+}
+
+.party-turn-order-panel {
+  display: grid;
+  gap: 12px;
+  border-color: rgba(250, 204, 21, 0.38);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(250, 204, 21, 0.09), transparent 55%),
+    rgba(15, 23, 42, 0.82);
+}
+
+.party-turn-order-list {
+  display: grid;
+  gap: 8px;
+}
+
+.party-turn-order-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.45);
+}
+
+.party-turn-order-row--me {
+  border-color: rgba(250, 204, 21, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.12);
+}
+
+.party-turn-order-row span {
+  font-weight: 900;
+  color: #fde68a;
+}
+
+.party-turn-order-marker-roll {
+  fill: #fde68a;
+  font-size: 10px;
+  font-weight: 1000;
+  paint-order: stroke;
+  stroke: rgba(2, 6, 23, 0.92);
+  stroke-width: 3px;
+}
+
+
+.party-ruins-landmark--reactor .party-ruins-landmark-label {
+  font-size: 8.5px;
+  letter-spacing: .02em;
+}
