@@ -83,7 +83,7 @@ const PARTY_SUPPLY_CRATE_REWARDS = [
   { id: 'crate-shield', name: 'Shield', kind: 'card', cardId: 'shield' },
 ]
 
-const PARTY_BATTLES = [
+export const PARTY_BATTLES = [
   {
     number: 1,
     id: 'one-minute-1v1',

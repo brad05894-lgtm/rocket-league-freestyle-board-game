@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import OnlineLobby from './OnlineLobby'
-import { endRoom, getClientId, kickPlayer, leaveRoom, listenToGame, listenToRoom, saveGameState } from './multiplayer'
+import { endRoom, getClientId, kickPlayer, leaveRoom, listenToGame, listenToRoom, saveClassicCarSelection, saveGameState } from './multiplayer'
 import { generateBoard } from './boardGenerator'
 import GameBoard from './GameBoard'
 import PartyMode from './PartyMode'
+import RouletteReel from './RouletteReel'
+import { PARTY_MECHANICS } from './partyMechanics'
+import { PARTY_CARS, formatPartyDieFace, getPartyCar, getPartyCarImageFallback, getPartyCarImageUrl } from './partyCars'
 
 const BOARD_LENGTH = 75
 const FINISH_WAITING_BONUS_CAP = 3
@@ -88,59 +91,21 @@ function playGameSound(kind, enabled = true) {
   ;(sequences[kind] || sequences.land).forEach((tone) => playTone(context, tone))
 }
 
-const mechanicCards = [
-  { name: 'Wall Air Dribble', difficulty: 'Easy', points: 1 },
-  { name: 'Ground-to-Air Dribble', difficulty: 'Easy', points: 1 },
-  { name: 'Ceiling Shot', difficulty: 'Easy', points: 1 },
-  { name: 'Double Tap', difficulty: 'Easy', points: 1 },
-  { name: 'Backboard Read', difficulty: 'Easy', points: 1 },
-  { name: '45° Flick', difficulty: 'Easy', points: 1 },
-  { name: 'Musty Flick', difficulty: 'Easy', points: 1 },
-  { name: 'Breezi Flick', difficulty: 'Medium', points: 2 },
-  { name: 'Kuxir Pinch', difficulty: 'Medium', points: 2 },
-  { name: 'Ground Pinch 100+', difficulty: 'Medium', points: 2 },
-  { name: 'Ceiling Pinch', difficulty: 'Medium', points: 2 },
-  { name: 'Sidewall Redirect', difficulty: 'Medium', points: 2 },
-  { name: 'Ground Pinch 120+', difficulty: 'Hard', points: 3 },
-  { name: 'Flip Reset', difficulty: 'Medium', points: 2 },
-  { name: 'Ground-to-Flip Reset', difficulty: 'Medium', points: 2 },
-  { name: 'Wall-to-Flip Reset', difficulty: 'Medium', points: 2 },
-  { name: 'Wavedash Reset', difficulty: 'Hard', points: 3 },
-  { name: 'Ceiling-to-Flip Reset', difficulty: 'Medium', points: 2 },
-  { name: 'Cross Map Air Dribble', difficulty: 'Medium', points: 2 },
-  { name: 'Cross Map Flip Reset', difficulty: 'Hard', points: 3 },
-  { name: 'Double Flip Reset', difficulty: 'Hard', points: 3 },
-  { name: 'Triple Flip Reset', difficulty: 'Hard', points: 3 },
-  { name: 'Stall Reset', difficulty: 'Hard', points: 3 },
-  { name: 'Heli Reset', difficulty: 'Hard', points: 3 },
-  { name: 'Pancake Reset', difficulty: 'Hard', points: 3 },
-  { name: 'Pogo', difficulty: 'Medium', points: 2 },
-  { name: 'Pogo Double Tap', difficulty: 'Hard', points: 3 },
-  { name: 'Reset Pogo', difficulty: 'Hard', points: 3 },
-  { name: 'Psycho', difficulty: 'Extreme', points: 4 },
-  { name: 'Kuxir No Bounce', difficulty: 'Hard', points: 3 },
-  { name: 'Ceiling Musty', difficulty: 'Medium', points: 2 },
-  { name: 'Flip Reset Musty', difficulty: 'Hard', points: 3 },
-  { name: 'Double Reset Musty', difficulty: 'Hard', points: 3 },
-  { name: 'Musty Double Tap', difficulty: 'Hard', points: 3 },
-  { name: 'Ceiling Double Tap', difficulty: 'Medium', points: 2 },
-  { name: 'Flip Reset Double Tap', difficulty: 'Hard', points: 3 },
-  { name: 'Air Dribble Double Tap', difficulty: 'Medium', points: 2 },
-  { name: 'Glued Air Dribble', difficulty: 'Medium', points: 2 },
-  { name: 'Aztral Pinch', difficulty: 'Hard', points: 3 },
-  { name: 'Ceiling Pinch — No Bounce', difficulty: 'Hard', points: 3 },
-  { name: 'Zen Shot', difficulty: 'Hard', points: 3 },
-  { name: 'Mawkzy Flick', difficulty: 'Medium', points: 2 },
-  { name: 'Sting Pop', difficulty: 'Hard', points: 3 },
-  { name: 'Maktuf Reset', difficulty: 'Hard', points: 3 },
-  { name: 'Plan B', difficulty: 'Medium', points: 2 },
-  { name: 'Classy Flick', difficulty: 'Medium', points: 2 },
-  { name: '180 Flick', difficulty: 'Medium', points: 2 },
-  { name: 'Top Corner', difficulty: 'Medium', points: 2 },
-  { name: 'Corner Read', difficulty: 'Medium', points: 2 },
-  { name: 'BBL Pinch', difficulty: 'Hard', points: 3 },
-  { name: 'Doomsee Dish', difficulty: 'Medium', points: 2 },
-]
+function buildRouletteCandidates(pool, winner, getLabel, count = 5) {
+  const others = shuffleDeck(pool.filter((item) => item !== winner)).slice(0, Math.max(0, count - 1))
+  return shuffleDeck([winner, ...others]).map((item) => ({ item, label: getLabel(item) }))
+}
+
+const CLASSIC_POINTS = { Easy: 1, Medium: 2, Hard: 3, Insane: 4 }
+const DIFFICULTY_ORDER = ['Easy', 'Medium', 'Hard', 'Insane']
+
+// Party owns the canonical mechanic list. Classic only adds its point values.
+const mechanicCards = PARTY_MECHANICS.map(({ id, name, difficulty }) => ({
+  id,
+  name,
+  difficulty,
+  points: CLASSIC_POINTS[difficulty],
+}))
 
 const actionCards = [
   {
@@ -206,7 +171,7 @@ const actionCards = [
   {
   name: 'Lockout',
   description:
-    'Choose another player. They cannot use any Action Cards on their next turn.',
+    'Secretly arm another player. Their next attempted Action Card is discarded with no effect.',
 },
   {
   name: 'Reverse',
@@ -236,7 +201,7 @@ const actionCards = [
   {
   name: 'Difficulty Spike',
   description:
-    'Use before your first attempt to replace your mechanic with one difficulty tier higher. Cannot be used on Extreme.',
+    'Use before your first attempt to replace your mechanic with one difficulty tier higher. Cannot be used on Insane.',
 },
   {
   name: 'Difficulty Drop',
@@ -244,9 +209,9 @@ const actionCards = [
     'Use before your first attempt to replace your mechanic with one difficulty tier lower. Cannot be used on Easy.',
 },
   {
-  name: 'Trade Offer',
+  name: 'Free Pass',
   description:
-    'Choose another player and force a trade. You choose 1 Action Card to give them, then they must choose 1 Action Card to give you. The trade cannot be declined or cancelled.',
+    'After a normal Mechanic is revealed and before Attempt 1, automatically complete it for its normal point value.',
 },
   {
   name: 'Snatch',
@@ -291,7 +256,7 @@ const battleCards = [
       'Both players may score however they want.',
       'After 60 seconds, the player with more goals wins.',
       'If tied, play sudden death. Next goal wins.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -305,7 +270,7 @@ const battleCards = [
       'Each attacking goal is 1 mini-point. A save or miss is 0.',
       'After 3 attacks each, the player with more goals wins.',
       'If tied, play sudden-death rounds. Each player gets 1 attack in the same round; if one scores and the other does not, the scorer wins. Otherwise repeat.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -320,7 +285,7 @@ const battleCards = [
       'If one player misses all 3 and the other makes at least 1, the player who scored wins automatically.',
       'If both miss all 3, go to sudden death: 1 freestyle attempt each per round.',
       'In sudden death: one make and one miss means the scorer wins; both miss means repeat; both score means judge those two shots and the better shot wins.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -334,7 +299,7 @@ const battleCards = [
       'The goalie earns 1 mini-point for each save.',
       'After both players have defended 3 shots, the player with more saves wins.',
       'If tied, play sudden-death rounds. Each player faces 1 shot as goalie; if one saves and the other concedes, the saver wins. If both save or both concede, repeat.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -348,7 +313,7 @@ const battleCards = [
       'No wall setup, dribble setup, ceiling setup, or moving the ball elsewhere before the attempt.',
       'A crossbar hit counts as 1 mini-point. More hits after 3 attempts each wins.',
       'If tied, play sudden-death center-kickoff attempts: 1 attempt each per round. One hit and one miss means the hitter wins; both hit or both miss means repeat.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -364,7 +329,7 @@ const battleCards = [
       'After 3 attempts each, more completions wins.',
       'If tied, play sudden-death rounds on the same mechanic: 1 attempt each. One make and one miss means the maker wins; both make or both miss means repeat.',
       'If the mechanic is too difficult or unreasonable, both players may mutually concede. Both must agree; then nobody earns board points.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -379,7 +344,7 @@ const battleCards = [
       'If the Setter makes it, the Copier gets exactly 1 attempt to copy the called shot.',
       'If the Copier makes it, roles switch and the Copier becomes the new Setter.',
       'If the Copier misses, the Copier immediately loses. Only one failed copy is needed to lose.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -394,7 +359,7 @@ const battleCards = [
       'Failing an upgrade does NOT lose the Battle. The chain simply ends and the original Setter begins a brand-new chain.',
       'If the upgrade succeeds, the other player gets 1 attempt to copy the upgraded shot. Continue the chain the same way.',
       'A player only loses by failing to copy a successfully made shot, never by failing to create or land an upgrade.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -410,7 +375,7 @@ const battleCards = [
       'If the Setter hits the called target, the Copier gets exactly 1 attempt to reproduce it with a valid flick.',
       'If the Copier misses, the Copier immediately loses. If the Copier makes it, roles switch.',
       'Crossbar in must hit the crossbar and go in. Post in must hit the post and go in.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -424,7 +389,7 @@ const battleCards = [
       'Add all 3 attempt speeds together for each player.',
       'The player with the higher total KPH wins.',
       'If the totals are exactly tied, play sudden death: each player gets 1 shot and the faster successful shot wins. If both miss or tie exactly, repeat.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -438,7 +403,7 @@ const battleCards = [
       'If both miss, repeat another round.',
       'If both score in the same round, compare shot speed. The faster Kuxir pinch wins.',
       'If the speeds are exactly tied, repeat another round.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -454,7 +419,7 @@ const battleCards = [
       'If both score, add 1 reset for the next round: single to double to triple to quadruple, and so on.',
       'Keep climbing until one player makes it and the other misses in the same round.',
       'If the required reset count becomes too difficult, both players may mutually concede. Both must agree; then nobody earns board points.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -467,7 +432,7 @@ const battleCards = [
       'If the ball clearly ends up on the opponent\'s side of the field, you win that kickoff and earn 1 mini-point.',
       'First player to 2 mini-points wins the Battle.',
       'If a kickoff is too close or ambiguous to judge, redo that kickoff. Nobody earns a mini-point for the redo.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -481,7 +446,7 @@ const battleCards = [
       'Both players start at Shot 1 and race through Shots 1-10 in order.',
       'Retry a shot as many times as needed until it is scored, then move to the next shot.',
       'The first player to successfully complete Shot 10 wins.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -495,7 +460,7 @@ const battleCards = [
       'These Battle spins do not move anyone on the board.',
       'The highest number wins.',
       'If multiple players tie for the highest number, the app randomly chooses one of those tied players as the winner.',
-      'Winner earns +2 board points.',
+      'Winner earns +3 board points.',
       'Every other participating player loses 1 board point.',
     ],
   },
@@ -510,7 +475,7 @@ const battleCards = [
       'No normal forward driving is allowed. If a player clearly drives forward to make a play, that play does not count.',
       'After 60 seconds, the player with more goals wins.',
       'If tied, play sudden death under the same reverse-only rule. Next valid goal wins.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -524,7 +489,7 @@ const battleCards = [
       'Both players may score however they want, but neither player may switch cars during the Battle.',
       'After 60 seconds, the player with more goals wins.',
       'If tied, play sudden death with the same random cars. Next goal wins.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -538,7 +503,7 @@ const battleCards = [
       'Both players may score however the active mutators allow.',
       'After 60 seconds, the player with more goals wins.',
       'If tied, keep the same mutators and play sudden death. Next goal wins.',
-      'Winner earns +2 board points. Loser loses 1 board point.',
+      'Winner earns +3 board points. Loser loses 1 board point.',
     ],
   },
   {
@@ -552,7 +517,7 @@ const battleCards = [
       'Keep playing until only one player has not been demoed.',
       'The last player standing wins.',
       'If the final two players are effectively demoed at the same time, only those two replay a sudden-death round.',
-      'Winner earns +2 board points.',
+      'Winner earns +3 board points.',
       'Every other participating player loses 1 board point.',
     ],
   },
@@ -784,9 +749,19 @@ function App() {
   const previousScreenRef = useRef('home')
   const [playerName, setPlayerName] = useState('')
   const [players, setPlayers] = useState([])
+  const [classicCarPlayerIndex, setClassicCarPlayerIndex] = useState(0)
+  const [handVisibility, setHandVisibility] = useState('hidden')
 
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0)
   const [spinResult, setSpinResult] = useState(null)
+  const [diceRolling, setDiceRolling] = useState(false)
+  const [travel, setTravel] = useState(null)
+  const [gameActivity, setGameActivity] = useState([])
+  const activityPrevious = useRef(null)
+  const rollingLock = useRef(false)
+
+  const pauseAnimation = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))
+
   const [hasSpun, setHasSpun] = useState(false)
   const [landedSpace, setLandedSpace] = useState(null)
 
@@ -799,12 +774,14 @@ function App() {
   const [actionResolved, setActionResolved] = useState(true)
   const [actionMessage, setActionMessage] = useState('')
   const [privateActionNotice, setPrivateActionNotice] = useState('')
+  const [publicActionNotice, setPublicActionNotice] = useState('')
   const [attemptsLeft, setAttemptsLeft] = useState(0)
   const [mechanicResolved, setMechanicResolved] = useState(true)
   const [mechanicMessage, setMechanicMessage] = useState('')
   // Public, non-sensitive result for spectators. Never put Action Card names/effects here.
   const [publicMechanicOutcome, setPublicMechanicOutcome] = useState('')
   const [mechanicFailed, setMechanicFailed] = useState(false)
+  const [mechanicAttempted, setMechanicAttempted] = useState(false)
   const [doublePointsActive, setDoublePointsActive] = useState(false)
   const [insuranceActive, setInsuranceActive] = useState(false)
   const [mechanicActionUsed, setMechanicActionUsed] = useState(false)
@@ -813,7 +790,6 @@ function App() {
   const [topCornerRequired, setTopCornerRequired] = useState(false)
   const [secondChanceActive, setSecondChanceActive] = useState(false)
   const [secondChanceRolls, setSecondChanceRolls] = useState([])
-  const [tradeOfferState, setTradeOfferState] = useState(null)
   const [actionCardUsedThisTurn, setActionCardUsedThisTurn] = useState(false)
   const [turnDirection, setTurnDirection] = useState(1)
   const [jackpotActive, setJackpotActive] = useState(false)
@@ -830,6 +806,7 @@ function App() {
   const [generatedBoard, setGeneratedBoard] = useState(null)
   const [landingAnnouncement, setLandingAnnouncement] = useState(null)
   const [landingAnnouncementClock, setLandingAnnouncementClock] = useState(() => Date.now())
+  const [selectionRoulette, setSelectionRoulette] = useState(null)
 
 
   // Online multiplayer session. The actual game logic stays in this component;
@@ -876,6 +853,58 @@ function App() {
     landingAnnouncement?.until &&
       landingAnnouncementClock < landingAnnouncement.until
   )
+
+  function completeSelectionRoulette(roulette) {
+    if (roulette.type === 'battle') {
+      const battle = roulette.winner
+      const activeIndexes = players
+        .map((player, index) => ({ player, index }))
+        .filter(({ player }) => !player.leftGame)
+        .map(({ index }) => index)
+
+      if (!battle.allPlayers) {
+        const opponentOptions = activeIndexes
+          .filter((index) => index !== currentPlayerIndex)
+          .map((index) => ({ item: index, label: players[index].name }))
+        const opponentIndex = roulette.opponentIndex
+        setSelectionRoulette({
+          type: 'opponent',
+          title: 'Selecting Opponent',
+          options: opponentOptions,
+          winner: opponentIndex,
+          winnerLabel: players[opponentIndex]?.name || 'Opponent',
+          battle,
+          activeIndexes,
+        })
+        return
+      }
+
+      setBattleState({
+        card: battle,
+        opponentIndex: null,
+        participantIndexes: activeIndexes,
+        battleMechanic: null,
+        concedeVoteBy: null,
+        luckySpins: [],
+        luckySpinCursor: 0,
+        resultMessage: '',
+      })
+    } else if (roulette.type === 'opponent') {
+      setBattleState({
+        card: roulette.battle,
+        opponentIndex: roulette.winner,
+        participantIndexes: null,
+        battleMechanic: null,
+        concedeVoteBy: null,
+        luckySpins: [],
+        luckySpinCursor: 0,
+        resultMessage: '',
+      })
+    } else if (roulette.type === 'event') {
+      setEventState({ card: roulette.winner, resultMessage: '' })
+    }
+    setSelectionRoulette(null)
+  }
 
   useEffect(() => {
     soundEnabledRef.current = soundEnabled
@@ -946,6 +975,24 @@ function App() {
     previousScreenRef.current = screen
   }, [screen])
 
+  // Pending cards stay private in Hidden Hands until their rule actually
+  // changes the revealed mechanic. At that moment everyone gets the same notice.
+  useEffect(() => {
+    if (screen !== 'game' || !mechanicCard || mechanicResolved || !mechanicMessage) return
+
+    const revealedEffects = []
+    if (mechanicMessage.includes('PRESSURE')) revealedEffects.push('Pressure: only 1 attempt')
+    if (mechanicMessage.includes('HOT STREAK')) revealedEffects.push('Hot Streak: 1 attempt and +2 on success')
+    if (mechanicMessage.includes('Jackpot')) revealedEffects.push('Jackpot: +3 on success or -3 on failure')
+    if (mechanicMessage.includes('ZERO BOUNCE')) revealedEffects.push('Zero Bounce is required')
+    if (mechanicMessage.includes('100+ KPH')) revealedEffects.push('100+ KPH is required')
+    if (mechanicMessage.includes('TOP CORNER')) revealedEffects.push('Top Corner is required')
+
+    if (revealedEffects.length > 0) {
+      setPublicActionNotice(`${players[currentPlayerIndex]?.name}'s mechanic effects revealed — ${revealedEffects.join('; ')}.`)
+    }
+  }, [screen, mechanicCard, mechanicResolved, mechanicMessage, currentPlayerIndex, players])
+
   const isOnlineGame = Boolean(onlineSession)
   const localClientId = onlineSession?.clientId || null
   const onlineHostId = onlineSession?.hostId || null
@@ -961,33 +1008,62 @@ function App() {
   const localOnlinePlayer =
     players[localOnlinePlayerIndex] || players[currentPlayerIndex] || null
 
-  const tradeInitiatorId = tradeOfferState
-    ? players[tradeOfferState.initiatorIndex]?.id ?? null
-    : null
-
-  const tradeTargetId =
-    tradeOfferState && tradeOfferState.targetIndex !== null
-      ? players[tradeOfferState.targetIndex]?.id ?? null
-      : null
-
-  let onlineControlOwnerId = currentOnlinePlayerId
-
-  if (isOnlineGame && tradeOfferState) {
-    const targetStages = new Set([
-      'target-choose',
-      'handoff-initiator-review',
-      'target-review',
-    ])
-
-    onlineControlOwnerId = targetStages.has(tradeOfferState.stage)
-      ? tradeTargetId
-      : tradeInitiatorId
-  }
-
   const canUseOnlineControls =
-    !isOnlineGame || onlineControlOwnerId === localClientId
+    !isOnlineGame || currentOnlinePlayerId === localClientId
 
-  function buildOnlinePlayer(roomPlayer) {
+  useEffect(() => {
+    if (
+      isOnlineGame &&
+      !isOnlineHost &&
+      screen === 'rules' &&
+      localOnlinePlayerIndex >= 0
+    ) {
+      setClassicCarPlayerIndex(localOnlinePlayerIndex)
+    }
+  }, [isOnlineGame, isOnlineHost, screen, localOnlinePlayerIndex])
+
+  useEffect(() => {
+    const next = { players, currentPlayerIndex, publicActionNotice, publicMechanicOutcome, actionCardUsedThisTurn, spinResult, landedSpace, actionMessage, battleState, eventState, mechanicCard, mechanicMessage }
+    const previous = activityPrevious.current
+    activityPrevious.current = next
+    if (screen !== 'game' || !previous || !canUseOnlineControls) return
+    const entries = []
+    const add = (hidden, open = hidden) => entries.push({ hidden, open })
+    const actor = players[currentPlayerIndex]?.name || 'Player'
+    if (previous.currentPlayerIndex !== currentPlayerIndex) add(`${actor}'s turn.`)
+    players.forEach((player, index) => {
+      const old = (player.id != null ? previous.players.find((entry) => entry.id === player.id) : null) || previous.players[index]
+      if (!old) return
+      const gained = [...(player.actionCards || [])]
+      for (const card of old.actionCards || []) {
+        const at = gained.findIndex((entry) => entry.id === card.id && entry.name === card.name)
+        if (at >= 0) gained.splice(at, 1)
+      }
+      if (gained.length) add(`${player.name} got ${gained.length === 1 ? 'an Action Card' : `${gained.length} Action Cards`}.`, `${player.name} got ${gained.map((card) => card.name).join(', ')}.`)
+      const delta = player.points - old.points
+      if (delta) add(`${player.name} ${delta > 0 ? 'gained' : 'lost'} ${Math.abs(delta)} point${Math.abs(delta) === 1 ? '' : 's'}.`)
+    })
+    if (actionCardUsedThisTurn && !previous.actionCardUsedThisTurn) {
+      const oldCards = [...(previous.players[currentPlayerIndex]?.actionCards || [])]
+      for (const card of players[currentPlayerIndex]?.actionCards || []) {
+        const at = oldCards.findIndex((entry) => entry.id === card.id && entry.name === card.name)
+        if (at >= 0) oldCards.splice(at, 1)
+      }
+      add(`${actor} used an Action Card.`, `${actor} used ${oldCards.map((card) => card.name).join(', ') || 'an Action Card'}.`)
+    }
+    if (battleState?.card?.name && battleState.card.name !== previous.battleState?.card?.name) add(`Battle: ${battleState.card.name}.`)
+    if (eventState?.card?.name && eventState.card.name !== previous.eventState?.card?.name) add(`Event: ${eventState.card.name}.`)
+    if (mechanicCard?.name && mechanicCard.name !== previous.mechanicCard?.name) add(`${actor}'s mechanic: ${mechanicCard.name}.`)
+    if (handVisibility === 'open' && mechanicMessage && mechanicMessage !== previous.mechanicMessage) add('', mechanicMessage)
+    if (handVisibility === 'open' && actionMessage && actionMessage !== previous.actionMessage) add('', actionMessage)
+    if (publicActionNotice && publicActionNotice !== previous.publicActionNotice) add(publicActionNotice)
+    if (publicMechanicOutcome && publicMechanicOutcome !== previous.publicMechanicOutcome) add(publicMechanicOutcome)
+    if (spinResult !== null && spinResult !== previous.spinResult) add(`${actor} rolled ${spinResult}.`)
+    if (landedSpace && landedSpace !== previous.landedSpace) add(`${actor} landed on ${landedSpace}.`)
+    if (entries.length) setGameActivity((current) => [...current, ...entries.map((entry, index) => ({ ...entry, id: `${Date.now()}-${index}-${Math.random()}` }))].slice(-60))
+  }, [players, currentPlayerIndex, publicActionNotice, publicMechanicOutcome, actionCardUsedThisTurn, spinResult, landedSpace, actionMessage, screen, handVisibility, canUseOnlineControls, battleState, eventState, mechanicCard, mechanicMessage])
+
+  function buildOnlinePlayer(roomPlayer, index = 0) {
     return {
       id: roomPlayer.id,
       name: roomPlayer.name,
@@ -1008,6 +1084,7 @@ function App() {
       finishWaitingBonus: 0,
       finishCashoutBonus: 0,
       actionCards: [],
+      carId: PARTY_CARS[index % PARTY_CARS.length].id,
     }
   }
 
@@ -1033,6 +1110,10 @@ function App() {
 
   const onlineStateSnapshot = {
     screen,
+    handVisibility,
+    gameActivity,
+    diceRolling,
+    travel,
     players,
     currentPlayerIndex,
     spinResult,
@@ -1046,11 +1127,13 @@ function App() {
     actionDiscardPile,
     actionResolved,
     actionMessage,
+    publicActionNotice,
     attemptsLeft,
     mechanicResolved,
     mechanicMessage,
     publicMechanicOutcome,
     mechanicFailed,
+    mechanicAttempted,
     doublePointsActive,
     insuranceActive,
     mechanicActionUsed,
@@ -1059,7 +1142,6 @@ function App() {
     topCornerRequired,
     secondChanceActive,
     secondChanceRolls,
-    tradeOfferState,
     actionCardUsedThisTurn,
     turnDirection,
     jackpotActive,
@@ -1074,6 +1156,7 @@ function App() {
     specialResolved,
     generatedBoard,
     landingAnnouncement,
+    selectionRoulette,
   }
 
   const onlineStateKey = JSON.stringify(onlineStateSnapshot)
@@ -1081,7 +1164,11 @@ function App() {
   function applyRecoveredGameState(state) {
     if (!state) return
 
+    if (state.gameActivity !== undefined) setGameActivity(state.gameActivity)
+    if (state.diceRolling !== undefined) setDiceRolling(state.diceRolling)
+    if (state.travel !== undefined) setTravel(state.travel)
     if (state.screen !== undefined) setScreen(state.screen)
+    if (state.handVisibility !== undefined) setHandVisibility(state.handVisibility)
     if (state.players !== undefined) setPlayers(state.players)
     if (state.currentPlayerIndex !== undefined) setCurrentPlayerIndex(state.currentPlayerIndex)
     if (state.spinResult !== undefined) setSpinResult(state.spinResult)
@@ -1095,11 +1182,13 @@ function App() {
     if (state.actionDiscardPile !== undefined) setActionDiscardPile(state.actionDiscardPile)
     if (state.actionResolved !== undefined) setActionResolved(state.actionResolved)
     if (state.actionMessage !== undefined) setActionMessage(state.actionMessage)
+    if (state.publicActionNotice !== undefined) setPublicActionNotice(state.publicActionNotice)
     if (state.attemptsLeft !== undefined) setAttemptsLeft(state.attemptsLeft)
     if (state.mechanicResolved !== undefined) setMechanicResolved(state.mechanicResolved)
     if (state.mechanicMessage !== undefined) setMechanicMessage(state.mechanicMessage)
     if (state.publicMechanicOutcome !== undefined) setPublicMechanicOutcome(state.publicMechanicOutcome)
     if (state.mechanicFailed !== undefined) setMechanicFailed(state.mechanicFailed)
+    if (state.mechanicAttempted !== undefined) setMechanicAttempted(state.mechanicAttempted)
     if (state.doublePointsActive !== undefined) setDoublePointsActive(state.doublePointsActive)
     if (state.insuranceActive !== undefined) setInsuranceActive(state.insuranceActive)
     if (state.mechanicActionUsed !== undefined) setMechanicActionUsed(state.mechanicActionUsed)
@@ -1108,7 +1197,6 @@ function App() {
     if (state.topCornerRequired !== undefined) setTopCornerRequired(state.topCornerRequired)
     if (state.secondChanceActive !== undefined) setSecondChanceActive(state.secondChanceActive)
     if (state.secondChanceRolls !== undefined) setSecondChanceRolls(state.secondChanceRolls)
-    if (state.tradeOfferState !== undefined) setTradeOfferState(state.tradeOfferState)
     if (state.actionCardUsedThisTurn !== undefined) setActionCardUsedThisTurn(state.actionCardUsedThisTurn)
     if (state.turnDirection !== undefined) setTurnDirection(state.turnDirection)
     if (state.jackpotActive !== undefined) setJackpotActive(state.jackpotActive)
@@ -1126,6 +1214,7 @@ function App() {
       setLandingAnnouncement(state.landingAnnouncement)
       setLandingAnnouncementClock(Date.now())
     }
+    if (state.selectionRoulette !== undefined) setSelectionRoulette(state.selectionRoulette)
   }
 
   // Restore a local/pass-and-play match after an accidental refresh.
@@ -1325,7 +1414,7 @@ function App() {
   // Keep a browser-local backup for pass-and-play games too. Online games use
   // Firebase as the source of truth, so they do not write this backup.
   useEffect(() => {
-    if (isOnlineGame) return
+    if (isOnlineGame || diceRolling || travel) return
     if (!['rules', 'game', 'results'].includes(screen)) return
     if (players.length === 0) return
 
@@ -1615,58 +1704,6 @@ function App() {
     battleResolved,
   ])
 
-  // A mandatory Trade Offer should not become stuck if its target leaves.
-  // If another eligible player remains, the initiator must choose a new target.
-  useEffect(() => {
-    if (
-      !isOnlineGame ||
-      !isOnlineHost ||
-      screen !== 'game' ||
-      !tradeOfferState ||
-      tradeOfferState.targetIndex === null ||
-      tradeOfferState.stage === 'complete'
-    ) {
-      return
-    }
-
-    const target = players[tradeOfferState.targetIndex]
-    if (!target?.leftGame) return
-
-    const replacementExists = players.some(
-      (player, index) =>
-        index !== tradeOfferState.initiatorIndex &&
-        !player.leftGame &&
-        !player.finished &&
-        (player.actionCards || []).length > 0
-    )
-
-    if (replacementExists) {
-      setTradeOfferState((currentTrade) => ({
-        ...currentTrade,
-        targetIndex: null,
-        offeredCardIndex: null,
-        returnCardIndex: null,
-        offeredCardName: null,
-        returnCardName: null,
-        stage: 'choose-target',
-      }))
-      setActionMessage(
-        `${target.name} left. Choose a different player for the mandatory trade.`
-      )
-    } else {
-      setTradeOfferState(null)
-      setActionMessage(
-        `${target.name} left and no other player can trade, so Trade Offer ended.`
-      )
-    }
-  }, [
-    isOnlineGame,
-    isOnlineHost,
-    screen,
-    players,
-    tradeOfferState,
-  ])
-
   function addPlayer() {
     const name = playerName.trim()
 
@@ -1695,6 +1732,7 @@ function App() {
         finishWaitingBonus: 0,
         finishCashoutBonus: 0,
         actionCards: [],
+        carId: PARTY_CARS[players.length % PARTY_CARS.length].id,
       },
     ])
 
@@ -1705,7 +1743,45 @@ function App() {
     setPlayers(players.filter((_, i) => i !== index))
   }
 
+  async function selectClassicCar(playerIndex, carId) {
+    if (!PARTY_CARS.some((car) => car.id === carId)) return
+
+    if (isOnlineGame && !isOnlineHost) {
+      if (players[playerIndex]?.id !== localClientId) return
+      setPlayers((currentPlayers) =>
+        currentPlayers.map((player, index) =>
+          index === playerIndex ? { ...player, carId } : player
+        )
+      )
+      await saveClassicCarSelection(onlineSession.roomCode, localClientId, carId)
+      return
+    }
+
+    setPlayers((currentPlayers) =>
+      currentPlayers.map((player, index) =>
+        index === playerIndex ? { ...player, carId } : player
+      )
+    )
+  }
+
+  function chooseRandomClassicCar(playerIndex) {
+    const takenCarIds = new Set(
+      players
+        .filter((_, index) => index !== playerIndex)
+        .map((player) => player.carId)
+        .filter(Boolean)
+    )
+    const availableCars = PARTY_CARS.filter((car) => !takenCarIds.has(car.id))
+    if (!availableCars.length) return
+    const randomCar = availableCars[Math.floor(Math.random() * availableCars.length)]
+    selectClassicCar(playerIndex, randomCar.id)
+  }
+
   function startGame() {
+    setGameActivity([])
+    activityPrevious.current = null
+    setTravel(null)
+    setDiceRolling(false)
     const newBoard = generateBoard(
       `${Date.now()}-${Math.floor(Math.random() * 1000000)}`
     )
@@ -1730,6 +1806,7 @@ function App() {
         finishWaitingBonus: 0,
         finishCashoutBonus: 0,
         actionCards: [],
+        carId: player.carId || PARTY_CARS[0].id,
       }))
     )
     setCurrentPlayerIndex(0)
@@ -1745,12 +1822,14 @@ function App() {
     setActionResolved(true)
     setActionMessage('')
     setPrivateActionNotice('')
+    setPublicActionNotice('')
     setMechanicCard(null)
     setMechanicChoices([])
     setMechanicResolved(true)
     setMechanicMessage('')
     setPublicMechanicOutcome('')
     setMechanicFailed(false)
+    setMechanicAttempted(false)
     setDoublePointsActive(false)
     setInsuranceActive(false)
     setJackpotActive(false)
@@ -1761,7 +1840,6 @@ function App() {
     setLastScoredMechanic(null)
     setSecondChanceActive(false)
     setSecondChanceRolls([])
-    setTradeOfferState(null)
     setNoBounceRequired(false)
     setKph100Required(false)
     setTopCornerRequired(false)
@@ -1772,6 +1850,7 @@ function App() {
     setSpecialState(null)
     setSpecialResolved(true)
     setLandingAnnouncement(null)
+    setSelectionRoulette(null)
     setLandingAnnouncementClock(Date.now())
     setGeneratedBoard(newBoard)
 
@@ -1903,6 +1982,7 @@ setActionDiscardPile((currentPile) => [
   setMechanicMessage(
     'Mulligan used! You have 1 extra attempt.'
   )
+  announceActionUse('Mulligan', 'One extra mechanic attempt was granted.')
 }
 
 function useDoublePoints() {
@@ -1946,6 +2026,9 @@ setActionCardUsedThisTurn(true)
   setMechanicMessage(
     'Double Points activated! Score this mechanic for double points.'
   )
+  announceActionUse('Double Points', 'This mechanic is worth double points.', {
+    secretWhilePending: true,
+  })
 }
 
 function useReroll() {
@@ -2007,6 +2090,7 @@ setActionCardUsedThisTurn(true)
 setMechanicMessage(
     `Reroll used! New mechanic: ${drawnCard.name}`
   )
+  announceActionUse('Reroll', `The mechanic was replaced with ${drawnCard.name}.`)
 }
 
 function usePickYourPoison() {
@@ -2082,6 +2166,7 @@ setActionCardUsedThisTurn(true)
 setMechanicMessage(
     'Pick Your Poison used! Choose one mechanic.'
   )
+  announceActionUse('Pick Your Poison', 'Two replacement mechanics were drawn; the choice stays private until selected.')
 }
 
 function chooseMechanicChoice(choiceIndex) {
@@ -2146,9 +2231,12 @@ function useInsurance() {
   setInsuranceActive(true)
 setMechanicActionUsed(true)
 setActionCardUsedThisTurn(true)  
-setMechanicMessage(
+  setMechanicMessage(
     'Insurance activated! If you miss both attempts, you still earn 1 point.'
   )
+  announceActionUse('Insurance', 'Insurance is active for this mechanic.', {
+    secretWhilePending: true,
+  })
 }
 
 function useJackpot() {
@@ -2199,6 +2287,9 @@ function useJackpot() {
   setMechanicMessage(
     'Jackpot activated! Now draw your Mechanic Card.'
   )
+  announceActionUse('Jackpot', 'This mechanic has a +3/-3 stake.', {
+    secretWhilePending: true,
+  })
 }
 
 function useDifficultyDrop() {
@@ -2222,22 +2313,17 @@ function useDifficultyDrop() {
     return
   }
 
-  let targetDifficulty = ''
+  const currentDifficultyIndex = DIFFICULTY_ORDER.indexOf(mechanicCard.difficulty)
+  const targetDifficulty = DIFFICULTY_ORDER[currentDifficultyIndex - 1]
 
-  if (mechanicCard.difficulty === 'Extreme') {
-    targetDifficulty = 'Hard'
-  } else if (mechanicCard.difficulty === 'Hard') {
-    targetDifficulty = 'Medium'
-  } else if (mechanicCard.difficulty === 'Medium') {
-    targetDifficulty = 'Easy'
-  }
-
-  const possibleCards = mechanicDeck.filter(
+  let possibleCards = mechanicDeck.filter(
     (card) => card.difficulty === targetDifficulty
   )
 
   if (possibleCards.length === 0) {
-    return
+    possibleCards = mechanicCards.filter(
+      (card) => card.difficulty === targetDifficulty
+    )
   }
 
   const randomIndex = Math.floor(
@@ -2280,6 +2366,7 @@ function useDifficultyDrop() {
   setMechanicMessage(
     `Difficulty Drop used! New mechanic: ${newMechanic.name} (${newMechanic.difficulty}).`
   )
+  announceActionUse('Difficulty Drop', `The mechanic changed to ${newMechanic.name} (${newMechanic.difficulty}).`)
 }
 
 function useDifficultySpike() {
@@ -2298,27 +2385,22 @@ function useDifficultySpike() {
     mechanicResolved ||
     attemptsLeft !== 2 ||
     mechanicActionUsed ||
-    mechanicCard.difficulty === 'Extreme' || actionCardUsedThisTurn
+    mechanicCard.difficulty === 'Insane' || actionCardUsedThisTurn
   ) {
     return
   }
 
-  let targetDifficulty = ''
+  const currentDifficultyIndex = DIFFICULTY_ORDER.indexOf(mechanicCard.difficulty)
+  const targetDifficulty = DIFFICULTY_ORDER[currentDifficultyIndex + 1]
 
-  if (mechanicCard.difficulty === 'Easy') {
-    targetDifficulty = 'Medium'
-  } else if (mechanicCard.difficulty === 'Medium') {
-    targetDifficulty = 'Hard'
-  } else if (mechanicCard.difficulty === 'Hard') {
-    targetDifficulty = 'Extreme'
-  }
-
-  const possibleCards = mechanicDeck.filter(
+  let possibleCards = mechanicDeck.filter(
     (card) => card.difficulty === targetDifficulty
   )
 
   if (possibleCards.length === 0) {
-    return
+    possibleCards = mechanicCards.filter(
+      (card) => card.difficulty === targetDifficulty
+    )
   }
 
   const randomIndex = Math.floor(
@@ -2361,6 +2443,7 @@ function useDifficultySpike() {
   setMechanicMessage(
     `Difficulty Spike used! New mechanic: ${newMechanic.name} (${newMechanic.difficulty}).`
   )
+  announceActionUse('Difficulty Spike', `The mechanic changed to ${newMechanic.name} (${newMechanic.difficulty}).`)
 }
 
 function useHotStreak() {
@@ -2407,6 +2490,9 @@ function useHotStreak() {
   setMechanicMessage(
     'Hot Streak activated! Your next Mechanic has only 1 attempt. Score it for +2 bonus points.'
   )
+  announceActionUse('Hot Streak', 'The next mechanic has one attempt and a +2 bonus.', {
+    secretWhilePending: true,
+  })
 }
 
 function confirmInflictedAction(cardName, targetName, effectText = '') {
@@ -2414,6 +2500,59 @@ function confirmInflictedAction(cardName, targetName, effectText = '') {
   setPrivateActionNotice(
     `${cardName} successfully inflicted on ${targetName}.${suffix}`
   )
+}
+
+function announceActionUse(cardName, effectText, { secretWhilePending = false } = {}) {
+  const message = `${players[currentPlayerIndex]?.name || 'A player'} used ${cardName}. ${effectText}`.trim()
+
+  if (handVisibility === 'open' || !secretWhilePending) {
+    setPublicActionNotice(message)
+  } else {
+    setPrivateActionNotice(message)
+  }
+}
+
+function revealActionEffect(cardName, effectText) {
+  setPublicActionNotice(`${cardName}: ${effectText}`)
+}
+
+function interceptLockedOutAction(event) {
+  const actionButton = event.target.closest('button')
+  const cardContainer = actionButton?.closest('[data-action-index]')
+  const currentPlayer = players[currentPlayerIndex]
+
+  if (!actionButton || !cardContainer || !currentPlayer?.lockoutActive) return
+
+  const cardIndex = Number(cardContainer.dataset.actionIndex)
+  const attemptedCard = currentPlayer.actionCards?.[cardIndex]
+  if (!attemptedCard) return
+
+  event.preventDefault()
+  event.stopPropagation()
+
+  setPlayers((currentPlayers) =>
+    currentPlayers.map((player, index) =>
+      index === currentPlayerIndex
+        ? {
+            ...player,
+            lockoutActive: false,
+            actionCards: (player.actionCards || []).filter(
+              (_, index) => index !== cardIndex
+            ),
+          }
+        : player
+    )
+  )
+  setActionDiscardPile((currentPile) => [...currentPile, attemptedCard])
+  setActionCardUsedThisTurn(true)
+  setPrivateActionNotice(
+    `LOCKOUT triggered: ${attemptedCard.name} was discarded and had no effect.`
+  )
+  revealActionEffect(
+    'Lockout',
+    `${currentPlayer.name}'s ${attemptedCard.name} was discarded and had no effect.`
+  )
+  setActionMessage('')
 }
 
 function usePressure(targetIndex) {
@@ -2474,6 +2613,7 @@ function usePressure(targetIndex) {
     setActionMessage(
       `${targetPlayer.name}'s Shield blocked your Pressure!`
     )
+    revealActionEffect('Shield', `${targetPlayer.name} blocked Pressure.`)
 
     return
   }
@@ -2516,6 +2656,9 @@ function usePressure(targetIndex) {
     targetPlayer.name,
     'Their next Mechanic will have only 1 attempt.'
   )
+  announceActionUse('Pressure', `${targetPlayer.name} was targeted.`, {
+    secretWhilePending: true,
+  })
 }
 
 function useShield() {
@@ -2559,6 +2702,9 @@ function useShield() {
   setActionMessage(
     'Shield activated! The next negative Action Card used on you will be blocked.'
   )
+  announceActionUse('Shield', 'The next applicable negative card will be blocked.', {
+    secretWhilePending: true,
+  })
 }
 
 function useSteal(targetIndex) {
@@ -2617,6 +2763,7 @@ function useSteal(targetIndex) {
     setActionMessage(
       `${targetPlayer.name}'s Shield blocked your Steal!`
     )
+    revealActionEffect('Shield', `${targetPlayer.name} blocked Steal.`)
 
     return
   }
@@ -2668,6 +2815,7 @@ function useSteal(targetIndex) {
     `An Action Card was stolen from ${targetPlayer.name}.`
   )
   confirmInflictedAction('Steal', targetPlayer.name)
+  announceActionUse('Steal', `An Action Card was stolen from ${targetPlayer.name}.`)
 }
 
 function useSwapHands(targetIndex) {
@@ -2725,6 +2873,7 @@ function useSwapHands(targetIndex) {
     setActionMessage(
       `${targetPlayer.name}'s Shield blocked your Swap Hands!`
     )
+    revealActionEffect('Shield', `${targetPlayer.name} blocked Swap Hands.`)
 
     return
   }
@@ -2768,6 +2917,7 @@ function useSwapHands(targetIndex) {
     `You swapped Action Card hands with ${targetPlayer.name}!`
   )
   confirmInflictedAction('Swap Hands', targetPlayer.name)
+  announceActionUse('Swap Hands', `Action Card hands were swapped with ${targetPlayer.name}.`)
 }
 
 function useSabotage(targetIndex) {
@@ -2825,6 +2975,7 @@ function useSabotage(targetIndex) {
     setActionMessage(
       `${targetPlayer.name}'s Shield blocked your Sabotage!`
     )
+    revealActionEffect('Shield', `${targetPlayer.name} blocked Sabotage.`)
 
     return
   }
@@ -2872,6 +3023,7 @@ function useSabotage(targetIndex) {
     targetPlayer.name,
     'They moved back 5 spaces.'
   )
+  announceActionUse('Sabotage', `${targetPlayer.name} moved back 5 spaces.`)
 }
 
 function usePointTax(targetIndex) {
@@ -2929,6 +3081,7 @@ function usePointTax(targetIndex) {
     setActionMessage(
       `${targetPlayer.name}'s Shield blocked your Point Tax!`
     )
+    revealActionEffect('Shield', `${targetPlayer.name} blocked Point Tax.`)
 
     return
   }
@@ -2975,6 +3128,7 @@ function usePointTax(targetIndex) {
     targetPlayer.name,
     `They lost ${pointsLost} point${pointsLost === 1 ? '' : 's'}.`
   )
+  announceActionUse('Point Tax', `${targetPlayer.name} lost ${pointsLost} point${pointsLost === 1 ? '' : 's'}.`)
 }
 
 function useLockout(targetIndex) {
@@ -2994,7 +3148,7 @@ function useLockout(targetIndex) {
 
   const targetPlayer = players[targetIndex]
 
-  if (!targetPlayer || targetPlayer.finished || targetPlayer.lockoutActive) {
+  if (!targetPlayer || targetPlayer.finished) {
     return
   }
 
@@ -3032,6 +3186,7 @@ function useLockout(targetIndex) {
     setActionMessage(
       `${targetPlayer.name}'s Shield blocked your Lockout!`
     )
+    revealActionEffect('Shield', `${targetPlayer.name} blocked Lockout.`)
 
     return
   }
@@ -3066,14 +3221,15 @@ function useLockout(targetIndex) {
 
   setActionCardUsedThisTurn(true)
 
-  setActionMessage(
-    `${targetPlayer.name} has been Locked Out of using Action Cards on their next turn!`
-  )
+  setActionMessage('Action Card used successfully.')
   confirmInflictedAction(
     'Lockout',
     targetPlayer.name,
-    'They cannot use Action Cards on their next turn.'
+    'Their next attempted Action Card will be discarded with no effect.'
   )
+  announceActionUse('Lockout', `${targetPlayer.name} was targeted.`, {
+    secretWhilePending: true,
+  })
 }
 
 function useReverse() {
@@ -3119,6 +3275,7 @@ function useReverse() {
   setActionMessage(
     'Reverse used! The turn order has been reversed.'
   )
+  announceActionUse('Reverse', 'The turn order was reversed.')
 }
 
 function useCopycat() {
@@ -3174,6 +3331,7 @@ function useCopycat() {
       lastScoredMechanic.card.points === 1 ? '' : 's'
     }.`
   )
+  announceActionUse('Copycat', `The mechanic changed to ${lastScoredMechanic.card.name}.`)
 }
 
 function useEasyRoute() {
@@ -3271,6 +3429,7 @@ function useEasyRoute() {
           spacesMoved === 1 ? '' : 's'
         }. The new space does not activate.`
   )
+  announceActionUse('Easy Route', `The mechanic was skipped and ${currentPlayer.name} moved forward ${spacesMoved} space${spacesMoved === 1 ? '' : 's'}.`)
 }
 
 function useSecondChance() {
@@ -3316,200 +3475,8 @@ function useSecondChance() {
   setActionMessage(
     'Second Chance activated! Spin to reveal your two choices.'
   )
+  announceActionUse('Second Chance', 'Two spins will be rolled and one chosen.')
 }
-
-function useTradeOffer() {
-  const currentPlayer = players[currentPlayerIndex]
-
-  const tradeOfferIndex = (currentPlayer.actionCards || []).findIndex(
-    (card) => card.name === 'Trade Offer'
-  )
-
-  const hasCardToOffer =
-    (currentPlayer.actionCards || []).length > 1
-
-  const hasPlayerToTradeWith = players.some(
-    (player, index) =>
-      index !== currentPlayerIndex &&
-      !player.finished &&
-      !player.leftGame &&
-      (player.actionCards || []).length > 0
-  )
-
-  if (
-    tradeOfferIndex === -1 ||
-    actionCardUsedThisTurn ||
-    !hasCardToOffer ||
-    !hasPlayerToTradeWith
-  ) {
-    return
-  }
-
-  const tradeOfferCard =
-    currentPlayer.actionCards[tradeOfferIndex]
-
-  setPlayers((currentPlayers) =>
-    currentPlayers.map((player, index) => {
-      if (index !== currentPlayerIndex) {
-        return player
-      }
-
-      return {
-        ...player,
-        actionCards: (player.actionCards || []).filter(
-          (_, index) => index !== tradeOfferIndex
-        ),
-      }
-    })
-  )
-
-  setActionDiscardPile((currentPile) => [
-    ...currentPile,
-    tradeOfferCard,
-  ])
-
-  setActionCardUsedThisTurn(true)
-  setPrivateActionNotice(
-    'Trade Offer activated. Once you choose a player, the trade is mandatory.'
-  )
-
-  setTradeOfferState({
-    initiatorIndex: currentPlayerIndex,
-    targetIndex: null,
-    offeredCardIndex: null,
-    returnCardIndex: null,
-    offeredCardName: null,
-    returnCardName: null,
-    stage: 'choose-target',
-  })
-
-  setActionMessage('')
-}
-
-
-function chooseTradeTarget(targetIndex) {
-  if (!tradeOfferState) {
-    return
-  }
-
-  const targetPlayer = players[targetIndex]
-
-  if (
-    targetIndex === tradeOfferState.initiatorIndex ||
-    !targetPlayer ||
-    targetPlayer.finished ||
-    targetPlayer.leftGame ||
-    (targetPlayer.actionCards || []).length === 0
-  ) {
-    return
-  }
-
-  setTradeOfferState((currentTrade) => ({
-    ...currentTrade,
-    targetIndex,
-    stage: 'choose-offer',
-  }))
-
-  setPrivateActionNotice(
-    `Trade Offer successfully inflicted on ${targetPlayer.name}. They must trade one Action Card with you.`
-  )
-}
-
-
-function chooseTradeOfferedCard(cardIndex) {
-  if (!tradeOfferState) {
-    return
-  }
-
-  const initiator =
-    players[tradeOfferState.initiatorIndex]
-
-  const offeredCard =
-    initiator?.actionCards?.[cardIndex]
-
-  if (!offeredCard) {
-    return
-  }
-
-  setTradeOfferState((currentTrade) => ({
-    ...currentTrade,
-    offeredCardIndex: cardIndex,
-    offeredCardName: offeredCard.name,
-    stage: isOnlineGame ? 'target-choose' : 'handoff-target',
-  }))
-}
-
-
-function chooseTradeReturnCard(cardIndex) {
-  if (
-    !tradeOfferState ||
-    tradeOfferState.targetIndex === null ||
-    tradeOfferState.offeredCardIndex === null
-  ) {
-    return
-  }
-
-  const initiatorIndex = tradeOfferState.initiatorIndex
-  const targetIndex = tradeOfferState.targetIndex
-  const initiator = players[initiatorIndex]
-  const target = players[targetIndex]
-
-  const offeredCard =
-    initiator?.actionCards?.[tradeOfferState.offeredCardIndex]
-  const returnCard =
-    target?.actionCards?.[cardIndex]
-
-  if (!offeredCard || !returnCard) {
-    return
-  }
-
-  setPlayers((currentPlayers) =>
-    currentPlayers.map((player, index) => {
-      if (index === initiatorIndex) {
-        const newHand = [...(player.actionCards || [])]
-        newHand[tradeOfferState.offeredCardIndex] = returnCard
-
-        return {
-          ...player,
-          actionCards: newHand,
-        }
-      }
-
-      if (index === targetIndex) {
-        const newHand = [...(player.actionCards || [])]
-        newHand[cardIndex] = offeredCard
-
-        return {
-          ...player,
-          actionCards: newHand,
-        }
-      }
-
-      return player
-    })
-  )
-
-  setTradeOfferState((currentTrade) => ({
-    ...currentTrade,
-    returnCardIndex: cardIndex,
-    returnCardName: returnCard.name,
-    stage: 'complete',
-  }))
-
-  setActionMessage(
-    `Trade complete between ${initiator.name} and ${target.name}.`
-  )
-}
-
-
-function finishTradeOffer() {
-  if (!tradeOfferState || tradeOfferState.stage !== 'complete') {
-    return
-  }
-
-  setTradeOfferState(null)
-}
-
 
 function useSnatch(targetIndex) {
   const currentPlayer = players[currentPlayerIndex]
@@ -3569,6 +3536,7 @@ function useSnatch(targetIndex) {
     setActionMessage(
       `${targetPlayer.name}'s Shield blocked your Snatch!`
     )
+    revealActionEffect('Shield', `${targetPlayer.name} blocked Snatch.`)
 
     return
   }
@@ -3608,6 +3576,7 @@ function useSnatch(targetIndex) {
     `You Snatched 1 point from ${targetPlayer.name}!`
   )
   confirmInflictedAction('Snatch', targetPlayer.name, 'You stole 1 point.')
+  announceActionUse('Snatch', `1 point was stolen from ${targetPlayer.name}.`)
 }
 
 function useCleanSlate() {
@@ -3678,6 +3647,7 @@ function useCleanSlate() {
       drawCount === 1 ? '' : 's'
     }.`
   )
+  announceActionUse('Clean Slate', `${drawCount} Action Card${drawCount === 1 ? ' was' : 's were'} replaced.`)
 }
 
 function useBankIt() {
@@ -3720,6 +3690,58 @@ function useBankIt() {
   setActionMessage(
     'BANK IT! +2 points.'
   )
+  announceActionUse('Bank It', `${currentPlayer.name} gained 2 points.`)
+}
+
+function useFreePass() {
+  const currentPlayer = players[currentPlayerIndex]
+  const cardIndex = (currentPlayer.actionCards || []).findIndex(
+    (card) => card.name === 'Free Pass'
+  )
+
+  if (
+    cardIndex === -1 ||
+    actionCardUsedThisTurn ||
+    landedSpace !== 'Mechanic' ||
+    !mechanicCard ||
+    mechanicResolved ||
+    mechanicAttempted ||
+    doublePointsActive ||
+    jackpotActive ||
+    currentPlayer.hotStreakActive
+  ) {
+    return
+  }
+
+  setPlayers((currentPlayers) =>
+    currentPlayers.map((player, index) =>
+      index === currentPlayerIndex
+        ? {
+            ...player,
+            points: player.points + mechanicCard.points,
+            actionCards: (player.actionCards || []).filter(
+              (_, index) => index !== cardIndex
+            ),
+          }
+        : player
+    )
+  )
+  setActionDiscardPile((currentPile) => [
+    ...currentPile,
+    currentPlayer.actionCards[cardIndex],
+  ])
+  setLastScoredMechanic({ card: mechanicCard, playerId: currentPlayer.id })
+  setAttemptsLeft(0)
+  setMechanicResolved(true)
+  setMechanicFailed(false)
+  setInsuranceActive(false)
+  setActionCardUsedThisTurn(true)
+  setMechanicActionUsed(true)
+  setPublicMechanicOutcome(`${currentPlayer.name} scored ${mechanicCard.name}!`)
+  setMechanicMessage(
+    `FREE PASS! ${mechanicCard.name} completed automatically for +${mechanicCard.points} point${mechanicCard.points === 1 ? '' : 's'}.`
+  )
+  announceActionUse('Free Pass', `${mechanicCard.name} was completed automatically for ${mechanicCard.points} point${mechanicCard.points === 1 ? '' : 's'}.`)
 }
 
 function useZeroBounce(targetIndex) {
@@ -3782,6 +3804,7 @@ function useZeroBounce(targetIndex) {
     setActionMessage(
       `${targetPlayer.name}'s Shield blocked your Zero Bounce!`
     )
+    revealActionEffect('Shield', `${targetPlayer.name} blocked Zero Bounce.`)
 
     return
   }
@@ -3824,6 +3847,9 @@ function useZeroBounce(targetIndex) {
     targetPlayer.name,
     'Their next Mechanic must be scored with no bounce.'
   )
+  announceActionUse('Zero Bounce', `${targetPlayer.name} was targeted.`, {
+    secretWhilePending: true,
+  })
 }
 
 
@@ -3883,6 +3909,7 @@ function use100KPH(targetIndex) {
     setActionMessage(
       `${targetPlayer.name}'s Shield blocked your 100+ KPH!`
     )
+    revealActionEffect('Shield', `${targetPlayer.name} blocked 100+ KPH.`)
     return
   }
 
@@ -3922,6 +3949,9 @@ function use100KPH(targetIndex) {
     targetPlayer.name,
     'Their next Mechanic now requires a 100+ KPH goal.'
   )
+  announceActionUse('100+ KPH', `${targetPlayer.name} was targeted.`, {
+    secretWhilePending: true,
+  })
 }
 
 function useTopCorner(targetIndex) {
@@ -3980,6 +4010,7 @@ function useTopCorner(targetIndex) {
     setActionMessage(
       `${targetPlayer.name}'s Shield blocked your Top Corner!`
     )
+    revealActionEffect('Shield', `${targetPlayer.name} blocked Top Corner.`)
     return
   }
 
@@ -4019,6 +4050,9 @@ function useTopCorner(targetIndex) {
     targetPlayer.name,
     'Their next Mechanic must finish in a top corner.'
   )
+  announceActionUse('Top Corner', `${targetPlayer.name} was targeted.`, {
+    secretWhilePending: true,
+  })
 }
 
 function drawMechanicCard() {
@@ -4217,7 +4251,7 @@ function resolveBattleWinner(winnerIndex) {
   setPlayers((currentPlayers) =>
     currentPlayers.map((player, index) => {
       if (index === winnerIndex) {
-        return { ...player, points: player.points + 2 }
+        return { ...player, points: player.points + 3 }
       }
 
       if (loserIndexes.includes(index)) {
@@ -4236,7 +4270,7 @@ function resolveBattleWinner(winnerIndex) {
   setBattleState((currentBattle) => ({
     ...currentBattle,
     concedeVoteBy: null,
-    resultMessage: `${winnerName} wins ${card.name}! +2 board points.${lossText}`,
+    resultMessage: `${winnerName} wins ${card.name}! +3 board points.${lossText}`,
   }))
 }
 
@@ -4353,7 +4387,7 @@ function spinLuckyBattle() {
     currentPlayers.map((player, index) => {
       if (!participantIndexes.includes(index)) return player
       return index === winnerIndex
-        ? { ...player, points: player.points + 2 }
+        ? { ...player, points: player.points + 3 }
         : { ...player, points: Math.max(0, player.points - 1) }
     })
   )
@@ -4368,7 +4402,7 @@ function spinLuckyBattle() {
     ...currentBattle,
     luckySpins: newSpins,
     luckySpinCursor: participantIndexes.length,
-    resultMessage: `${winnerName} wins Lucky Spin with ${highestRoll}! +2 board points. Every other participating player loses 1 board point.${tieText}`,
+    resultMessage: `${winnerName} wins Lucky Spin with ${highestRoll}! +3 board points. Every other participating player loses 1 board point.${tieText}`,
   }))
 }
 
@@ -4843,6 +4877,7 @@ function activateLandingAtPosition(newPosition, boardOptions = null) {
   setKph100Required(false)
   setTopCornerRequired(false)
   setMechanicFailed(false)
+  setMechanicAttempted(false)
   setDoublePointsActive(false)
   setInsuranceActive(false)
   setJackpotActive(false)
@@ -4854,6 +4889,7 @@ function activateLandingAtPosition(newPosition, boardOptions = null) {
   setEventResolved(true)
   setSpecialState(null)
   setSpecialResolved(true)
+  setSelectionRoulette(null)
 
   if (spaceType === 'Finish') {
     const finishHand = currentPlayer.actionCards || []
@@ -5067,15 +5103,18 @@ function activateLandingAtPosition(newPosition, boardOptions = null) {
 
     setBattleDeck(deck.slice(1))
     setBattleResolved(false)
-    setBattleState({
-      card: drawnBattle,
+    const battleOptions = buildRouletteCandidates(
+      battleCards,
+      drawnBattle,
+      (card) => `#${card.number} — ${card.name}`
+    )
+    setSelectionRoulette({
+      type: 'battle',
+      title: 'Selecting Battle',
+      options: battleOptions,
+      winner: drawnBattle,
+      winnerLabel: `#${drawnBattle.number} — ${drawnBattle.name}`,
       opponentIndex: randomOpponentIndex,
-      participantIndexes: drawnBattle?.allPlayers ? activeBattleIndexes : null,
-      battleMechanic: null,
-      concedeVoteBy: null,
-      luckySpins: [],
-      luckySpinCursor: 0,
-      resultMessage: '',
     })
     setMechanicResolved(true)
     setActionResolved(true)
@@ -5089,9 +5128,17 @@ function activateLandingAtPosition(newPosition, boardOptions = null) {
     const drawnEvent = deck[0]
     setEventDeck(deck.slice(1))
     setEventResolved(false)
-    setEventState({
-      card: drawnEvent,
-      resultMessage: '',
+    const eventOptions = buildRouletteCandidates(
+      eventCards,
+      drawnEvent,
+      (card) => `#${card.number} — ${card.name}`
+    )
+    setSelectionRoulette({
+      type: 'event',
+      title: 'Selecting Event',
+      options: eventOptions,
+      winner: drawnEvent,
+      winnerLabel: `#${drawnEvent.number} — ${drawnEvent.name}`,
     })
     setMechanicResolved(true)
     setActionResolved(true)
@@ -5456,7 +5503,7 @@ function clearLandingUiForRouteChoice() {
   setEventResolved(true)
 }
 
-function continueGeneratedMovement({
+async function continueGeneratedMovement({
   startNodeId,
   remainingMovement,
   basePosition,
@@ -5483,6 +5530,16 @@ function continueGeneratedMovement({
     history = buildGeneratedPathToNode(currentNodeId)
   }
 
+  async function showStep() {
+    const nodeId = currentNodeId
+    const trail = [...history]
+    setPlayers((current) => current.map((player, index) => index === currentPlayerIndex
+      ? { ...player, boardNodeId: nodeId, routeHistory: trail, position: Math.min(BOARD_LENGTH - 1, (basePosition || 0) + movedSpaces) }
+      : player))
+    setTravel({ remaining, playerName: players[currentPlayerIndex]?.name || 'Player' })
+    await pauseAnimation(420)
+  }
+
   if (chosenNextId) {
     const currentNode = nodeMap.get(currentNodeId)
 
@@ -5494,6 +5551,7 @@ function continueGeneratedMovement({
     history.push(chosenNextId)
     remaining -= 1
     movedSpaces += 1
+    await showStep()
   }
 
   while (remaining > 0) {
@@ -5521,6 +5579,7 @@ function continueGeneratedMovement({
         history.push(mainNextId)
         remaining -= 1
         movedSpaces += 1
+    await showStep()
         continue
       }
     }
@@ -5544,6 +5603,7 @@ function continueGeneratedMovement({
         )
       )
 
+      setTravel(null)
       clearLandingUiForRouteChoice()
       setLandedSpace(
         currentNodeId === generatedBoard.shortcut?.gateId
@@ -5597,8 +5657,10 @@ function continueGeneratedMovement({
     history.push(currentNodeId)
     remaining -= 1
     movedSpaces += 1
+    await showStep()
   }
 
+  setTravel(null)
   const destination = nodeMap.get(currentNodeId)
   if (!destination) return
 
@@ -5665,7 +5727,7 @@ function chooseGambleRisk(riskId) {
     },
     insane: {
       name: 'Insane',
-      difficulty: 'Extreme',
+      difficulty: 'Insane',
       reward: 6,
       penalty: 3,
     },
@@ -6069,6 +6131,7 @@ function continueAfterShortcutGate() {
 
     setSpecialState(null)
     setSpecialResolved(true)
+    setSelectionRoulette(null)
     continueGeneratedMovement(movementState)
     return
   }
@@ -6113,8 +6176,8 @@ function continueAfterShortcutGate() {
   activateLandingAtPosition(finalPosition)
 }
 
-  function spin(forcedResult = null) {
-    if (hasSpun) return
+  async function spin(forcedResult = null, dieType = 'normal') {
+    if (hasSpun || rollingLock.current || travel) return
 
     // Second Chance: first click reveals two spins.
     if (
@@ -6122,12 +6185,12 @@ function continueAfterShortcutGate() {
       forcedResult === null &&
       secondChanceRolls.length === 0
     ) {
-      const firstRoll = Math.floor(Math.random() * 10) + 1
-      const secondRoll = Math.floor(Math.random() * 10) + 1
+      const firstRoll = Math.floor(Math.random() * 6) + 1
+      const secondRoll = Math.floor(Math.random() * 6) + 1
 
       setSecondChanceRolls([firstRoll, secondRoll])
       setActionMessage(
-        `SECOND CHANCE! You spun ${firstRoll} and ${secondRoll}. Choose which one you want.`
+        `SECOND CHANCE! You rolled ${firstRoll} and ${secondRoll}. Choose which one you want.`
       )
       return
     }
@@ -6139,26 +6202,75 @@ function continueAfterShortcutGate() {
     const choosingSecondChance =
       forcedResult !== null && secondChanceRolls.length === 2
     const savedSecondChanceRolls = [...secondChanceRolls]
-    const result =
-      forcedResult !== null
-        ? forcedResult
-        : Math.floor(Math.random() * 10) + 1
-
     const currentPlayer = players[currentPlayerIndex]
+    const selectedCar = getPartyCar(currentPlayer.carId) || PARTY_CARS[0]
+    const rawFace = forcedResult !== null
+      ? forcedResult
+      : dieType === 'special'
+        ? selectedCar.specialDie[Math.floor(Math.random() * selectedCar.specialDie.length)]
+        : Math.floor(Math.random() * 6) + 1
+    const isPointFace = typeof rawFace === 'object' && rawFace?.type === 'tokens'
+    const pointChange = isPointFace ? Math.max(-1, Number(rawFace.value) || 0) : 0
+    const result = isPointFace ? 0 : Number(rawFace) || 0
+    const resultLabel = isPointFace
+      ? `${pointChange > 0 ? '+' : ''}${pointChange} Point${Math.abs(pointChange) === 1 ? '' : 's'}`
+      : result
 
-    setSpinResult(result)
+    rollingLock.current = true
+    setDiceRolling(true)
+    await pauseAnimation(1000)
+    setDiceRolling(false)
+    rollingLock.current = false
+    setSpinResult(resultLabel)
     setHasSpun(true)
 
     if (choosingSecondChance) {
       setActionMessage(
-        `SECOND CHANCE! You spun ${savedSecondChanceRolls[0]} and ${savedSecondChanceRolls[1]}. You chose ${result}!`
+        `SECOND CHANCE! You rolled ${savedSecondChanceRolls[0]} and ${savedSecondChanceRolls[1]}. You chose ${result}!`
       )
     } else {
-      setActionMessage('')
+      setActionMessage(
+        dieType === 'special'
+          ? `${currentPlayer.name} rolled ${resultLabel} with the ${selectedCar.name} Special Die.`
+          : ''
+      )
     }
 
     setSecondChanceActive(false)
     setSecondChanceRolls([])
+
+    if (isPointFace) {
+      setPlayers((currentPlayers) =>
+        currentPlayers.map((player, index) =>
+          index === currentPlayerIndex
+            ? { ...player, points: Math.max(0, player.points + pointChange) }
+            : player
+        )
+      )
+    }
+
+    if (result <= 0) {
+      const currentNode = generatedBoard
+        ? getGeneratedBoardNode(currentPlayer.boardNodeId || generatedBoard.startId)
+        : null
+      const currentSpaceType = currentNode?.type || boardSpaces[currentPlayer.position]
+
+      if (currentSpaceType === 'Shortcut Gate') {
+        setLandedSpace('Shortcut Gate')
+        setMechanicResolved(true)
+        setActionResolved(true)
+        setBattleResolved(true)
+        setEventResolved(true)
+        setSpecialResolved(true)
+      } else {
+        activateLandingAtPosition(currentPlayer.position, generatedBoard ? {
+          boardNodeId: currentPlayer.boardNodeId || generatedBoard.startId,
+          routeHistory: currentPlayer.routeHistory || null,
+          spaceType: currentSpaceType,
+        } : null)
+      }
+      return
+    }
 
     if (generatedBoard) {
       continueGeneratedMovement({
@@ -6170,6 +6282,15 @@ function continueAfterShortcutGate() {
       return
     }
 
+    const stop = !currentPlayer.shortcutGateResolved && currentPlayer.position < SHORTCUT_GATE_POSITION
+      ? Math.min(currentPlayer.position + result, SHORTCUT_GATE_POSITION)
+      : Math.min(currentPlayer.position + result, BOARD_LENGTH)
+    for (let position = currentPlayer.position + 1; position <= stop; position += 1) {
+      setTravel({ remaining: Math.max(0, result - (position - currentPlayer.position)), playerName: currentPlayer.name })
+      setPlayers((current) => current.map((player, index) => index === currentPlayerIndex ? { ...player, position } : player))
+      await pauseAnimation(420)
+    }
+    setTravel(null)
     const distanceToGate =
       SHORTCUT_GATE_POSITION - currentPlayer.position
 
@@ -6182,7 +6303,7 @@ function continueAfterShortcutGate() {
     if (mustPauseAtShortcutGate) {
       const remainingMovement = result - distanceToGate
 
-      // The gate is a mandatory quick stop during normal spinner movement.
+      // The gate is a mandatory quick stop during normal die movement.
       // Reaching or passing it pauses the spin, then the exact remaining
       // movement is continued after the route decision.
       setLandedSpace('Shortcut Gate')
@@ -6236,6 +6357,7 @@ function continueAfterShortcutGate() {
 
   function scoreMechanic() {
     if (!mechanicCard || mechanicResolved) return
+    setMechanicAttempted(true)
     let pointsEarned = doublePointsActive
   ? mechanicCard.points * 2
   : mechanicCard.points
@@ -6243,6 +6365,11 @@ function continueAfterShortcutGate() {
   pointsEarned += 3
 }
 const currentPlayer = players[currentPlayerIndex]
+const scoringCards = []
+if (doublePointsActive) scoringCards.push('Double Points')
+if (insuranceActive) scoringCards.push('Insurance')
+if (jackpotActive) scoringCards.push('Jackpot')
+if (currentPlayer.hotStreakActive) scoringCards.push('Hot Streak')
 
 if (currentPlayer.hotStreakActive) {
   pointsEarned += 2
@@ -6276,6 +6403,11 @@ if (currentPlayer.hotStreakActive) {
     setPublicMechanicOutcome(
       `${currentPlayer.name} scored ${mechanicCard.name}!`
     )
+    if (scoringCards.length > 0) {
+      setPublicActionNotice(
+        `${currentPlayer.name} completed the mechanic using ${scoringCards.join(', ')}.`
+      )
+    }
 
    setMechanicMessage(
   `Scored! +${pointsEarned} point${
@@ -6286,6 +6418,7 @@ if (currentPlayer.hotStreakActive) {
 
   function missMechanic() {
     if (!mechanicCard || mechanicResolved) return
+    setMechanicAttempted(true)
 
     if (attemptsLeft > 1) {
       setAttemptsLeft(attemptsLeft - 1)
@@ -6297,12 +6430,22 @@ if (currentPlayer.hotStreakActive) {
   setMechanicFailed(true)
   setDoublePointsActive(false)
   const currentPlayer = players[currentPlayerIndex]
+  const failedCards = []
+  if (doublePointsActive) failedCards.push('Double Points')
+  if (insuranceActive) failedCards.push('Insurance')
+  if (jackpotActive) failedCards.push('Jackpot')
+  if (currentPlayer.hotStreakActive) failedCards.push('Hot Streak')
 
   // Public result is intentionally generic so Jackpot, Insurance, Hot Streak,
   // Pressure, and every other Action Card remain secret.
   setPublicMechanicOutcome(
     `${currentPlayer.name} missed ${mechanicCard.name}.`
   )
+  if (failedCards.length > 0) {
+    setPublicActionNotice(
+      `${currentPlayer.name}'s resolved Action Card${failedCards.length === 1 ? '' : 's'}: ${failedCards.join(', ')}.`
+    )
+  }
 
 if (currentPlayer.hotStreakActive) {
   setPlayers((currentPlayers) =>
@@ -6433,9 +6576,6 @@ if (currentPlayer.hotStreakActive) {
       )
     }
 
-    const nextPlayerIsLockedOut =
-      players[nextPlayer]?.lockoutActive || false
-
     setCurrentPlayerIndex(nextPlayer)
     setSpinResult(null)
     setHasSpun(false)
@@ -6448,6 +6588,7 @@ if (currentPlayer.hotStreakActive) {
     setMechanicResolved(true)
     setMechanicMessage('')
     setMechanicFailed(false)
+    setMechanicAttempted(false)
     setDoublePointsActive(false)
     setInsuranceActive(false)
     setJackpotActive(false)
@@ -6455,7 +6596,6 @@ if (currentPlayer.hotStreakActive) {
     setAwaitingMechanicDraw(false)
     setSecondChanceActive(false)
     setSecondChanceRolls([])
-    setTradeOfferState(null)
     setNoBounceRequired(false)
     setKph100Required(false)
     setTopCornerRequired(false)
@@ -6465,23 +6605,12 @@ if (currentPlayer.hotStreakActive) {
     setEventResolved(true)
     setSpecialState(null)
     setSpecialResolved(true)
-    setActionCardUsedThisTurn(nextPlayerIsLockedOut)
-
-    if (nextPlayerIsLockedOut) {
-      setPlayers((currentPlayers) =>
-        currentPlayers.map((player, index) => {
-          if (index !== nextPlayer) return player
-
-          return {
-            ...player,
-            lockoutActive: false,
-          }
-        })
-      )
-    }
+    setSelectionRoulette(null)
+    setActionCardUsedThisTurn(false)
 
     setActionResolved(true)
     setPrivateActionNotice('')
+    setPublicActionNotice('')
 
     const bonusMessage =
       bonusRecipients.length > 0
@@ -6491,13 +6620,7 @@ if (currentPlayer.hotStreakActive) {
             .join(', ')} +1 point${bonusRecipients.length === 1 ? '' : ' each'}. `
         : ''
 
-    if (nextPlayerIsLockedOut) {
-      setActionMessage(
-        `${bonusMessage}LOCKOUT: You cannot use any Action Cards this turn.`
-      )
-    } else {
-      setActionMessage(bonusMessage.trim())
-    }
+    setActionMessage(bonusMessage.trim())
   }
 
   if (leaveConfirmOpen) {
@@ -6658,16 +6781,123 @@ if (currentPlayer.hotStreakActive) {
         <div className="rules-box">
           <h2>How to Play</h2>
           <p><strong>Goal:</strong> Reach Finish and end the game with the most points.</p>
-          <p><strong>Your Turn:</strong> Spin 1–10, move, then resolve the space you land on.</p>
-          <p><strong>Mechanics:</strong> Most spaces are Mechanic spaces. You normally get 2 attempts. Easy = 1 point, Medium = 2, Hard = 3, Extreme = 4.</p>
+          <p><strong>Your Turn:</strong> Roll the normal 1–6 die or your car’s special die, move, then resolve the space you land on. A 0 or point face reactivates your current space unless it is the Shortcut Gate.</p>
+          <p><strong>Mechanics:</strong> Most spaces are Mechanic spaces. You normally get 2 attempts. Easy = 1 point, Medium = 2, Hard = 3, Insane = 4.</p>
           <p><strong>Action Cards:</strong> Hold up to 3. Action spaces give cards, and Action Shops let you pay 1 point to choose 1 of 3 cards.</p>
-          <p><strong>Battles:</strong> Follow the Battle screen. The winner gets +2 points and the loser loses 1 point (minimum 0). Normal Action/Mechanic effects do not affect Battles.</p>
+          <p><strong>Battles:</strong> Follow the Battle screen. The winner gets +3 points and the loser loses 1 point (minimum 0). Normal Action/Mechanic effects do not affect Battles.</p>
           <p><strong>Events:</strong> Resolve the random Event shown on screen immediately.</p>
           <p><strong>Special Spaces:</strong> Gamble, Choose Difficulty, Action Shop, and the Shortcut Gate each explain themselves when reached.</p>
           <p><strong>Finish:</strong> If you arrive with exactly 3 Action Cards, cash them out for +1 point. All remaining Action Cards are then discarded.</p>
           <p><strong>Finished Players:</strong> Your normal turns are skipped. Each time your turn would come up, gain +1 point, up to +3 total waiting-bonus points.</p>
           <p><strong>Game Over:</strong> When everyone has finished, the highest score wins.</p>
         </div>
+
+        <div className="rules-box">
+          <h2>Action Card Visibility</h2>
+          <p>
+            <strong>Hidden Hands</strong> shows only card counts for opponents.{' '}
+            <strong>Open Hands</strong> shows every card name and armed Lockout status.
+          </p>
+          <label>
+            Hand setting:{' '}
+            <select
+              value={handVisibility}
+              onChange={(event) => setHandVisibility(event.target.value)}
+              disabled={isOnlineGame && !isOnlineHost}
+            >
+              <option value="hidden">Hidden Hands</option>
+              <option value="open">Open Hands</option>
+            </select>
+          </label>
+          {isOnlineGame && !isOnlineHost && <p>Only the host can change this setting.</p>}
+        </div>
+
+        <section className="party-car-select-panel">
+          <div className="party-car-select-panel__header">
+            <div>
+              <p className="home-mode-card__eyebrow">Classic Cars</p>
+              <h2>Choose Cars + Special Dice</h2>
+              <p>Every player gets the normal 1–6 die and their selected car’s special die.</p>
+            </div>
+            <button
+              type="button"
+              className="party-car-clear"
+              onClick={() => chooseRandomClassicCar(classicCarPlayerIndex)}
+              disabled={
+                isOnlineGame &&
+                !isOnlineHost &&
+                players[classicCarPlayerIndex]?.id !== localClientId
+              }
+            >
+              Random Car
+            </button>
+          </div>
+
+          <div className="classic-car-player-tabs">
+            {players.map((player, index) => (
+              <button
+                type="button"
+                key={player.id ?? index}
+                className={classicCarPlayerIndex === index ? 'selected' : ''}
+                onClick={() => {
+                  if (!isOnlineGame || isOnlineHost || player.id === localClientId) {
+                    setClassicCarPlayerIndex(index)
+                  }
+                }}
+                disabled={isOnlineGame && !isOnlineHost && player.id !== localClientId}
+              >
+                {player.name}: {getPartyCar(player.carId)?.name || 'Choose Car'}
+              </button>
+            ))}
+          </div>
+
+          <div className="party-car-grid">
+            {PARTY_CARS.map((car) => {
+              const isSelected = players[classicCarPlayerIndex]?.carId === car.id
+              const isTaken = players.some(
+                (player, index) => index !== classicCarPlayerIndex && player.carId === car.id
+              )
+              return (
+                <button
+                  type="button"
+                  key={car.id}
+                  className={`party-car-option${isSelected ? ' party-car-option--selected' : ''}`}
+                  onClick={() => selectClassicCar(classicCarPlayerIndex, car.id)}
+                  disabled={
+                    isTaken ||
+                    (isOnlineGame && !isOnlineHost && players[classicCarPlayerIndex]?.id !== localClientId)
+                  }
+                >
+                  <span className="party-car-option__image-wrap">
+                    <img
+                      className="party-car-option__image"
+                      src={getPartyCarImageUrl(car)}
+                      alt={`${car.name} Rocket League car`}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      onError={(event) => {
+                        const fallback = getPartyCarImageFallback(car)
+                        if (event.currentTarget.src !== fallback) {
+                          event.currentTarget.src = fallback
+                        }
+                      }}
+                    />
+                  </span>
+                  <span className="party-car-option__name">{car.name}</span>
+                  <span className="party-car-option__die-label">Special Die</span>
+                  <span className="party-car-option__die">
+                    {car.specialDie.map((face) =>
+                      typeof face === 'object' && face?.type === 'tokens'
+                        ? `${face.value > 0 ? '+' : ''}${Math.max(-1, face.value)} Point${Math.abs(Math.max(-1, face.value)) === 1 ? '' : 's'}`
+                        : formatPartyDieFace(face)
+                    ).join(' • ')}
+                  </span>
+                  <span className="party-car-option__status">{isTaken ? 'Taken' : isSelected ? 'Selected' : 'Select'}</span>
+                </button>
+              )
+            })}
+          </div>
+        </section>
 
         {isOnlineGame && (
           <p>
@@ -6749,8 +6979,21 @@ if (currentPlayer.hotStreakActive) {
   players.length
 )
 
+    const activityBoard = (
+        <details className="classic-activity" open>
+          <summary>Game Status · {handVisibility === 'open' ? 'Open Hands' : 'Hidden Hands'}</summary>
+          <div role="log" aria-live="polite">{gameActivity.filter((entry) => handVisibility === 'open' ? entry.open : entry.hidden).slice(-12).map((entry) => <p key={entry.id}>{handVisibility === 'open' ? entry.open : entry.hidden}</p>)}
+          {!gameActivity.length && <p>Game activity will appear here.</p>}</div>
+        </details>
+    )
+
     const gameHud = (
       <header className="game-hud">
+        <span className="hand-mode-badge">Classic · {handVisibility === 'open' ? 'Open Hands' : 'Hidden Hands'}</span>
+        {(diceRolling || travel) && <div className="movement-lock" aria-live="polite">
+          <div className="movement-counter">{diceRolling ? <><span className="rolling-die">🎲</span> Rolling…</> : `${travel.playerName} · ${travel.remaining} spaces remaining`}</div>
+        </div>}
+
         <div className="game-hud__identity">
           <div className="game-hud__eyebrow">ROCKET LEAGUE · FREESTYLE BOARD</div>
           <div className="game-hud__title-row">
@@ -6781,6 +7024,7 @@ if (currentPlayer.hotStreakActive) {
             const isCurrent =
               playerIndex === currentPlayerIndex && !player.finished && !player.leftGame
             const isYou = isOnlineGame && player.id === localClientId
+            const playerCar = getPartyCar(player.carId)
 
             return (
               <div
@@ -6790,13 +7034,30 @@ if (currentPlayer.hotStreakActive) {
                 key={player.id ?? playerIndex}
                 style={{ '--player-accent': PLAYER_ACCENTS[playerIndex % PLAYER_ACCENTS.length] }}
               >
+                {playerCar && <img className="hud-car-image" src={getPartyCarImageUrl(playerCar)} alt={playerCar.name} />}
                 <span className="hud-player__dot" />
                 <div className="hud-player__name">
                   {player.name}{isYou ? ' · You' : ''}{player.leftGame ? ' · Left' : ''}
                 </div>
                 <div className="hud-player__meta">
-                  <strong>{player.points}</strong> pts · {player.leftGame ? 'Left game' : player.finished ? 'Finished' : `Space ${player.position}/75`}
+                  <strong>{player.points}</strong> pts · {player.leftGame ? 'Left game' : player.finished ? 'Finished' : `Space ${player.position}/75`} · {(player.actionCards || []).length} cards
                 </div>
+                {playerCar && (
+                  <div className="hud-player__die">
+                    <strong>{playerCar.name}:</strong>{' '}
+                    {playerCar.specialDie.map((face) =>
+                      typeof face === 'object' && face?.type === 'tokens'
+                        ? `${Math.max(-1, face.value) > 0 ? '+' : ''}${Math.max(-1, face.value)}P`
+                        : formatPartyDieFace(face)
+                    ).join(' • ')}
+                  </div>
+                )}
+                {handVisibility === 'open' && (player.actionCards || []).length > 0 && (
+                  <div className="hud-player__meta">
+                    {(player.actionCards || []).map((card) => card.name).join(', ')}
+                    {player.lockoutActive ? ' · Lockout armed' : ''}
+                  </div>
+                )}
 
                 {isOnlineHost && !isYou && !player.leftGame && (
                   <button
@@ -6896,6 +7157,41 @@ if (landingAnnouncementActive && landingAnnouncement) {
         <p style={{ margin: 0 }}><strong>{announcementSubtext}</strong></p>
       </div>
     </GameOverlayCard>
+  )
+}
+
+if (selectionRoulette) {
+  return (
+    <div
+      className={`game game--play game--overlay game--roulette ${
+        isOnlineGame && !canUseOnlineControls ? 'online-waiting' : ''
+      }`}
+    >
+      {gameHud}
+      <div className="game-overlay-stage">
+        {generatedBoard && (
+          <GameBoard
+            board={generatedBoard}
+            players={players}
+            currentPlayerIndex={currentPlayerIndex}
+            boardLength={BOARD_LENGTH}
+            localPlayerId={localClientId}
+            ambient
+          />
+        )}
+        <div className="game-overlay-layer">
+          <section className="game-modal-card selection-roulette-card">
+            <RouletteReel
+              key={`${selectionRoulette.type}-${selectionRoulette.winnerLabel}`}
+              title={selectionRoulette.title}
+              options={selectionRoulette.options.map((option) => option.label)}
+              winner={selectionRoulette.winnerLabel}
+              onComplete={() => completeSelectionRoulette(selectionRoulette)}
+            />
+          </section>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -7013,7 +7309,7 @@ if (battleState) {
               key={playerIndex}
               onClick={() => resolveBattleWinner(playerIndex)}
             >
-              {players[playerIndex]?.name} Won (+2)
+              {players[playerIndex]?.name} Won (+3)
             </button>
           ))}
         </div>
@@ -7077,10 +7373,10 @@ if (battleState) {
         <div className="mechanic-card">
           <h3>Enter Battle Result</h3>
           <button onClick={() => resolveBattleWinner(currentPlayerIndex)}>
-            {currentPlayer.name} Won (+2)
+            {currentPlayer.name} Won (+3)
           </button>
           <button onClick={() => resolveBattleWinner(battleState.opponentIndex)}>
-            {opponent.name} Won (+2)
+            {opponent.name} Won (+3)
           </button>
         </div>
       )}
@@ -7234,7 +7530,7 @@ if (specialState) {
           <p>Choose your risk before seeing the Mechanic.</p>
           <p><strong>Safe:</strong> Medium Mechanic, 2 attempts, +2 points if scored, no penalty if missed.</p>
           <p><strong>Risky:</strong> Hard Mechanic, 2 attempts, +4 points if scored, -1 point if both attempts miss.</p>
-          <p><strong>Insane:</strong> Extreme Mechanic, 2 attempts, +6 points if scored, -3 points if both attempts miss.</p>
+          <p><strong>Insane:</strong> Insane Mechanic, 2 attempts, +6 points if scored, -3 points if both attempts miss.</p>
           <p>Points can never go below 0.</p>
           <p><strong>Outside Action Cards and pending normal Mechanic effects do not affect this Special challenge.</strong></p>
         </div>
@@ -7244,7 +7540,7 @@ if (specialState) {
             <h3>Choose Risk</h3>
             <button onClick={() => chooseGambleRisk('safe')}>Safe — Medium</button>
             <button onClick={() => chooseGambleRisk('risky')}>Risky — Hard</button>
-            <button onClick={() => chooseGambleRisk('insane')}>Insane — Extreme</button>
+            <button onClick={() => chooseGambleRisk('insane')}>Insane</button>
           </div>
         )}
 
@@ -7283,7 +7579,7 @@ if (specialState) {
 
         <div className="mechanic-card">
           <h3>Rules</h3>
-          <p>Choose Easy, Medium, Hard, or Extreme.</p>
+          <p>Choose Easy, Medium, Hard, or Insane.</p>
           <p>The app draws one random Mechanic from that exact difficulty.</p>
           <p>You get 2 attempts. Score it for its normal point value; miss both for 0.</p>
           <p><strong>Outside Action Cards and pending normal Mechanic effects do not affect this Special challenge.</strong></p>
@@ -7292,7 +7588,7 @@ if (specialState) {
         {specialState.stage === 'choose-difficulty' && (
           <div className="mechanic-card">
             <h3>Pick a Difficulty</h3>
-            {['Easy', 'Medium', 'Hard', 'Extreme'].map((difficulty) => (
+            {DIFFICULTY_ORDER.map((difficulty) => (
               <button
                 key={difficulty}
                 onClick={() => chooseSpecialDifficulty(difficulty)}
@@ -7565,213 +7861,6 @@ if (specialState) {
 }
 
 
-if (tradeOfferState) {
-  const initiator =
-    players[tradeOfferState.initiatorIndex]
-
-  const target =
-    tradeOfferState.targetIndex !== null
-      ? players[tradeOfferState.targetIndex]
-      : null
-
-  const offeredCard =
-    tradeOfferState.offeredCardIndex !== null
-      ? initiator?.actionCards?.[
-          tradeOfferState.offeredCardIndex
-        ]
-      : null
-
-  const localIsTradeInitiator =
-    !isOnlineGame || initiator?.id === localClientId
-  const localIsTradeTarget =
-    !isOnlineGame || target?.id === localClientId
-  const localIsTradeParticipant =
-    !isOnlineGame || localIsTradeInitiator || localIsTradeTarget
-
-  if (isOnlineGame && !localIsTradeParticipant) {
-    return (
-      <GameOverlayCard>
-        <h1>Private Choice</h1>
-        <p>
-          <strong>{initiator?.name}</strong> is resolving something privately.
-        </p>
-      </GameOverlayCard>
-    )
-  }
-
-  if (
-    isOnlineGame &&
-    ['choose-target', 'choose-offer'].includes(tradeOfferState.stage) &&
-    !localIsTradeInitiator
-  ) {
-    return (
-      <GameOverlayCard>
-        <h1>Trade Offer</h1>
-        <p>
-          Waiting for {initiator?.name} to make their private trade choice...
-        </p>
-      </GameOverlayCard>
-    )
-  }
-
-  if (
-    isOnlineGame &&
-    tradeOfferState.stage === 'target-choose' &&
-    !localIsTradeTarget
-  ) {
-    return (
-      <GameOverlayCard>
-        <h1>Trade Offer</h1>
-        <p>
-          <strong>{target?.name}</strong> must choose one Action Card to trade back.
-        </p>
-      </GameOverlayCard>
-    )
-  }
-
-  if (tradeOfferState.stage === 'choose-target') {
-    return (
-      <GameOverlayCard>
-        <h1>Trade Offer</h1>
-        <p>
-          <strong>This trade is mandatory once you choose a player.</strong>
-        </p>
-        <h2>Choose the player you want to force a trade with:</h2>
-
-        <div className="menu">
-          {players.map((player, targetIndex) => {
-            if (
-              targetIndex === tradeOfferState.initiatorIndex ||
-              player.finished ||
-              player.leftGame ||
-              (player.actionCards || []).length === 0
-            ) {
-              return null
-            }
-
-            return (
-              <button
-                key={targetIndex}
-                onClick={() => chooseTradeTarget(targetIndex)}
-              >
-                Force Trade with {player.name}
-              </button>
-            )
-          })}
-        </div>
-      </GameOverlayCard>
-    )
-  }
-
-  if (tradeOfferState.stage === 'choose-offer') {
-    return (
-      <GameOverlayCard>
-        <h1>Trade Offer</h1>
-        <p>
-          You chose <strong>{target.name}</strong>. They cannot decline.
-        </p>
-        <h2>Choose the Action Card you will give them:</h2>
-
-        <div className="menu">
-          {(initiator.actionCards || []).map(
-            (card, cardIndex) => (
-              <button
-                key={cardIndex}
-                onClick={() => chooseTradeOfferedCard(cardIndex)}
-              >
-                Give {card.name}
-              </button>
-            )
-          )}
-        </div>
-      </GameOverlayCard>
-    )
-  }
-
-  if (tradeOfferState.stage === 'handoff-target') {
-    return (
-      <GameOverlayCard>
-        <h1>Mandatory Trade</h1>
-        <p>
-          {initiator.name} is giving <strong>{offeredCard?.name}</strong> to {target.name}.
-        </p>
-        <p>
-          Pass the screen to <strong>{target.name}</strong>. They must choose one Action Card to give back.
-        </p>
-
-        <button
-          onClick={() =>
-            setTradeOfferState((currentTrade) => ({
-              ...currentTrade,
-              stage: 'target-choose',
-            }))
-          }
-        >
-          I'm {target.name} — Choose My Card
-        </button>
-      </GameOverlayCard>
-    )
-  }
-
-  if (tradeOfferState.stage === 'target-choose') {
-    return (
-      <GameOverlayCard>
-        <h1>Mandatory Trade</h1>
-
-        <p>
-          <strong>{initiator.name}</strong> used Trade Offer on you.
-        </p>
-        <p>
-          You receive <strong>{offeredCard?.name}</strong>.
-        </p>
-        <h2>
-          {target.name}, choose one Action Card to give {initiator.name}.
-        </h2>
-        <p>
-          <strong>You cannot decline this trade.</strong>
-        </p>
-
-        <div className="menu">
-          {(target.actionCards || []).map(
-            (card, cardIndex) => (
-              <button
-                key={cardIndex}
-                onClick={() => chooseTradeReturnCard(cardIndex)}
-              >
-                Give {card.name}
-              </button>
-            )
-          )}
-        </div>
-      </GameOverlayCard>
-    )
-  }
-
-  if (tradeOfferState.stage === 'complete') {
-    return (
-      <GameOverlayCard>
-        <h1>Trade Complete</h1>
-
-        <p>
-          <strong>{initiator.name}</strong> gave <strong>{tradeOfferState.offeredCardName}</strong>.
-        </p>
-        <p>
-          <strong>{target?.name}</strong> gave <strong>{tradeOfferState.returnCardName}</strong>.
-        </p>
-        <p>The forced trade is complete.</p>
-
-        {(!isOnlineGame || localIsTradeInitiator) ? (
-          <button onClick={finishTradeOffer}>
-            Done
-          </button>
-        ) : (
-          <p>Waiting for {initiator.name} to continue...</p>
-        )}
-      </GameOverlayCard>
-    )
-  }
-}
-
     const mustFinishMechanic =
       landedSpace === 'Mechanic' && !mechanicResolved
 
@@ -7807,28 +7896,60 @@ if (tradeOfferState) {
           />
         )}
 
+        <aside className="classic-turn-sidebar">
         <div className="turn-box">
           <h2>{currentPlayer.name}'s Turn</h2>
 
-          <div className={`spinner ${spinResult !== null ? 'spinner--result' : ''}`}>
-            {spinResult === null ? '?' : spinResult}
+          <div className={`spinner ${spinResult !== null ? 'spinner--result' : ''}${diceRolling ? ' spinner--rolling' : ''}`}>
+            <span className={String(spinResult ?? '?').length > 3 ? 'spinner__value spinner__value--long' : 'spinner__value'}>
+              {spinResult === null ? '?' : spinResult}
+            </span>
+          </div>
+
+          <div className="classic-dice-faces">
+            <div>
+              <strong>Normal Die</strong>
+              <span>1 • 2 • 3 • 4 • 5 • 6</span>
+            </div>
+            <div>
+              <strong>{getPartyCar(currentPlayer.carId)?.name || 'Car'} Special Die</strong>
+              <span>
+                {(getPartyCar(currentPlayer.carId)?.specialDie || []).map((face) =>
+                  typeof face === 'object' && face?.type === 'tokens'
+                    ? `${Math.max(-1, face.value) > 0 ? '+' : ''}${Math.max(-1, face.value)} Point${Math.abs(Math.max(-1, face.value)) === 1 ? '' : 's'}`
+                    : formatPartyDieFace(face)
+                ).join(' • ')}
+              </span>
+            </div>
           </div>
 
           <button
-            onClick={() => spin()}
+            onClick={() => spin(null, 'normal')}
             disabled={
   currentPlayer.finished ||
   hasSpun ||
   secondChanceRolls.length > 0
 }
           >
-            Spin 1–10
+            Roll Normal Die (1–6)
+          </button>
+
+          <button
+            onClick={() => spin(null, 'special')}
+            disabled={
+  currentPlayer.finished ||
+  hasSpun ||
+  secondChanceActive ||
+  secondChanceRolls.length > 0
+}
+          >
+            Roll {getPartyCar(currentPlayer.carId)?.name || 'Car'} Special Die
           </button>
 
           {spinResult !== null && (
             <>
               <p>
-                {currentPlayer.name} spun a{' '}
+                {currentPlayer.name} rolled{' '}
                 <strong>{spinResult}</strong>!
               </p>
 
@@ -7845,6 +7966,11 @@ if (tradeOfferState) {
           {actionMessage && (!isOnlineGame || isMyOnlineTurn) && (
   <p>
     <strong>{actionMessage}</strong>
+  </p>
+)}
+{publicActionNotice && (
+  <p className="public-action-notice">
+    <strong>{publicActionNotice}</strong>
   </p>
 )}
 {privateActionNotice && (!isOnlineGame || isMyOnlineTurn) && (
@@ -8095,7 +8221,10 @@ if (tradeOfferState) {
           </button>
         </div>
 
-        <div className="action-hand">
+          {activityBoard}
+        </aside>
+
+        <div className="action-hand" onClickCapture={interceptLockedOutAction}>
   <h2>
     {isOnlineGame ? 'Your Action Cards' : `${currentPlayer.name}'s Action Cards`}
     {' '}
@@ -8112,7 +8241,7 @@ if (tradeOfferState) {
 
   {(localOnlinePlayer?.actionCards || []).map(
   (card, index) => (
-    <div className="held-action-card" key={index}>
+    <div className="held-action-card" data-action-index={index} key={index}>
       <div>
         <strong>{card.name}</strong>
 
@@ -8198,7 +8327,7 @@ if (tradeOfferState) {
   mechanicCard &&
   !mechanicResolved &&
   attemptsLeft === 2 &&
-  mechanicCard.difficulty !== 'Extreme' &&
+  mechanicCard.difficulty !== 'Insane' &&
   !mechanicActionUsed && !actionCardUsedThisTurn && (
     <button onClick={useDifficultySpike}>
       Use
@@ -8341,8 +8470,7 @@ if (tradeOfferState) {
       {players.map((player, targetIndex) => {
         if (
           targetIndex === currentPlayerIndex ||
-          player.finished ||
-          player.lockoutActive
+          player.finished
         ) {
           return null
         }
@@ -8398,18 +8526,6 @@ if (tradeOfferState) {
       Use
     </button>
 )}
-{card.name === 'Trade Offer' &&
-  !actionCardUsedThisTurn &&
-  (currentPlayer.actionCards || []).length > 1 &&
-  players.some(
-    (player, index) =>
-      index !== currentPlayerIndex &&
-      (player.actionCards || []).length > 0
-  ) && (
-    <button onClick={() => useTradeOffer()}>
-      Use
-    </button>
-)}
 {card.name === 'Snatch' &&
   !actionCardUsedThisTurn && (
     <div>
@@ -8443,6 +8559,19 @@ if (tradeOfferState) {
 {card.name === 'Bank It' &&
   !actionCardUsedThisTurn && (
     <button onClick={useBankIt}>
+      Use
+    </button>
+)}
+{card.name === 'Free Pass' &&
+  landedSpace === 'Mechanic' &&
+  mechanicCard &&
+  !mechanicResolved &&
+  !mechanicAttempted &&
+  !doublePointsActive &&
+  !jackpotActive &&
+  !currentPlayer.hotStreakActive &&
+  !actionCardUsedThisTurn && (
+    <button onClick={useFreePass}>
       Use
     </button>
 )}

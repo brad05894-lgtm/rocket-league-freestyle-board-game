@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import RouletteReel from './RouletteReel'
 import { BOOSTSTONE_RUINS } from './booststoneRuins'
 import BooststoneRuins3D from './BooststoneRuins3D'
-import { getPartyCar } from './partyCars'
+import { formatPartyDieFace, getPartyCar, getPartyCarImageUrl, getPartyCarImageFallback } from './partyCars'
 import { getEnabledPartyCards, getPartyCard, normalizePartyCards } from './partyCards'
 import {
   beginNextPartyRound,
@@ -24,6 +25,7 @@ import {
   usePartyCard,
   votePartyBattleMutualConcede,
   cancelPartyBattleMutualConcede,
+  PARTY_BATTLES,
 } from './partyMultiplayer'
 
 const SPACE_COLORS = {
@@ -93,6 +95,16 @@ function edgeArrowTransform(points) {
   const y = chosen.from.y + (chosen.to.y - chosen.from.y) * ratio
   const angle = Math.atan2(chosen.to.y - chosen.from.y, chosen.to.x - chosen.from.x) * 180 / Math.PI
   return `translate(${x} ${y}) rotate(${angle})`
+}
+
+function rouletteLabels(labels, winner, count = 5) {
+  const unique = [...new Set(labels.filter(Boolean).filter((label) => label !== winner))]
+  for (let index = unique.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1))
+    ;[unique[index], unique[swapIndex]] = [unique[swapIndex], unique[index]]
+  }
+  const choices = [winner, ...unique.slice(0, Math.max(0, count - 1))]
+  return choices.sort(() => Math.random() - 0.5)
 }
 
 function getPartyCardUseState(card, turn, isMyTurn, currentSetup, roomPhase, room, clientId) {
@@ -204,6 +216,9 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const [selectedCardIndex, setSelectedCardIndex] = useState(null)
   const [selectedStealTargetId, setSelectedStealTargetId] = useState('')
   const [boardView, setBoardView] = useState('2d')
+  const [partyRoulette, setPartyRoulette] = useState(null)
+  const [rollingDieType, setRollingDieType] = useState('')
+  const seenRouletteKeyRef = useRef('')
   const board = BOOSTSTONE_RUINS
   const devCards = useMemo(() => getEnabledPartyCards(), [])
 
@@ -268,8 +283,59 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
     0,
     Math.round(baseTrophyPrice * Math.max(1, Number(room.temporaryTrophyPriceMultiplier) || 1))
   )
-  const cardVisibility = room.settings?.cardVisibility === 'open' ? 'open' : 'hidden'
+  const cardVisibility = (
+    room.settings?.cardVisibility === 'open' ||
+    room.settings?.handVisibility === 'open' ||
+    room.settings?.openHands === true
+  ) ? 'open' : 'hidden'
   const openHands = cardVisibility === 'open'
+
+  useEffect(() => {
+    if (battle?.status !== 'active') return
+    const key = `battle-${room.currentRound}-${room.turnIndex}-${battle.id}-${battle.opponentId}`
+    if (seenRouletteKeyRef.current === key) return
+    seenRouletteKeyRef.current = key
+    setPartyRoulette({
+      phase: 'battle',
+      title: 'Selecting Battle',
+      winner: battle.name,
+      options: rouletteLabels(PARTY_BATTLES.map((entry) => entry.name), battle.name),
+      opponentName: room.players?.[battle.opponentId]?.name || 'Opponent',
+      opponentOptions: battle.source === 'challenge-glove'
+        ? []
+        : players
+            .filter((player) => player.id !== battle.challengerId)
+            .map((player) => player.name),
+    })
+  }, [battle, room.currentRound, room.turnIndex, room.players, players])
+
+  useEffect(() => {
+    const event = turn.eventEffect
+    if (!event?.name) return
+    const key = `event-${room.currentRound}-${room.turnIndex}-${event.id}-${event.name}`
+    if (seenRouletteKeyRef.current === key) return
+    seenRouletteKeyRef.current = key
+    const eventNames = Object.values(BOOSTSTONE_RUINS.boardEvents || {}).map((entry) => entry.name)
+    setPartyRoulette({
+      phase: 'event',
+      title: 'Selecting Event',
+      winner: event.name,
+      options: rouletteLabels(eventNames, event.name),
+    })
+  }, [turn.eventEffect, room.currentRound, room.turnIndex])
+
+  function completePartyRoulette(roulette) {
+    if (roulette.phase === 'battle' && roulette.opponentOptions?.length) {
+      setPartyRoulette({
+        phase: 'opponent',
+        title: 'Selecting Opponent',
+        winner: roulette.opponentName,
+        options: roulette.opponentOptions,
+      })
+      return
+    }
+    setPartyRoulette(null)
+  }
   const currentCardIds = normalizePartyCards(currentSetup.cards)
   const selectedCardId = Number.isInteger(selectedCardIndex) ? currentCardIds[selectedCardIndex] : null
   const selectedCard = getPartyCard(selectedCardId)
@@ -313,6 +379,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   }
 
   async function handleRoll(dieType) {
+    setRollingDieType(dieType)
+    window.setTimeout(() => setRollingDieType(''), 720)
     await runAction(() => rollPartyDie(roomCode, clientId, dieType))
   }
 
@@ -424,7 +492,22 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
 
   return (
     <div className="game party-game-screen">
+      {partyRoulette && (
+        <div className="party-roulette-overlay">
+          <div className="game-modal-card selection-roulette">
+            <RouletteReel
+              key={`${partyRoulette.phase}-${partyRoulette.winner}`}
+              title={partyRoulette.title}
+              options={partyRoulette.options}
+              winner={partyRoulette.winner}
+              onComplete={() => completePartyRoulette(partyRoulette)}
+            />
+          </div>
+        </div>
+      )}
       <div className="party-game-topbar">
+        {currentCar && <img className="hud-car-image" src={getPartyCarImageUrl(currentCar)} alt={`Your car: ${currentCar.name}`} />}
+        <span className="hand-mode-badge">Party · {openHands ? 'Open Hands' : 'Hidden Hands'}</span>
         <div>
           <p className="home-mode-card__eyebrow">Party Mode • Booststone Ruins</p>
           <h1>{isTurnOrderPhase ? 'Roll for Turn Order' : `Round ${room.currentRound || 1} / ${room.settings?.rounds || 10}`}</h1>
@@ -901,7 +984,25 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           {!isTurnOrderPhase && <div className="party-turn-panel__section">
             <p className="home-mode-card__eyebrow">Current Turn</p>
             <h2>{activePlayer ? activePlayer.name : 'Waiting…'}</h2>
-            <p>{activePlayer ? getPartyCar(activePlayer.carId)?.name : ''}</p>
+            {activePlayer && activeCar && (
+              <div className="party-current-car">
+                <span className="party-current-car__image-wrap">
+                  <img
+                    className="party-current-car__image"
+                    src={getPartyCarImageUrl(activeCar)}
+                    alt={`${activeCar.name} selected car`}
+                    onError={(event) => {
+                      const fallback = getPartyCarImageFallback(activeCar)
+                      if (event.currentTarget.src !== fallback) event.currentTarget.src = fallback
+                    }}
+                  />
+                </span>
+                <span>
+                  <strong>{activeCar.name}</strong>
+                  <small>Special Die: {activeCar.specialDie.map(formatPartyDieFace).join(' • ')}</small>
+                </span>
+              </div>
+            )}
             {activeNode && (
               <p>
                 Current space: <strong>{nodeNumber(activeNode.id)}</strong> •{' '}
@@ -1055,17 +1156,29 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                   <div>
                     <strong>P{index + 1} {player.name}</strong>
                     <span>{car?.name || 'No car'}</span>
+                    {car && <small>Special Die: {car.specialDie.map(formatPartyDieFace).join(' • ')}</small>}
                   </div>
                   <div className="party-turn-player__stats">
                     <span>🏆 {setup.trophies || 0}</span>
                     <span>Token {setup.tokens ?? 10}</span>
-                    <span>Cards {normalizePartyCards(setup.cards).length}/3</span>
-                    {openHands && player.id !== clientId && normalizePartyCards(setup.cards).length > 0 && (
+                    <span>
+                      {player.id === clientId
+                        ? `Your Cards ${normalizePartyCards(setup.cards).length}/3`
+                        : openHands
+                          ? `Open Hand ${normalizePartyCards(setup.cards).length}/3`
+                          : `Hidden Hand ${normalizePartyCards(setup.cards).length}/3`}
+                    </span>
+                    {openHands && player.id !== clientId && (
                       <small>
-                        {normalizePartyCards(setup.cards)
-                          .map((cardId) => getPartyCard(cardId)?.name || 'Unknown Card')
-                          .join(' • ')}
+                        {normalizePartyCards(setup.cards).length
+                          ? normalizePartyCards(setup.cards)
+                              .map((cardId) => getPartyCard(cardId)?.name || 'Unknown Card')
+                              .join(' • ')
+                          : 'No Cards'}
                       </small>
+                    )}
+                    {!openHands && player.id !== clientId && (
+                      <small>Card identities hidden</small>
                     )}
                     {openHands && setup.lockoutActive && (
                       <small>🔒 Lockout armed — their next attempted Card will be discarded.</small>
@@ -1282,13 +1395,19 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           {room.phase === 'board' && isMyTurn && !turn.rolled && !turn.awaitingTrophy && battle?.status !== 'active' && (
             <div className="party-turn-panel__section party-dice-choice">
               <h3>Choose Your Die</h3>
-              <button type="button" onClick={() => handleRoll('normal')} disabled={busy}>
-                Normal Die
-                <small>1 • 2 • 3 • 4 • 5 • 6</small>
+              {rollingDieType && (
+                <div className="party-die-rolling" aria-live="polite">
+                  <span className="party-die-rolling__icon" aria-hidden="true">🎲</span>
+                  <span>Rolling {rollingDieType === 'special' ? `${currentCar?.name || 'Car'} Special Die` : 'Normal Die'}…</span>
+                </div>
+              )}
+              <button type="button" className="party-die-button" onClick={() => handleRoll('normal')} disabled={busy}>
+                <strong>Roll Normal Die</strong>
+                <span>1 • 2 • 3 • 4 • 5 • 6</span>
               </button>
-              <button type="button" onClick={() => handleRoll('special')} disabled={busy || !currentCar}>
-                {currentCar?.name || 'Car'} Special Die
-                <small>{currentCar?.specialDie.map((face) => typeof face === 'number' ? face : `${face.value > 0 ? '+' : ''}${face.value} Tokens`).join(' • ')}</small>
+              <button type="button" className="party-die-button" onClick={() => handleRoll('special')} disabled={busy || !currentCar}>
+                <strong>Roll {currentCar?.name || 'Car'} Special Die</strong>
+                <span>{currentCar?.specialDie.map(formatPartyDieFace).join(' • ')}</span>
               </button>
             </div>
           )}
@@ -1300,8 +1419,9 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           )}
 
           {room.phase === 'board' && turn.rolled && (
-            <div className="party-turn-panel__section party-roll-result">
+            <div className={`party-turn-panel__section party-roll-result${rollingDieType ? ' party-roll-result--rolling' : ''}`}>
               <p className="home-mode-card__eyebrow">Shared Turn Result</p>
+              {rollingDieType && <span className="party-die-rolling__icon" aria-hidden="true">🎲</span>}
               <h3>{activePlayer?.name || 'Player'} rolled {turn.faceLabel}</h3>
               <p>
                 Using {turn.dieType === 'special'

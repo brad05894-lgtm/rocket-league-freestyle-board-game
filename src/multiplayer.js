@@ -1,4 +1,4 @@
-import { ref, set, get, onValue, update } from 'firebase/database'
+import { ref, set, get, onValue, runTransaction, update } from 'firebase/database'
 import { db } from './firebase'
 
 function makeRoomCode() {
@@ -246,5 +246,43 @@ export async function saveGameState(roomCode, state, updatedBy) {
     stateJson: JSON.stringify(cleanState),
     updatedBy,
     updatedAt: Date.now(),
+  })
+}
+
+export async function saveClassicCarSelection(roomCode, playerId, carId) {
+  const code = roomCode.trim().toUpperCase()
+  const gameRef = ref(db, `rooms/${code}/game`)
+
+  await runTransaction(gameRef, (payload) => {
+    if (!payload || typeof payload.stateJson !== 'string') return payload
+
+    let state
+    try {
+      state = JSON.parse(payload.stateJson)
+    } catch {
+      return payload
+    }
+
+    if (state.screen !== 'rules' || !Array.isArray(state.players)) return payload
+
+    const playerIndex = state.players.findIndex((player) => player.id === playerId)
+    if (playerIndex < 0) return payload
+
+    const carIsTaken = state.players.some(
+      (player, index) => index !== playerIndex && player.carId === carId
+    )
+    if (carIsTaken) return payload
+
+    state.players[playerIndex] = {
+      ...state.players[playerIndex],
+      carId,
+    }
+
+    return {
+      ...payload,
+      stateJson: JSON.stringify(state),
+      updatedBy: playerId,
+      updatedAt: Date.now(),
+    }
   })
 }

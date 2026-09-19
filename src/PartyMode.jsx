@@ -7,6 +7,8 @@ import {
   PARTY_CARS,
   formatPartyDieFace,
   getPartyCar,
+  getPartyCarImageFallback,
+  getPartyCarImageUrl,
 } from './partyCars'
 import {
   clearPartyCarSelection,
@@ -45,7 +47,11 @@ function PartyMode({ onBack }) {
 
   const isHost = room?.hostId === clientId
   const rounds = room?.settings?.rounds ?? 10
-  const cardVisibility = room?.settings?.cardVisibility === 'open' ? 'open' : 'hidden'
+  const cardVisibility = (
+    room?.settings?.cardVisibility === 'open' ||
+    room?.settings?.handVisibility === 'open' ||
+    room?.settings?.openHands === true
+  ) ? 'open' : 'hidden'
   const currentPlayer = roomPlayers.find((player) => player.id === clientId) || null
   const selectedCar = getPartyCar(currentPlayer?.carId)
   const allPlayersReady =
@@ -175,6 +181,13 @@ function PartyMode({ onBack }) {
     } finally {
       setCarLoadingId('')
     }
+  }
+
+  function handleRandomCar() {
+    const availableCars = PARTY_CARS.filter((car) => !takenCarIds.has(car.id))
+    if (!availableCars.length) return
+    const randomCar = availableCars[Math.floor(Math.random() * availableCars.length)]
+    handleCarSelect(randomCar.id)
   }
 
   async function handleClearCar() {
@@ -349,16 +362,26 @@ function PartyMode({ onBack }) {
               <p>Every car can use the normal 1–6 die plus its own special die.</p>
             </div>
 
-            {selectedCar && (
+            <div className="party-car-select-actions">
               <button
                 type="button"
                 className="party-car-clear"
-                onClick={handleClearCar}
+                onClick={handleRandomCar}
                 disabled={Boolean(carLoadingId)}
               >
-                Change / Clear
+                Random Car
               </button>
-            )}
+              {selectedCar && (
+                <button
+                  type="button"
+                  className="party-car-clear"
+                  onClick={handleClearCar}
+                  disabled={Boolean(carLoadingId)}
+                >
+                  Change / Clear
+                </button>
+              )}
+            </div>
           </div>
 
           {selectedCar && (
@@ -388,6 +411,21 @@ function PartyMode({ onBack }) {
                   disabled={isTaken || Boolean(carLoadingId)}
                   aria-pressed={isSelected}
                 >
+                  <span className="party-car-option__image-wrap">
+                    <img
+                      className="party-car-option__image"
+                      src={getPartyCarImageUrl(car)}
+                      alt={`${car.name} Rocket League car`}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      onError={(event) => {
+                        const fallback = getPartyCarImageFallback(car)
+                        if (event.currentTarget.src !== fallback) {
+                          event.currentTarget.src = fallback
+                        }
+                      }}
+                    />
+                  </span>
                   <span className="party-car-option__name">{car.name}</span>
                   <span className="party-car-option__die-label">Special Die</span>
                   <span className="party-car-option__die">

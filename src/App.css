@@ -517,6 +517,47 @@ strong {
   animation: spinner-pop 460ms cubic-bezier(.2, .9, .25, 1.35);
 }
 
+.spinner--rolling {
+  animation: dice-roll 720ms cubic-bezier(.2, .8, .25, 1) !important;
+}
+
+@keyframes dice-roll {
+  0% { transform: rotate(0deg) scale(1); }
+  22% { transform: rotate(110deg) scale(.86); }
+  48% { transform: rotate(245deg) scale(1.12); }
+  72% { transform: rotate(330deg) scale(.92); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+.classic-dice-faces {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin: 10px 0 13px;
+}
+
+.classic-dice-faces > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(125, 211, 252, .2);
+  border-radius: 11px;
+  background: rgba(2, 6, 23, .38);
+}
+
+.classic-dice-faces strong {
+  color: #bae6fd;
+  font-size: .78rem;
+}
+
+.classic-dice-faces span {
+  color: #e2e8f0;
+  font-size: .75rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .landing-box,
 .mechanic-card,
 .action-space-box {
@@ -1803,6 +1844,141 @@ body.rl-online-spectator #root button:not([data-online-allowed="true"]) {
   line-height: 1.45;
 }
 
+.classic-car-player-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.classic-car-player-tabs button {
+  width: auto;
+}
+
+.classic-car-player-tabs button.selected {
+  border-color: #7dd3fc;
+  box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.2);
+}
+
+.party-car-select-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.selection-roulette {
+  width: min(680px, 100%);
+  margin: 0 auto;
+  text-align: center;
+  isolation: isolate;
+}
+
+.selection-roulette__window {
+  position: relative;
+  height: 56px;
+  overflow: hidden;
+  border: 2px solid rgba(125, 211, 252, 0.55);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.88);
+  contain: strict;
+}
+
+.selection-roulette__track {
+  position: absolute;
+  inset: 0;
+}
+
+.selection-roulette__option {
+  height: 56px;
+  display: grid;
+  place-items: center;
+  padding: 8px 46px;
+  color: #f8fafc;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: roulette-option-swap 90ms ease-out;
+}
+
+@keyframes roulette-option-swap {
+  from { opacity: .42; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.selection-roulette__selector {
+  position: absolute;
+  inset: 5px;
+  pointer-events: none;
+  border: 2px solid #7dd3fc;
+  border-radius: 9px;
+  background: linear-gradient(90deg, rgba(14, 116, 144, .22), rgba(124, 58, 237, .18));
+  box-shadow: inset 0 0 16px rgba(56, 189, 248, .12);
+}
+
+.selection-roulette__bar {
+  display: none;
+}
+
+.selection-roulette-card {
+  animation: none;
+  contain: layout paint;
+}
+
+.selection-roulette__continue {
+  min-width: 150px;
+  margin-top: 4px;
+}
+
+.game--roulette .game-overlay-layer {
+  background: rgba(3, 8, 18, 0.82);
+  backdrop-filter: none;
+}
+
+.party-roulette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(2, 6, 23, 0.92);
+  backdrop-filter: none;
+  contain: layout paint;
+}
+
+.party-roulette-overlay .game-modal-card {
+  animation: none;
+  contain: layout paint;
+}
+
+.party-die-rolling {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 8px 0 11px;
+  padding: 10px;
+  border: 1px solid rgba(125, 211, 252, .32);
+  border-radius: 12px;
+  background: rgba(14, 116, 144, .18);
+  color: #e0f2fe;
+  font-weight: 850;
+}
+
+.party-die-rolling__icon {
+  display: inline-block;
+  font-size: 1.8rem;
+  animation: dice-roll 720ms cubic-bezier(.2, .8, .25, 1);
+}
+
+@media (max-width: 560px) {
+  .classic-dice-faces {
+    grid-template-columns: 1fr;
+  }
+}
+
 .party-car-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1820,6 +1996,28 @@ body.rl-online-spectator #root button:not([data-online-allowed="true"]) {
   border: 1px solid rgba(148, 163, 184, 0.24) !important;
   border-radius: 14px !important;
   background: rgba(2, 6, 23, 0.5) !important;
+}
+
+.party-car-option__image-wrap {
+  height: 118px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 8px;
+  border-radius: 10px;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.18), rgba(2, 6, 23, 0.15) 68%);
+}
+
+.party-car-option__image {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain !important;
+  object-position: center !important;
+  transform: none !important;
+  filter: drop-shadow(0 8px 9px rgba(0, 0, 0, 0.42));
 }
 
 .party-car-option:disabled {
@@ -1852,6 +2050,21 @@ body.rl-online-spectator #root button:not([data-online-allowed="true"]) {
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.hud-player__die {
+  margin-top: 3px;
+  color: #bae6fd;
+  font-size: .68rem;
+  line-height: 1.35;
+}
+
+.party-turn-player > div:first-child small {
+  display: block;
+  margin-top: 3px;
+  color: #bae6fd;
+  font-size: .68rem;
+  line-height: 1.35;
 }
 
 .party-car-option:disabled:not(.party-car-option--selected) {
@@ -2020,6 +2233,35 @@ body.rl-online-spectator #root button:not([data-online-allowed="true"]) {
   gap: 8px;
 }
 
+.party-dice-faces {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 2px 0 5px;
+}
+
+.party-dice-faces > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(125, 211, 252, .28);
+  border-radius: 11px;
+  background: rgba(2, 6, 23, .45);
+}
+
+.party-dice-faces strong {
+  color: #7dd3fc;
+  font-size: .76rem;
+}
+
+.party-dice-faces span {
+  color: #f8fafc;
+  font-size: .76rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .party-dice-choice h3 {
   margin-bottom: 2px;
 }
@@ -2029,6 +2271,76 @@ body.rl-online-spectator #root button:not([data-online-allowed="true"]) {
   display: grid;
   gap: 4px;
   text-align: left;
+}
+
+.party-die-button {
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) !important;
+  align-items: center;
+  gap: 10px !important;
+}
+
+.party-die-button strong {
+  white-space: nowrap;
+}
+
+.party-die-button span {
+  min-width: 0;
+  color: #dbeafe;
+  font-size: .74rem;
+  line-height: 1.35;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.party-current-car {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+
+.party-current-car__image-wrap {
+  height: 68px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 4px;
+  border-radius: 11px;
+  background: rgba(2, 6, 23, .72);
+}
+
+.party-current-car__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.party-current-car > span:last-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.party-current-car small {
+  color: #bae6fd;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.spinner__value {
+  display: block;
+  max-width: 82%;
+  font-size: 1em;
+  line-height: .95;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.spinner__value--long {
+  font-size: .46em;
+  line-height: 1;
 }
 
 .party-dice-choice button small,
@@ -3015,4 +3327,72 @@ body.rl-online-spectator #root button:not([data-online-allowed="true"]) {
 .party-ruins-landmark--reactor .party-ruins-landmark-label {
   font-size: 8.5px;
   letter-spacing: .02em;
+}
+
+/* Shared status and sequential movement */
+.hand-mode-badge { padding: 7px 12px; border: 1px solid #38bdf8; border-radius: 16px; color: #e0f2fe; font-weight: 800; }
+.hud-car-image { width: 90px; height: 64px; object-fit: contain; flex-shrink: 0; }
+.classic-activity { flex-basis: 100%; min-width: 240px; max-width: 480px; padding: 10px; background: #0c1729; border-radius: 12px; color: #e2e8f0; }
+.classic-activity summary { cursor: pointer; font-weight: 800; }
+.classic-activity > div { max-height: 135px; overflow-y: auto; }
+.classic-activity p { margin: 7px 0; font-size: 13px; }
+.movement-lock { position: fixed; inset: 0; z-index: 9999; cursor: wait; }
+.movement-counter { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 16px 26px; background: #102a43; color: white; border: 2px solid #38bdf8; border-radius: 18px; font-size: 20px; font-weight: 800; box-shadow: 0 6px 25px #0009; }
+.rolling-die { display: inline-block; animation: dice-roll 500ms linear infinite; }
+.player-marker circle { animation: token-hop 420ms ease-out; }
+@keyframes token-hop { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-16px); } }
+
+/* Classic header: explicit rows prevent extra content sharing grid cells. */
+.game-hud {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "identity sound" "mode mode" "players players";
+  align-items: start;
+  gap: 12px;
+}
+.game-hud__identity { grid-area: identity; min-width: 0; text-align: left; padding-right: 110px; }
+.game-hud > .hand-mode-badge { grid-area: mode; justify-self: start; max-width: 100%; }
+.game-hud > .hud-sound-button { grid-area: sound; margin: 48px 0 0; }
+.game-hud__players {
+  grid-area: players;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  overflow: visible;
+  gap: 10px;
+}
+.game-hud .hud-player {
+  min-width: 0;
+  grid-template-columns: 10px 72px minmax(0, 1fr) auto;
+  gap: 8px;
+  text-align: left;
+  padding: 12px;
+}
+.hud-player > .hud-car-image { grid-column: 2; grid-row: 1; width: 72px; height: 56px; object-fit: contain; }
+.hud-player > .hud-player__dot { grid-column: 1; grid-row: 1; }
+.hud-player > .hud-player__name { grid-column: 3; grid-row: 1; white-space: normal; overflow-wrap: anywhere; }
+.hud-player > .hud-player__kick { grid-column: 4; grid-row: 1; margin: 0; }
+.hud-player > .hud-player__meta,
+.hud-player > .hud-player__die {
+  grid-column: 1 / -1;
+  grid-row: auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  margin: 0;
+}
+.classic-turn-sidebar { grid-area: controls; min-width: 0; display: grid; gap: 15px; }
+.classic-turn-sidebar > .turn-box { position: static; max-height: none; overflow: visible; min-width: 0; }
+.classic-turn-sidebar > .classic-activity {
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 18px;
+  border: 1px solid rgba(148, 163, 184, .2);
+  text-align: left;
+}
+.classic-turn-sidebar .classic-activity > div { max-height: 260px; overflow-wrap: anywhere; }
+@media (max-width: 620px) {
+  .game-hud__identity { padding-right: 0; }
+  .game-hud__players { grid-template-columns: 1fr; }
 }

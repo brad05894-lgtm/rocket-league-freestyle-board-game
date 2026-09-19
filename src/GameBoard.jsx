@@ -418,7 +418,7 @@ export default function GameBoard({
 
             return (
               <g
-                key={player.id ?? playerIndex}
+                key={`${player.id ?? playerIndex}-${player.boardNodeId || player.position}`} 
                 transform={`translate(${x}, ${y})`}
                 className={`player-marker ${isCurrent ? 'player-marker--current' : ''}`}
               >
