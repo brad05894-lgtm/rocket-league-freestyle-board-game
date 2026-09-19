@@ -10,7 +10,6 @@ import { PARTY_MECHANICS } from './partyMechanics'
 import { PARTY_CARS, formatPartyDieFace, getPartyCar, getPartyCarImageFallback, getPartyCarImageUrl } from './partyCars'
 
 const BOARD_LENGTH = 75
-const FINISH_WAITING_BONUS_CAP = 3
 const LANDING_REVEAL_MS = 1600
 const ONLINE_SESSION_STORAGE_KEY = 'rl-freestyle-online-session-v1'
 const LOCAL_GAME_STORAGE_KEY = 'rl-freestyle-local-game-v1'
@@ -6554,10 +6553,7 @@ if (currentPlayer.hotStreakActive) {
       return
     }
 
-    const bonusRecipients = finishedPlayersPassed.filter(
-      (index) =>
-        (players[index]?.finishWaitingBonus || 0) < FINISH_WAITING_BONUS_CAP
-    )
+    const bonusRecipients = finishedPlayersPassed
 
     if (bonusRecipients.length > 0) {
       setPlayers((currentPlayers) =>
@@ -6567,10 +6563,7 @@ if (currentPlayer.hotStreakActive) {
           return {
             ...player,
             points: player.points + 1,
-            finishWaitingBonus: Math.min(
-              FINISH_WAITING_BONUS_CAP,
-              (player.finishWaitingBonus || 0) + 1
-            ),
+            finishWaitingBonus: (player.finishWaitingBonus || 0) + 1,
           }
         })
       )
