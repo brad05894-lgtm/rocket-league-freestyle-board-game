@@ -1,0 +1,102 @@
+ROCKET LEAGUE BOARD GAME — ROOM ACCESS UPDATE (STAGE 1)
+
+This package is prepared, not deployed. It closes public database access when
+both the code and rules below are installed. It does NOT yet make Hidden Hands
+private from a room member inspecting browser data, or prevent a room member
+from editing scores through direct database calls. Use trusted testers for now.
+
+1. BACK UP
+Finish any current matches. Copy your entire project folder to a backup folder.
+Keep the copy of the uploaded source; do not overwrite your only working copy.
+The new rules block old rooms. Old 4-character codes will no longer work.
+This update does not delete the old database records.
+
+2. ENABLE SIGN-IN
+Firebase Console -> your project -> Build -> Authentication.
+Click Get started if shown. Open Sign-in method, choose Anonymous, turn Enable
+on, and Save. Players do not need to enter an email or password.
+This must be enabled before the updated online client can work.
+Reference: https://firebase.google.com/docs/auth/web/anonymous-auth
+
+3. PREPARE THE FILES
+Extract this ZIP. Open its src folder and copy all files inside it into your
+EXISTING main src folder, replacing matches. onlineIdentity.js is new.
+Do not put src inside src. Your existing assets/cars images stay where they are.
+The unchanged partyCards.js is included alongside partyMultiplayer.js.
+Do not replace package.json; this update uses the Firebase package you already have.
+
+4. BUILD BEFORE SWITCHING
+In the terminal at the project folder (the folder containing package.json):
+  npm run build
+If there is a build error, stop and share it before changing production rules.
+I checked the source bundle and tested the rules locally; I did not run your
+Vercel deployment or a full match in real browsers.
+
+5. SWITCH DATABASE RULES, THEN DEPLOY
+Allow a short maintenance window: old clients will stop working at this step.
+Open database.rules.json from this ZIP and copy ALL its text.
+Firebase Console -> Build -> Realtime Database -> Rules.
+Replace the ENTIRE old rules text with it, then Publish.
+Do not paste it beneath the old .read/.write permissions: broad parent access
+would defeat the restrictions.
+
+Redeploy your updated project to Vercel using the same method you normally use.
+If Vercel is connected to your Git repository, commit/push the updated src files
+and check that the new production deployment succeeds.
+Changing files locally alone does not update your public Vercel website.
+Reload the game on all browsers and create a NEW 8-character room.
+Rules have no scheduled expiration.
+
+6. CHECK BEFORE INVITING PEOPLE
+Use two separate browsers/devices (or a normal and incognito window):
+- Create and join a Classic room. Both choose cars. Start, roll, finish a turn.
+- Try a second room at the same time and confirm it stays separate.
+- Test host kick: the removed player should lose access.
+- Create a Party room. Both choose cars, set rounds, start, roll turn order,
+  and roll a die. Check a complete turn and a battle.
+- Confirm a fifth player cannot join a full room.
+- Confirm normal local play still works.
+
+LIMITS / NEXT STAGE
+The room code is an invitation. A signed-in user knowing the code may join an
+open lobby with space. Anonymous sign-in is an authenticated browser identity,
+not proof of a real person's identity. Clearing browser data can create a new
+identity; a kick is not a permanent person/IP ban.
+
+Rules protect room boundaries, host metadata and lobby membership. Classic's
+stateJson still contains all hands/decks and can be updated by room members.
+Party gameplay still runs in member browsers. Host checks inside the UI are not
+an anti-cheat boundary. Neither mode is cheat-proof within a room yet.
+
+To finish the full security request, move gameplay actions to a trusted backend,
+validate moves/card use/turn ownership there, separate public room snapshots
+from each player's private cards/effects, and reject direct client game writes.
+Then test privacy and cross-player actions with malicious clients. Add request
+rate limits and App Check as abuse-reduction measures; Anonymous Auth alone
+does not stop someone from creating many accounts/rooms or consuming quotas.
+This server work is not implemented by this stage-1 ZIP.
+Never put a Firebase service-account private key in src, a VITE_ variable, a
+public repository, or a chat message. It belongs only in server secret settings.
+
+PRIVATE COPY / STOPPING ACCESS
+An identical private testing copy should use a separate Firebase project and
+restricted access. A different Vercel URL alone is not isolation.
+For an emergency stop of online database access, replace the rules with:
+  { "rules": { ".read": false, ".write": false } }
+This stops online play; it does not erase database records or downloaded code.
+Keep access closed while fixing a deployment problem. Do not restore the old
+public test rules as a workaround. Local/pass-and-play can still be used.
+
+TESTS INCLUDED (OPTIONAL; NOT NEEDED TO INSTALL)
+56 Firebase Emulator permission checks passed, plus actual client-API smoke
+checks for Classic creation/join/capacity/start/sync/car selection/kick/end and
+Party creation/join/cars/settings/start/turn-order/roll/leave/end.
+The emulator used fake users and a demo project, not your live database.
+The tests do not assert hidden-hand privacy or server-authoritative scoring.
+The test folder has a separate package.json. Its dependencies are test-only.
+From the project root:
+  npm install --prefix tests
+  node tests/build-test-api.mjs
+  npx --prefix tests firebase emulators:exec --only database --project demo-rl-security --config firebase.security.json "node tests/room-access.test.mjs && node tests/api-smoke.test.mjs"
+The database emulator requires Java. The included firebase.security.json is for
+local testing; it does not overwrite an existing firebase.json.

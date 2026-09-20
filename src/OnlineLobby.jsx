@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   createRoom,
-  getClientId,
   joinRoom,
   kickPlayer,
   listenToRoom,
   startRoom,
 } from './multiplayer'
+import { initializeOnlineIdentity } from './onlineIdentity'
 
 function OnlineLobby({ mode, onBack, onGameStart }) {
   const [name, setName] = useState('')
@@ -17,12 +17,35 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
   const [loading, setLoading] = useState(false)
   const [kickBusyId, setKickBusyId] = useState(null)
   const [kickedNotice, setKickedNotice] = useState('')
+  const [clientId, setClientId] = useState('')
+  const [identityReady, setIdentityReady] = useState(false)
   const gameStartSentRef = useRef(false)
 
-  const clientId = getClientId()
+  // Establish Firebase Anonymous Auth before the player can create/join a room.
+  // The old version could render while auth.currentUser was still null, which
+  // created a race against your protected Realtime Database rules.
+  useEffect(() => {
+    let active = true
+
+    initializeOnlineIdentity()
+      .then((uid) => {
+        if (!active) return
+        setClientId(uid)
+        setIdentityReady(true)
+      })
+      .catch((err) => {
+        if (!active) return
+        setIdentityReady(false)
+        setError(err.message || 'Could not sign in for online play.')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
 
   useEffect(() => {
-    if (!roomCode) return
+    if (!roomCode || !clientId) return
 
     return listenToRoom(roomCode, (roomData) => {
       if (!roomData) {
@@ -40,10 +63,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
 
       setRoom(roomData)
 
-      if (
-        roomData.status === 'playing' &&
-        !gameStartSentRef.current
-      ) {
+      if (roomData.status === 'playing' && !gameStartSentRef.current) {
         gameStartSentRef.current = true
         onGameStart?.({
           roomCode,
@@ -53,6 +73,13 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
       }
     })
   }, [roomCode, clientId, onGameStart])
+
+  async function ensureIdentity() {
+    const uid = await initializeOnlineIdentity()
+    setClientId(uid)
+    setIdentityReady(true)
+    return uid
+  }
 
   async function handleCreate() {
     if (!name.trim()) {
@@ -66,6 +93,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
       setKickedNotice('')
       gameStartSentRef.current = false
 
+      await ensureIdentity()
       const code = await createRoom(name.trim())
       setRoomCode(code)
     } catch (err) {
@@ -92,6 +120,8 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
       setKickedNotice('')
       gameStartSentRef.current = false
 
+      await ensureIdentity()
+
       const code = await joinRoom(
         joinCode.trim().toUpperCase(),
         name.trim()
@@ -108,6 +138,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
   async function handleStartGame() {
     try {
       setError('')
+      await ensureIdentity()
       await startRoom(roomCode)
     } catch (err) {
       setError(err.message || 'Could not start game.')
@@ -118,10 +149,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
     if (!roomCode || !room || room.hostId !== clientId) return
     if (!player || player.id === clientId) return
 
-    const confirmed = window.confirm(
-      `Kick ${player.name} from this room?`
-    )
-
+    const confirmed = window.confirm(`Kick ${player.name} from this room?`)
     if (!confirmed) return
 
     try {
@@ -185,9 +213,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
                   gap: '8px',
                 }}
               >
-                {player.id === room.hostId && (
-                  <strong>Host</strong>
-                )}
+                {player.id === room.hostId && <strong>Host</strong>}
 
                 {isHost && player.id !== room.hostId && (
                   <button
@@ -210,9 +236,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
 
         <p>{roomPlayers.length} / 4 Players</p>
 
-        {error && (
-          <p><strong>{error}</strong></p>
-        )}
+        {error && <p><strong>{error}</strong></p>}
 
         {isHost ? (
           <>
@@ -225,9 +249,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
               Start Game
             </button>
 
-            {roomPlayers.length < 2 && (
-              <p>You need at least 2 players.</p>
-            )}
+            {roomPlayers.length < 2 && <p>You need at least 2 players.</p>}
           </>
         ) : (
           <p>Waiting for the host to start...</p>
@@ -239,9 +261,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
   return (
     <div className="game">
       <h1>
-        {mode === 'create'
-          ? 'Create Online Game'
-          : 'Join Online Game'}
+        {mode === 'create' ? 'Create Online Game' : 'Join Online Game'}
       </h1>
 
       <div className="player-form">
@@ -260,17 +280,17 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
             type="text"
             placeholder="Room code"
             value={joinCode}
-            onChange={(event) =>
-              setJoinCode(event.target.value.toUpperCase())
-            }
-            maxLength={4}
+            onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+            maxLength={8}
           />
         </div>
       )}
 
-      {error && (
-        <p><strong>{error}</strong></p>
+      {!identityReady && !error && (
+        <p><strong>Connecting securely...</strong></p>
       )}
+
+      {error && <p><strong>{error}</strong></p>}
 
       <div className="menu">
         <button onClick={onBack}>Back</button>
@@ -278,14 +298,14 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
         {mode === 'create' ? (
           <button
             onClick={handleCreate}
-            disabled={loading}
+            disabled={loading || !identityReady}
           >
             {loading ? 'Creating...' : 'Create Room'}
           </button>
         ) : (
           <button
             onClick={handleJoin}
-            disabled={loading}
+            disabled={loading || !identityReady}
           >
             {loading ? 'Joining...' : 'Join Room'}
           </button>

@@ -1,0 +1,138 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "secureRooms": {
+      "$code": {
+        ".read": "auth != null && (data.child('players').child(auth.uid).exists() && !data.child('kickedPlayers').child(auth.uid).exists() && !data.child('departedPlayers').child(auth.uid).exists())",
+        ".write": "auth != null && $code.matches(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/) && newData.exists() && ((!data.exists() && newData.child('hostId').val() === auth.uid && newData.child('status').val() === 'lobby' && newData.child('seats').child('0').val() === auth.uid && newData.child('players').child(auth.uid).exists()) || (data.exists() && newData.child('hostId').val() === data.child('hostId').val() && newData.child('createdAt').val() === data.child('createdAt').val() && ((data.child('hostId').val() === auth.uid && data.child('players').child(auth.uid).exists() && !data.child('kickedPlayers').child(auth.uid).exists() && !data.child('departedPlayers').child(auth.uid).exists()))))",
+        ".validate": "newData.hasChildren(['hostId','createdAt','status','players','seats']) && newData.child('players').child(newData.child('hostId').val()).exists()",
+        "hostId": {
+          ".validate": "newData.isString() && (!data.exists() || newData.val() === data.val())"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber() && (!data.exists() ? newData.val() <= now + 60000 && newData.val() >= now - 300000 : newData.val() === data.val())"
+        },
+        "status": {
+          ".validate": "newData.val() === 'lobby' || newData.val() === 'playing' || newData.val() === 'ended'"
+        },
+        "players": {
+          "$uid": {
+            ".read": "auth != null && auth.uid === $uid",
+            ".write": "auth != null && auth.uid === $uid && data.parent().parent().exists() && !data.parent().parent().child('kickedPlayers').child(auth.uid).exists() && !data.parent().parent().child('departedPlayers').child(auth.uid).exists() && ((!data.exists() && data.parent().parent().child('status').val() === 'lobby') || (data.exists() && data.parent().parent().child('status').val() === 'lobby') || (data.exists() && !newData.exists() && data.parent().parent().child('hostId').val() !== auth.uid))",
+            ".validate": "newData.hasChildren(['id','name','joinedAt']) && newData.child('id').val() === $uid && (!data.exists() || (newData.child('id').val() === data.child('id').val() && newData.child('joinedAt').val() === data.child('joinedAt').val())) && (newData.parent().parent().child('seats').child('0').val() === $uid || newData.parent().parent().child('seats').child('1').val() === $uid || newData.parent().parent().child('seats').child('2').val() === $uid || newData.parent().parent().child('seats').child('3').val() === $uid)",
+            "id": {
+              ".validate": "newData.isString() && newData.val() === $uid"
+            },
+            "name": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 20"
+            },
+            "joinedAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "carId": {
+              ".validate": "newData.isString() && newData.val().matches(/^(octane|fennec|skyline|dingo|merc|mantis|takumi|nimbus|road-hog-xl|twinzer|dominus|scarab|masamune|breakout|gizmo|dominus-gt|animus-gp|road-hog|breakout-type-s|jager-619)$/) && (!newData.parent().parent().parent().child('seats').child('0').exists() || newData.parent().parent().parent().child('seats').child('0').val() === $uid || newData.parent().parent().child(newData.parent().parent().parent().child('seats').child('0').val()).child('carId').val() !== newData.val()) && (!newData.parent().parent().parent().child('seats').child('1').exists() || newData.parent().parent().parent().child('seats').child('1').val() === $uid || newData.parent().parent().child(newData.parent().parent().parent().child('seats').child('1').val()).child('carId').val() !== newData.val()) && (!newData.parent().parent().parent().child('seats').child('2').exists() || newData.parent().parent().parent().child('seats').child('2').val() === $uid || newData.parent().parent().child(newData.parent().parent().parent().child('seats').child('2').val()).child('carId').val() !== newData.val()) && (!newData.parent().parent().parent().child('seats').child('3').exists() || newData.parent().parent().parent().child('seats').child('3').val() === $uid || newData.parent().parent().child(newData.parent().parent().parent().child('seats').child('3').val()).child('carId').val() !== newData.val())"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "departedPlayers": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && data.parent().parent().child('hostId').val() !== auth.uid && data.parent().parent().child('players').child(auth.uid).exists() && newData.exists()",
+            ".validate": "newData.hasChild('leftAt') && newData.child('leftAt').isNumber()"
+          }
+        },
+        "game": {
+          ".write": "auth != null && data.parent().child('players').child(auth.uid).exists() && !data.parent().child('kickedPlayers').child(auth.uid).exists() && !data.parent().child('departedPlayers').child(auth.uid).exists() && data.parent().child('status').val() === 'playing' && newData.exists()",
+          ".validate": "newData.hasChildren(['stateJson','updatedBy','updatedAt']) && newData.child('stateJson').isString() && newData.child('stateJson').val().length <= 750000 && newData.child('updatedBy').val() === auth.uid && newData.child('updatedAt').isNumber()",
+          "stateJson": {},
+          "updatedBy": {},
+          "updatedAt": {},
+          "$other": {
+            ".validate": false
+          }
+        },
+        "seats": {
+          ".read": "auth != null",
+          "$seat": {
+            ".write": "auth != null && $seat.matches(/^[0-3]$/) && data.parent().parent().exists() && ((!data.exists() && newData.val() === auth.uid && data.parent().parent().child('status').val() === 'lobby' && !(data.parent().child('0').val() === auth.uid || data.parent().child('1').val() === auth.uid || data.parent().child('2').val() === auth.uid || data.parent().child('3').val() === auth.uid)) || (data.val() === auth.uid && (!newData.exists() || newData.val() === auth.uid))) && !data.parent().parent().child('kickedPlayers').child(auth.uid).exists() && !data.parent().parent().child('departedPlayers').child(auth.uid).exists()",
+            ".validate": "$seat.matches(/^[0-3]$/) && newData.isString() && newData.val().length <= 128"
+          }
+        }
+      }
+    },
+    "securePartyRooms": {
+      "$code": {
+        ".read": "auth != null && (data.child('players').child(auth.uid).exists() && !data.child('kickedPlayers').child(auth.uid).exists() && !data.child('departedPlayers').child(auth.uid).exists())",
+        ".write": "auth != null && $code.matches(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/) && newData.exists() && ((!data.exists() && newData.child('hostId').val() === auth.uid && newData.child('status').val() === 'lobby' && newData.child('seats').child('0').val() === auth.uid && newData.child('players').child(auth.uid).exists()) || (data.exists() && newData.child('hostId').val() === data.child('hostId').val() && newData.child('createdAt').val() === data.child('createdAt').val() && ((data.child('hostId').val() === auth.uid && data.child('players').child(auth.uid).exists() && !data.child('kickedPlayers').child(auth.uid).exists() && !data.child('departedPlayers').child(auth.uid).exists()) || (data.child('status').val() === 'playing' && data.child('players').child(auth.uid).exists() && !data.child('kickedPlayers').child(auth.uid).exists() && !data.child('departedPlayers').child(auth.uid).exists() && newData.child('status').val() === data.child('status').val() && newData.child('seats').child('0').val() === data.child('seats').child('0').val() && newData.child('players').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('id').val() === data.child('players').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('id').val() && newData.child('players').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('name').val() === data.child('players').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('name').val() && newData.child('players').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('joinedAt').val() === data.child('players').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('joinedAt').val() && newData.child('players').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('carId').val() === data.child('players').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('carId').val() && newData.child('departedPlayers').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('leftAt').val() === data.child('departedPlayers').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('leftAt').val() && newData.child('departedPlayers').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('reason').val() === data.child('departedPlayers').child(data.child('seats').child('0').exists() ? data.child('seats').child('0').val() : '_empty').child('reason').val() && newData.child('seats').child('1').val() === data.child('seats').child('1').val() && newData.child('players').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('id').val() === data.child('players').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('id').val() && newData.child('players').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('name').val() === data.child('players').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('name').val() && newData.child('players').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('joinedAt').val() === data.child('players').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('joinedAt').val() && newData.child('players').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('carId').val() === data.child('players').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('carId').val() && newData.child('departedPlayers').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('leftAt').val() === data.child('departedPlayers').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('leftAt').val() && newData.child('departedPlayers').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('reason').val() === data.child('departedPlayers').child(data.child('seats').child('1').exists() ? data.child('seats').child('1').val() : '_empty').child('reason').val() && newData.child('seats').child('2').val() === data.child('seats').child('2').val() && newData.child('players').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('id').val() === data.child('players').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('id').val() && newData.child('players').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('name').val() === data.child('players').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('name').val() && newData.child('players').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('joinedAt').val() === data.child('players').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('joinedAt').val() && newData.child('players').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('carId').val() === data.child('players').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('carId').val() && newData.child('departedPlayers').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('leftAt').val() === data.child('departedPlayers').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('leftAt').val() && newData.child('departedPlayers').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('reason').val() === data.child('departedPlayers').child(data.child('seats').child('2').exists() ? data.child('seats').child('2').val() : '_empty').child('reason').val() && newData.child('seats').child('3').val() === data.child('seats').child('3').val() && newData.child('players').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('id').val() === data.child('players').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('id').val() && newData.child('players').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('name').val() === data.child('players').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('name').val() && newData.child('players').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('joinedAt').val() === data.child('players').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('joinedAt').val() && newData.child('players').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('carId').val() === data.child('players').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('carId').val() && newData.child('departedPlayers').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('leftAt').val() === data.child('departedPlayers').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('leftAt').val() && newData.child('departedPlayers').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('reason').val() === data.child('departedPlayers').child(data.child('seats').child('3').exists() ? data.child('seats').child('3').val() : '_empty').child('reason').val() && newData.child('settings').child('mapId').val() === data.child('settings').child('mapId').val() && newData.child('settings').child('rounds').val() === data.child('settings').child('rounds').val() && newData.child('settings').child('trophyPrice').val() === data.child('settings').child('trophyPrice').val() && newData.child('settings').child('cardVisibility').val() === data.child('settings').child('cardVisibility').val()))))",
+        ".validate": "newData.hasChildren(['hostId','createdAt','status','players','seats']) && newData.child('players').child(newData.child('hostId').val()).exists()",
+        "hostId": {
+          ".validate": "newData.isString() && (!data.exists() || newData.val() === data.val())"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber() && (!data.exists() ? newData.val() <= now + 60000 && newData.val() >= now - 300000 : newData.val() === data.val())"
+        },
+        "status": {
+          ".validate": "newData.val() === 'lobby' || newData.val() === 'playing' || newData.val() === 'ended'"
+        },
+        "players": {
+          "$uid": {
+            ".read": "auth != null && auth.uid === $uid",
+            ".write": "auth != null && auth.uid === $uid && data.parent().parent().exists() && !data.parent().parent().child('kickedPlayers').child(auth.uid).exists() && !data.parent().parent().child('departedPlayers').child(auth.uid).exists() && ((!data.exists() && data.parent().parent().child('status').val() === 'lobby') || (data.exists() && data.parent().parent().child('status').val() === 'lobby') || (data.exists() && !newData.exists() && data.parent().parent().child('hostId').val() !== auth.uid))",
+            ".validate": "newData.hasChildren(['id','name','joinedAt']) && newData.child('id').val() === $uid && (!data.exists() || (newData.child('id').val() === data.child('id').val() && newData.child('joinedAt').val() === data.child('joinedAt').val())) && (newData.parent().parent().child('seats').child('0').val() === $uid || newData.parent().parent().child('seats').child('1').val() === $uid || newData.parent().parent().child('seats').child('2').val() === $uid || newData.parent().parent().child('seats').child('3').val() === $uid)",
+            "id": {
+              ".validate": "newData.isString() && newData.val() === $uid"
+            },
+            "name": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 20"
+            },
+            "joinedAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "carId": {
+              ".validate": "newData.isString() && newData.val().matches(/^(octane|fennec|skyline|dingo|merc|mantis|takumi|nimbus|road-hog-xl|twinzer|dominus|scarab|masamune|breakout|gizmo|dominus-gt|animus-gp|road-hog|breakout-type-s|jager-619)$/) && (!newData.parent().parent().parent().child('seats').child('0').exists() || newData.parent().parent().parent().child('seats').child('0').val() === $uid || newData.parent().parent().child(newData.parent().parent().parent().child('seats').child('0').val()).child('carId').val() !== newData.val()) && (!newData.parent().parent().parent().child('seats').child('1').exists() || newData.parent().parent().parent().child('seats').child('1').val() === $uid || newData.parent().parent().child(newData.parent().parent().parent().child('seats').child('1').val()).child('carId').val() !== newData.val()) && (!newData.parent().parent().parent().child('seats').child('2').exists() || newData.parent().parent().parent().child('seats').child('2').val() === $uid || newData.parent().parent().child(newData.parent().parent().parent().child('seats').child('2').val()).child('carId').val() !== newData.val()) && (!newData.parent().parent().parent().child('seats').child('3').exists() || newData.parent().parent().parent().child('seats').child('3').val() === $uid || newData.parent().parent().child(newData.parent().parent().parent().child('seats').child('3').val()).child('carId').val() !== newData.val())"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "departedPlayers": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && data.parent().parent().child('hostId').val() !== auth.uid && data.parent().parent().child('players').child(auth.uid).exists() && newData.exists()",
+            ".validate": "newData.hasChild('leftAt') && newData.child('leftAt').isNumber()"
+          }
+        },
+        "seats": {
+          ".read": "auth != null",
+          "$seat": {
+            ".write": "auth != null && $seat.matches(/^[0-3]$/) && data.parent().parent().exists() && ((!data.exists() && newData.val() === auth.uid && data.parent().parent().child('status').val() === 'lobby' && !(data.parent().child('0').val() === auth.uid || data.parent().child('1').val() === auth.uid || data.parent().child('2').val() === auth.uid || data.parent().child('3').val() === auth.uid)) || (data.val() === auth.uid && (!newData.exists() || newData.val() === auth.uid))) && !data.parent().parent().child('kickedPlayers').child(auth.uid).exists() && !data.parent().parent().child('departedPlayers').child(auth.uid).exists()",
+            ".validate": "$seat.matches(/^[0-3]$/) && newData.isString() && newData.val().length <= 128"
+          }
+        },
+        "settings": {
+          "mapId": {
+            ".validate": "newData.val() === 'booststone-ruins'"
+          },
+          "rounds": {
+            ".validate": "newData.val() === 10 || newData.val() === 15 || newData.val() === 20"
+          },
+          "trophyPrice": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+          },
+          "cardVisibility": {
+            ".validate": "newData.val() === 'hidden' || newData.val() === 'open'"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "kickedPlayers": {
+          ".validate": false
+        }
+      }
+    }
+  }
+}

@@ -509,7 +509,7 @@ function PartyMode({ onBack }) {
               <input
                 value={joinCode}
                 onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
-                maxLength={4}
+                maxLength={8}
                 autoCapitalize="characters"
                 placeholder="ABCD"
               />
@@ -566,7 +566,7 @@ function PartyMode({ onBack }) {
           <div>
             <p className="home-mode-card__eyebrow">Play Online</p>
             <h2>Join Party</h2>
-            <p>Join a friend's Party Mode lobby with its 4-character room code.</p>
+            <p>Join a friend's Party Mode lobby with its 8-character room code.</p>
           </div>
 
           <div className="menu home-mode-card__menu">
