@@ -263,7 +263,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
             onChange={(event) =>
               setJoinCode(event.target.value.toUpperCase())
             }
-            maxLength={4}
+            maxLength={8}
           />
         </div>
       )}

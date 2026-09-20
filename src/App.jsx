@@ -11,7 +11,7 @@ import { PARTY_CARS, formatPartyDieFace, getPartyCar, getPartyCarImageFallback, 
 
 const BOARD_LENGTH = 75
 const LANDING_REVEAL_MS = 1600
-const ONLINE_SESSION_STORAGE_KEY = 'rl-freestyle-online-session-v1'
+const ONLINE_SESSION_STORAGE_KEY = 'rl-freestyle-online-session-v2'
 const LOCAL_GAME_STORAGE_KEY = 'rl-freestyle-local-game-v1'
 const SOUND_STORAGE_KEY = 'rl-freestyle-sound-enabled-v1'
 const PLAYER_ACCENTS = ['#38bdf8', '#f472b6', '#a3e635', '#fb923c']
@@ -118,6 +118,10 @@ const actionCards = [
     'Activate to block the next negative Action Card another player uses on you.',
 },
   {
+  name: 'Home Turf',
+  description: 'Before Attempt 1 of a normal Mechanic, activate this card. Score using your selected car for +1 extra point. Expires on failure or at the end of this turn.',
+},
+{
   name: 'Double Points',
   description:
     'Use before your first mechanic attempt. If you score, earn double points.',
@@ -138,6 +142,10 @@ const actionCards = [
     'Use before your first mechanic attempt. Draw 2 new Mechanic Cards and choose 1.',
 },
   {
+  name: 'Precision Dice',
+  description: 'Before rolling, choose your exact movement from 1 to 6. Uses your Action Card for this turn.',
+},
+{
   name: 'Second Chance',
   description:
     'Use before spinning. Spin twice, then choose which result to use.',
@@ -781,6 +789,7 @@ function App() {
   const [publicMechanicOutcome, setPublicMechanicOutcome] = useState('')
   const [mechanicFailed, setMechanicFailed] = useState(false)
   const [mechanicAttempted, setMechanicAttempted] = useState(false)
+  const [homeTurfActive, setHomeTurfActive] = useState(false)
   const [doublePointsActive, setDoublePointsActive] = useState(false)
   const [insuranceActive, setInsuranceActive] = useState(false)
   const [mechanicActionUsed, setMechanicActionUsed] = useState(false)
@@ -813,7 +822,8 @@ function App() {
   const [onlineSession, setOnlineSession] = useState(() => {
     try {
       const saved = window.localStorage.getItem(ONLINE_SESSION_STORAGE_KEY)
-      return saved ? JSON.parse(saved) : null
+      const session = saved ? JSON.parse(saved) : null
+      return session?.clientId === getClientId() ? session : null
     } catch {
       return null
     }
@@ -1133,6 +1143,7 @@ function App() {
     publicMechanicOutcome,
     mechanicFailed,
     mechanicAttempted,
+    homeTurfActive,
     doublePointsActive,
     insuranceActive,
     mechanicActionUsed,
@@ -1188,6 +1199,7 @@ function App() {
     if (state.publicMechanicOutcome !== undefined) setPublicMechanicOutcome(state.publicMechanicOutcome)
     if (state.mechanicFailed !== undefined) setMechanicFailed(state.mechanicFailed)
     if (state.mechanicAttempted !== undefined) setMechanicAttempted(state.mechanicAttempted)
+    setHomeTurfActive(Boolean(state.homeTurfActive))
     if (state.doublePointsActive !== undefined) setDoublePointsActive(state.doublePointsActive)
     if (state.insuranceActive !== undefined) setInsuranceActive(state.insuranceActive)
     if (state.mechanicActionUsed !== undefined) setMechanicActionUsed(state.mechanicActionUsed)
@@ -1829,6 +1841,7 @@ function App() {
     setPublicMechanicOutcome('')
     setMechanicFailed(false)
     setMechanicAttempted(false)
+    setHomeTurfActive(false)
     setDoublePointsActive(false)
     setInsuranceActive(false)
     setJackpotActive(false)
@@ -3431,6 +3444,38 @@ function useEasyRoute() {
   announceActionUse('Easy Route', `The mechanic was skipped and ${currentPlayer.name} moved forward ${spacesMoved} space${spacesMoved === 1 ? '' : 's'}.`)
 }
 
+function useHomeTurf() {
+  const player = players[currentPlayerIndex]
+  const cardIndex = (player.actionCards || []).findIndex((card) => card.name === 'Home Turf')
+  if (cardIndex < 0 || !canUseOnlineControls || !mechanicCard || mechanicResolved ||
+      mechanicAttempted || attemptsLeft < 1 || mechanicChoices.length > 0 ||
+      actionCardUsedThisTurn || mechanicActionUsed || homeTurfActive || !getPartyCar(player.carId)) return
+  setPlayers((current) => current.map((entry, index) => index === currentPlayerIndex
+    ? { ...entry, actionCards: entry.actionCards.filter((_, index) => index !== cardIndex) }
+    : entry))
+  setActionDiscardPile((current) => [...current, player.actionCards[cardIndex]])
+  setActionCardUsedThisTurn(true)
+  setMechanicActionUsed(true)
+  setHomeTurfActive(true)
+  announceActionUse('Home Turf', `Score this mechanic using ${getPartyCar(player.carId).name} for +1 extra point.`)
+}
+
+function usePrecisionDice(value) {
+  const player = players[currentPlayerIndex]
+  const cardIndex = (player.actionCards || []).findIndex((card) => card.name === 'Precision Dice')
+  if (cardIndex < 0 || !canUseOnlineControls || player.finished || player.leftGame ||
+      actionCardUsedThisTurn || hasSpun || rollingLock.current || travel ||
+      secondChanceActive || secondChanceRolls.length || !Number.isInteger(value) || value < 1 || value > 6) return
+  const usedCard = player.actionCards[cardIndex]
+  setPlayers((current) => current.map((entry, index) => index === currentPlayerIndex
+    ? { ...entry, actionCards: entry.actionCards.filter((_, index) => index !== cardIndex) }
+    : entry))
+  setActionDiscardPile((current) => [...current, usedCard])
+  setActionCardUsedThisTurn(true)
+  announceActionUse('Precision Dice', `${player.name} chose to move ${value} spaces.`)
+  spin(value, 'precision')
+}
+
 function useSecondChance() {
   const currentPlayer = players[currentPlayerIndex]
 
@@ -4877,7 +4922,8 @@ function activateLandingAtPosition(newPosition, boardOptions = null) {
   setTopCornerRequired(false)
   setMechanicFailed(false)
   setMechanicAttempted(false)
-  setDoublePointsActive(false)
+  setHomeTurfActive(false)
+    setDoublePointsActive(false)
   setInsuranceActive(false)
   setJackpotActive(false)
   setMechanicActionUsed(false)
@@ -5487,7 +5533,8 @@ function clearLandingUiForRouteChoice() {
   setMechanicResolved(true)
   setMechanicMessage('')
   setMechanicFailed(false)
-  setDoublePointsActive(false)
+  setHomeTurfActive(false)
+    setDoublePointsActive(false)
   setInsuranceActive(false)
   setJackpotActive(false)
   setMechanicActionUsed(false)
@@ -6209,7 +6256,7 @@ function continueAfterShortcutGate() {
         ? selectedCar.specialDie[Math.floor(Math.random() * selectedCar.specialDie.length)]
         : Math.floor(Math.random() * 6) + 1
     const isPointFace = typeof rawFace === 'object' && rawFace?.type === 'tokens'
-    const pointChange = isPointFace ? Math.max(-1, Number(rawFace.value) || 0) : 0
+    const pointChange = isPointFace ? Math.max(-1, Math.min(1, Number(rawFace.value) || 0)) : 0
     const result = isPointFace ? 0 : Number(rawFace) || 0
     const resultLabel = isPointFace
       ? `${pointChange > 0 ? '+' : ''}${pointChange} Point${Math.abs(pointChange) === 1 ? '' : 's'}`
@@ -6312,7 +6359,8 @@ function continueAfterShortcutGate() {
       setMechanicResolved(true)
       setMechanicMessage('')
       setMechanicFailed(false)
-      setDoublePointsActive(false)
+      setHomeTurfActive(false)
+    setDoublePointsActive(false)
       setInsuranceActive(false)
       setJackpotActive(false)
       setMechanicActionUsed(false)
@@ -6354,7 +6402,7 @@ function continueAfterShortcutGate() {
     activateLandingAtPosition(newPosition)
   }
 
-  function scoreMechanic() {
+  function scoreMechanic(usingSelectedCar = false) {
     if (!mechanicCard || mechanicResolved) return
     setMechanicAttempted(true)
     let pointsEarned = doublePointsActive
@@ -6365,6 +6413,10 @@ function continueAfterShortcutGate() {
 }
 const currentPlayer = players[currentPlayerIndex]
 const scoringCards = []
+if (homeTurfActive && usingSelectedCar === true) {
+  pointsEarned += 1
+  scoringCards.push(`Home Turf (+1 using ${getPartyCar(currentPlayer.carId)?.name || 'selected car'})`)
+}
 if (doublePointsActive) scoringCards.push('Double Points')
 if (insuranceActive) scoringCards.push('Insurance')
 if (jackpotActive) scoringCards.push('Jackpot')
@@ -6393,6 +6445,7 @@ if (currentPlayer.hotStreakActive) {
   playerId: currentPlayer.id,
 })
     setMechanicResolved(true)
+    setHomeTurfActive(false)
     setDoublePointsActive(false)
     setInsuranceActive(false)
     setJackpotActive(false)
@@ -6427,9 +6480,11 @@ if (currentPlayer.hotStreakActive) {
   setAttemptsLeft(0)
   setMechanicResolved(true)
   setMechanicFailed(true)
-  setDoublePointsActive(false)
+  setHomeTurfActive(false)
+    setDoublePointsActive(false)
   const currentPlayer = players[currentPlayerIndex]
   const failedCards = []
+  if (homeTurfActive) failedCards.push('Home Turf (no bonus)')
   if (doublePointsActive) failedCards.push('Double Points')
   if (insuranceActive) failedCards.push('Insurance')
   if (jackpotActive) failedCards.push('Jackpot')
@@ -6582,6 +6637,7 @@ if (currentPlayer.hotStreakActive) {
     setMechanicMessage('')
     setMechanicFailed(false)
     setMechanicAttempted(false)
+    setHomeTurfActive(false)
     setDoublePointsActive(false)
     setInsuranceActive(false)
     setJackpotActive(false)
@@ -6881,7 +6937,7 @@ if (currentPlayer.hotStreakActive) {
                   <span className="party-car-option__die">
                     {car.specialDie.map((face) =>
                       typeof face === 'object' && face?.type === 'tokens'
-                        ? `${face.value > 0 ? '+' : ''}${Math.max(-1, face.value)} Point${Math.abs(Math.max(-1, face.value)) === 1 ? '' : 's'}`
+                        ? `${face.value > 0 ? '+' : ''}${Math.max(-1, Math.min(1, face.value))} Point${Math.abs(Math.max(-1, Math.min(1, face.value))) === 1 ? '' : 's'}`
                         : formatPartyDieFace(face)
                     ).join(' • ')}
                   </span>
@@ -7040,7 +7096,7 @@ if (currentPlayer.hotStreakActive) {
                     <strong>{playerCar.name}:</strong>{' '}
                     {playerCar.specialDie.map((face) =>
                       typeof face === 'object' && face?.type === 'tokens'
-                        ? `${Math.max(-1, face.value) > 0 ? '+' : ''}${Math.max(-1, face.value)}P`
+                        ? `${Math.max(-1, Math.min(1, face.value)) > 0 ? '+' : ''}${Math.max(-1, Math.min(1, face.value))}P`
                         : formatPartyDieFace(face)
                     ).join(' • ')}
                   </div>
@@ -7909,7 +7965,7 @@ if (specialState) {
               <span>
                 {(getPartyCar(currentPlayer.carId)?.specialDie || []).map((face) =>
                   typeof face === 'object' && face?.type === 'tokens'
-                    ? `${Math.max(-1, face.value) > 0 ? '+' : ''}${Math.max(-1, face.value)} Point${Math.abs(Math.max(-1, face.value)) === 1 ? '' : 's'}`
+                    ? `${Math.max(-1, Math.min(1, face.value)) > 0 ? '+' : ''}${Math.max(-1, Math.min(1, face.value))} Point${Math.abs(Math.max(-1, Math.min(1, face.value))) === 1 ? '' : 's'}`
                     : formatPartyDieFace(face)
                 ).join(' • ')}
               </span>
@@ -8112,8 +8168,11 @@ if (specialState) {
                   )}
 
                   <div className="mechanic-buttons">
-                    <button onClick={scoreMechanic}>
-                      {kph100Required ? 'Scored at 100+ KPH' : 'Scored'}
+                    {homeTurfActive && <button onClick={() => scoreMechanic(true)}>
+                      Scored with {getPartyCar(currentPlayer.carId)?.name} (+1 bonus){kph100Required ? ' at 100+ KPH' : ''}
+                    </button>}
+                    <button onClick={() => scoreMechanic(false)}>
+                      {homeTurfActive ? 'Scored with another car (no bonus)' : kph100Required ? 'Scored at 100+ KPH' : 'Scored'}
                     </button>
 
                     <button onClick={missMechanic}>
@@ -8509,6 +8568,20 @@ if (specialState) {
     <button onClick={useEasyRoute}>
       Use
     </button>
+)}
+{card.name === 'Home Turf' && mechanicCard && !mechanicResolved &&
+  !mechanicAttempted && attemptsLeft > 0 && mechanicChoices.length === 0 &&
+  !mechanicActionUsed && !actionCardUsedThisTurn && !homeTurfActive && getPartyCar(currentPlayer.carId) && (
+    <button onClick={useHomeTurf}>Use Home Turf (+1 with {getPartyCar(currentPlayer.carId).name})</button>
+)}
+{card.name === 'Precision Dice' && !hasSpun && !actionCardUsedThisTurn &&
+  !secondChanceActive && secondChanceRolls.length === 0 && !currentPlayer.finished && (
+    <div>
+      <p>Choose your movement:</p>
+      {[1, 2, 3, 4, 5, 6].map((value) => (
+        <button key={value} onClick={() => usePrecisionDice(value)} disabled={diceRolling || Boolean(travel)}>{value}</button>
+      ))}
+    </div>
 )}
 {card.name === 'Second Chance' &&
   !hasSpun &&

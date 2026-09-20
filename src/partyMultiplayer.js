@@ -1,6 +1,6 @@
+import { joinProtectedRoom, releasedSeatUpdates, requireOnlineIdentity, normalizeRoomCode, cleanPlayerName, randomRoomCode } from './onlineIdentity'
 import { ref, set, get, onValue, update, runTransaction } from 'firebase/database'
 import { db } from './firebase'
-import { getClientId } from './multiplayer'
 import { BOOSTSTONE_RUINS } from './booststoneRuins'
 import { getPartyCar, formatPartyDieFace } from './partyCars'
 import { PARTY_MECHANICS, pickPartyMechanic } from './partyMechanics'
@@ -975,8 +975,9 @@ function applyPartyLuckLanding(room, turn, playerId, spaceType, seed = 0, card =
 }
 
 export async function resolvePartyLuckyTokenSteal(roomCode, playerId, targetId = '') {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const randomSeed = Math.random()
   let failureReason = ''
 
@@ -1194,8 +1195,9 @@ function applyPartyEventLanding(room, turn, playerId, nodeId, seed = 0) {
 }
 
 export async function resolvePartySupplyCrate(roomCode, playerId, crateIndex) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
@@ -1370,19 +1372,8 @@ function finishLanding(room, turn, playerId, nodeId, mechanic, card, battleOptio
   }
 }
 
-function makePartyCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let code = ''
-
-  for (let index = 0; index < 4; index += 1) {
-    code += chars[Math.floor(Math.random() * chars.length)]
-  }
-
-  return code
-}
-
 function normalizeCode(roomCode) {
-  return roomCode.trim().toUpperCase()
+  return normalizeRoomCode(roomCode)
 }
 
 function orderedPlayerIds(room) {
@@ -1405,20 +1396,16 @@ function makeTurnState(playerId) {
 }
 
 export async function createPartyRoom(playerName) {
-  const playerId = getClientId()
-  let roomCode
-  let roomExists = true
+  requireOnlineIdentity()
+  const playerId = requireOnlineIdentity()
+  playerName = cleanPlayerName(playerName)
+  const roomCode = randomRoomCode()
 
-  while (roomExists) {
-    roomCode = makePartyCode()
-    const snapshot = await get(ref(db, `partyRooms/${roomCode}`))
-    roomExists = snapshot.exists()
-  }
-
-  await set(ref(db, `partyRooms/${roomCode}`), {
+  await set(ref(db, `securePartyRooms/${roomCode}`), {
     mode: 'party',
     status: 'lobby',
     hostId: playerId,
+    seats: { 0: playerId },
     createdAt: Date.now(),
     settings: {
       mapId: PARTY_MAP_ID,
@@ -1440,53 +1427,26 @@ export async function createPartyRoom(playerName) {
 }
 
 export async function joinPartyRoom(roomCode, playerName) {
-  const code = normalizeCode(roomCode)
-  const playerId = getClientId()
-  const roomRef = ref(db, `partyRooms/${code}`)
-  const snapshot = await get(roomRef)
-
-  if (!snapshot.exists()) {
-    throw new Error('Party room not found.')
-  }
-
-  const room = snapshot.val()
-
-  if (room.status !== 'lobby') {
-    throw new Error('This Party game has already started.')
-  }
-
-  const currentPlayerCount = room.players ? Object.keys(room.players).length : 0
-
-  if (!room.players?.[playerId] && currentPlayerCount >= 4) {
-    throw new Error('This Party room is full.')
-  }
-
-  await update(ref(db, `partyRooms/${code}/players/${playerId}`), {
-    id: playerId,
-    name: playerName,
-    joinedAt: room.players?.[playerId]?.joinedAt || Date.now(),
-    carId: room.players?.[playerId]?.carId || null,
-  })
-
-  return code
+  return joinProtectedRoom('securePartyRooms', normalizeRoomCode(roomCode), playerName)
 }
 
 export function listenToPartyRoom(roomCode, callback) {
   const code = normalizeCode(roomCode)
 
-  return onValue(ref(db, `partyRooms/${code}`), (snapshot) => {
+  return onValue(ref(db, `securePartyRooms/${code}`), (snapshot) => {
     callback(snapshot.exists() ? snapshot.val() : null)
-  })
+  }, () => callback(null))
 }
 
 export async function updatePartyRounds(roomCode, requesterId, rounds) {
+  requireOnlineIdentity(requesterId)
   const code = normalizeCode(roomCode)
 
   if (!PARTY_ROUNDS.includes(rounds)) {
     throw new Error('Rounds must be 10, 15, or 20.')
   }
 
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const snapshot = await get(roomRef)
 
   if (!snapshot.exists()) {
@@ -1503,12 +1463,13 @@ export async function updatePartyRounds(roomCode, requesterId, rounds) {
     throw new Error('Party settings cannot be changed after the game starts.')
   }
 
-  await update(ref(db, `partyRooms/${code}/settings`), {
+  await update(ref(db, `securePartyRooms/${code}/settings`), {
     rounds,
   })
 }
 
 export async function updatePartyCardVisibility(roomCode, requesterId, visibility) {
+  requireOnlineIdentity(requesterId)
   const code = normalizeCode(roomCode)
   const nextVisibility = visibility === 'open' ? 'open' : visibility === 'hidden' ? 'hidden' : ''
 
@@ -1516,7 +1477,7 @@ export async function updatePartyCardVisibility(roomCode, requesterId, visibilit
     throw new Error('Card visibility must be Hidden Hands or Open Hands.')
   }
 
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const snapshot = await get(roomRef)
 
   if (!snapshot.exists()) {
@@ -1533,59 +1494,36 @@ export async function updatePartyCardVisibility(roomCode, requesterId, visibilit
     throw new Error('Party settings cannot be changed after the game starts.')
   }
 
-  await update(ref(db, `partyRooms/${code}/settings`), {
+  await update(ref(db, `securePartyRooms/${code}/settings`), {
     cardVisibility: nextVisibility,
   })
 }
 
 export async function selectPartyCar(roomCode, playerId, carId) {
+  requireOnlineIdentity(playerId)
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
-  let failureReason = ''
-
-  const result = await runTransaction(roomRef, (room) => {
-    if (!room) {
-      failureReason = 'Party room not found.'
-      return
-    }
-
-    if (room.status !== 'lobby') {
-      failureReason = 'Car selection is locked after the Party starts.'
-      return
-    }
-
-    if (!room.players?.[playerId]) {
-      failureReason = 'You are no longer in this Party room.'
-      return
-    }
-
-    const takenByAnotherPlayer = Object.values(room.players).some(
-      (player) => player.id !== playerId && player.carId === carId
-    )
-
-    if (takenByAnotherPlayer) {
-      failureReason = 'Another player already selected that car.'
-      return
-    }
-
-    room.players[playerId].carId = carId
-    return room
-  })
-
-  if (!result.committed) {
-    throw new Error(failureReason || 'Could not select that car. Try again.')
+  if (!getPartyCar(carId)) throw new Error('Choose a valid car.')
+  const snapshot = await get(ref(db, `securePartyRooms/${code}`))
+  const room = snapshot.val()
+  if (!room || room.status !== 'lobby') throw new Error('Car selection is closed.')
+  if (Object.values(room.players || {}).some((p) => p.id !== playerId && p.carId === carId)) {
+    throw new Error('Another player already selected that car.')
   }
+  await set(ref(db, `securePartyRooms/${code}/players/${playerId}/carId`), carId)
 }
 
 export async function clearPartyCarSelection(roomCode, playerId) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const playerRef = ref(db, `partyRooms/${code}/players/${playerId}/carId`)
+  const playerRef = ref(db, `securePartyRooms/${code}/players/${playerId}/carId`)
   await set(playerRef, null)
 }
 
 export async function startPartyRoom(roomCode, requesterId) {
+  requireOnlineIdentity(requesterId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const snapshot = await get(roomRef)
 
   if (!snapshot.exists()) {
@@ -1676,8 +1614,9 @@ export async function startPartyRoom(roomCode, requesterId) {
 }
 
 export async function rollPartyTurnOrder(roomCode, playerId) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const rollSeed = Math.random()
   let failureReason = ''
 
@@ -1757,8 +1696,9 @@ export async function rollPartyTurnOrder(roomCode, playerId) {
 }
 
 export async function rollPartyDie(roomCode, playerId, dieType) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const randomFaceIndex = Math.floor(Math.random() * 6)
   const normalRoll = randomFaceIndex + 1
   let failureReason = ''
@@ -1901,8 +1841,9 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
 }
 
 export async function continuePartyMovement(roomCode, playerId, chosenNextId = '') {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const landingMechanic = pickPartyMechanic()
   const landingCard = pickPartyCard()
   const landingBattleMechanic = pickPartyMechanic()
@@ -2050,8 +1991,9 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
 
 
 export async function resolvePartyGarageGate(roomCode, playerId, payToll) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const landingMechanic = pickPartyMechanic()
   const landingCard = pickPartyCard()
   const landingBattleMechanic = pickPartyMechanic()
@@ -2128,8 +2070,9 @@ export async function resolvePartyGarageGate(roomCode, playerId, payToll) {
 }
 
 export async function resolvePartyTrophyPass(roomCode, playerId, buyTrophy) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const nextTrophySpot = pickTrophySpot()
   const landingMechanic = pickPartyMechanic()
   const landingCard = pickPartyCard()
@@ -2242,8 +2185,9 @@ export async function resolvePartyTrophyPass(roomCode, playerId, buyTrophy) {
 
 
 export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
+  requireOnlineIdentity(requesterId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const card = getPartyCard(cardId)
   const devMechanics = shuffledPartyMechanics()
   let failureReason = ''
@@ -2562,8 +2506,9 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
 }
 
 export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const randomSeed = Math.random()
   const battleSeed = Math.random()
   const battleMechanic = pickPartyMechanic()
@@ -3266,8 +3211,9 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
 }
 
 export async function choosePartyMechanicChoice(roomCode, playerId, choiceIndex) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
@@ -3333,8 +3279,9 @@ export async function choosePartyMechanicChoice(roomCode, playerId, choiceIndex)
 
 
 export async function resolvePartyJackpotDecision(roomCode, playerId, useJackpot) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const landingMechanic = pickPartyMechanic()
   let failureReason = ''
 
@@ -3456,8 +3403,9 @@ export async function resolvePartyJackpotDecision(roomCode, playerId, useJackpot
 
 
 export async function resolvePartyMechanicLanding(roomCode, playerId, success) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
@@ -3658,8 +3606,9 @@ export async function resolvePartyMechanicLanding(roomCode, playerId, success) {
 }
 
 export async function resolvePartyBattle(roomCode, reporterId, winnerId) {
+  requireOnlineIdentity(reporterId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
@@ -3728,8 +3677,9 @@ export async function resolvePartyBattle(roomCode, reporterId, winnerId) {
 }
 
 export async function votePartyBattleMutualConcede(roomCode, playerId) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
@@ -3786,8 +3736,9 @@ export async function votePartyBattleMutualConcede(roomCode, playerId) {
 }
 
 export async function cancelPartyBattleMutualConcede(roomCode, playerId) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
@@ -3839,8 +3790,9 @@ export async function cancelPartyBattleMutualConcede(roomCode, playerId) {
 }
 
 export async function preparePartyBattleDevTest(roomCode, requesterId) {
+  requireOnlineIdentity(requesterId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const battleSeed = Math.random()
   const battleMechanic = pickPartyMechanic()
   let failureReason = ''
@@ -3911,8 +3863,9 @@ export async function preparePartyBattleDevTest(roomCode, requesterId) {
 }
 
 export async function preparePartyLuckDevTest(roomCode, requesterId, spaceType = 'Lucky') {
+  requireOnlineIdentity(requesterId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const normalizedType = spaceType === 'Very Bad Luck'
     ? 'Very Bad Luck'
     : spaceType === 'Bad Luck'
@@ -4023,8 +3976,9 @@ export async function preparePartyLuckDevTest(roomCode, requesterId, spaceType =
 
 
 export async function preparePartyEventDevTest(roomCode, requesterId, eventId = 'supply-crates') {
+  requireOnlineIdentity(requesterId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const seed = Math.random()
   let failureReason = ''
 
@@ -4116,8 +4070,9 @@ export async function preparePartyEventDevTest(roomCode, requesterId, eventId = 
 }
 
 export async function endPartyTurn(roomCode, playerId) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
@@ -4250,8 +4205,9 @@ export async function endPartyTurn(roomCode, playerId) {
 }
 
 export async function beginNextPartyRound(roomCode, requesterId) {
+  requireOnlineIdentity(requesterId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
@@ -4285,8 +4241,9 @@ export async function beginNextPartyRound(roomCode, requesterId) {
 }
 
 export async function leavePartyRoom(roomCode, playerId) {
+  requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `partyRooms/${code}`)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
   const snapshot = await get(roomRef)
 
   if (!snapshot.exists()) return
@@ -4303,6 +4260,7 @@ export async function leavePartyRoom(roomCode, playerId) {
   }
 
   await update(roomRef, {
+    ...releasedSeatUpdates(room, playerId),
     [`players/${playerId}`]: null,
     [`departedPlayers/${playerId}`]: {
       leftAt: Date.now(),

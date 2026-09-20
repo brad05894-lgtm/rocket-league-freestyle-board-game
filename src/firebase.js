@@ -1,8 +1,9 @@
+import { getAuth } from 'firebase/auth'
 import { initializeApp } from 'firebase/app'
 import { getDatabase } from 'firebase/database'
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyBzWI1bm18CFxTEt3Ozyup2J-G0u8y82HU',
+  apiKey: 'AIzaSyBzWI1bm18CFxTEt3Oyzup2J-G0u8y82HU',
   authDomain: 'rocket-league-board-game.firebaseapp.com',
   databaseURL:
     'https://rocket-league-board-game-default-rtdb.firebaseio.com',
@@ -15,3 +16,4 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig)
 
 export const db = getDatabase(app)
+export const auth = getAuth(app)
