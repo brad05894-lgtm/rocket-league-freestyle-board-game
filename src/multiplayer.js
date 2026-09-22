@@ -23,7 +23,6 @@ export function getClientId() {
 }
 
 export async function createRoom(playerName) {
-  // Wait for Firebase Anonymous Auth before touching the protected database.
   const playerId = await initializeOnlineIdentity()
   requireOnlineIdentity(playerId)
 
@@ -34,9 +33,6 @@ export async function createRoom(playerName) {
     status: 'lobby',
     hostId: playerId,
     seats: { 0: playerId },
-
-    // Use Firebase's clock so local computer clock differences
-    // cannot cause the security-rule time check to fail.
     createdAt: serverTimestamp(),
 
     players: {
@@ -86,11 +82,7 @@ export async function startRoom(roomCode) {
   })
 }
 
-export async function kickPlayer(
-  roomCode,
-  requesterId,
-  targetPlayerId
-) {
+export async function kickPlayer(roomCode, requesterId, targetPlayerId) {
   requireOnlineIdentity(requesterId)
 
   const code = normalizeRoomCode(roomCode)
@@ -112,9 +104,7 @@ export async function kickPlayer(
   }
 
   if (!['lobby', 'playing'].includes(room.status)) {
-    throw new Error(
-      'Players cannot be kicked after the room has ended.'
-    )
+    throw new Error('Players cannot be kicked after the room has ended.')
   }
 
   if (!room.players?.[targetPlayerId]) {
@@ -125,9 +115,7 @@ export async function kickPlayer(
 
   const updates = {
     ...releasedSeatUpdates(room, targetPlayerId),
-
     [`players/${targetPlayerId}`]: null,
-
     [`kickedPlayers/${targetPlayerId}`]: {
       kickedBy: requesterId,
       kickedAt,
@@ -158,9 +146,7 @@ export async function leaveRoom(roomCode, playerId) {
   const room = roomSnapshot.val()
 
   if (room.hostId === playerId) {
-    throw new Error(
-      'The host must end the game instead of leaving it.'
-    )
+    throw new Error('The host must end the game instead of leaving it.')
   }
 
   if (!room.players?.[playerId]) {
@@ -169,9 +155,7 @@ export async function leaveRoom(roomCode, playerId) {
 
   await update(roomRef, {
     ...releasedSeatUpdates(room, playerId),
-
     [`players/${playerId}`]: null,
-
     [`departedPlayers/${playerId}`]: {
       leftAt: Date.now(),
     },
@@ -192,9 +176,7 @@ export async function endRoom(roomCode, requesterId) {
   const room = roomSnapshot.val()
 
   if (room.hostId !== requesterId) {
-    throw new Error(
-      'Only the host can end the game for everyone.'
-    )
+    throw new Error('Only the host can end the game for everyone.')
   }
 
   await update(roomRef, {
@@ -209,7 +191,6 @@ export function listenToGame(roomCode, callback) {
 
   return onValue(
     ref(db, `secureRooms/${code}/game`),
-
     (snapshot) => {
       if (!snapshot.exists()) {
         callback(null)
@@ -218,9 +199,6 @@ export function listenToGame(roomCode, callback) {
 
       const payload = snapshot.val()
 
-      // New format:
-      // Store the game state as JSON text so null values survive
-      // Firebase Realtime Database.
       if (typeof payload.stateJson === 'string') {
         try {
           callback({
@@ -228,36 +206,23 @@ export function listenToGame(roomCode, callback) {
             state: JSON.parse(payload.stateJson),
           })
         } catch (error) {
-          console.error(
-            'Could not parse multiplayer game state:',
-            error
-          )
-
+          console.error('Could not parse multiplayer game state:', error)
           callback(null)
         }
 
         return
       }
 
-      // Fallback for an older game-state format.
       callback(payload)
     },
-
     () => callback(null)
   )
 }
 
-export async function saveGameState(
-  roomCode,
-  state,
-  updatedBy
-) {
+export async function saveGameState(roomCode, state, updatedBy) {
   requireOnlineIdentity(updatedBy)
 
   const code = normalizeRoomCode(roomCode)
-
-  // Realtime Database treats null object properties as deletions.
-  // JSON text preserves those null values.
   const cleanState = JSON.parse(JSON.stringify(state))
 
   await set(ref(db, `secureRooms/${code}/game`), {
@@ -267,11 +232,7 @@ export async function saveGameState(
   })
 }
 
-export async function saveClassicCarSelection(
-  roomCode,
-  playerId,
-  carId
-) {
+export async function saveClassicCarSelection(roomCode, playerId, carId) {
   requireOnlineIdentity(playerId)
 
   const code = normalizeRoomCode(roomCode)
@@ -290,10 +251,7 @@ export async function saveClassicCarSelection(
       return payload
     }
 
-    if (
-      state.screen !== 'rules' ||
-      !Array.isArray(state.players)
-    ) {
+    if (state.screen !== 'rules' || !Array.isArray(state.players)) {
       return payload
     }
 

@@ -83,11 +83,11 @@ export function randomRoomCode() {
       if (code.length === 8) break
     }
   }
+
   return code
 }
 
 export async function joinProtectedRoom(namespace, code, playerName) {
-  // Make this function safe even if a caller forgot to initialize auth first.
   const initializedUid = await initializeOnlineIdentity()
   const uid = requireOnlineIdentity(initializedUid)
   const name = cleanPlayerName(playerName)

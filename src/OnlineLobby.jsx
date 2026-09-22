@@ -19,11 +19,9 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
   const [kickedNotice, setKickedNotice] = useState('')
   const [clientId, setClientId] = useState('')
   const [identityReady, setIdentityReady] = useState(false)
+
   const gameStartSentRef = useRef(false)
 
-  // Establish Firebase Anonymous Auth before the player can create/join a room.
-  // The old version could render while auth.currentUser was still null, which
-  // created a race against your protected Realtime Database rules.
   useEffect(() => {
     let active = true
 
@@ -94,6 +92,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
       gameStartSentRef.current = false
 
       await ensureIdentity()
+
       const code = await createRoom(name.trim())
       setRoomCode(code)
     } catch (err) {
@@ -280,7 +279,9 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
             type="text"
             placeholder="Room code"
             value={joinCode}
-            onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+            onChange={(event) =>
+              setJoinCode(event.target.value.toUpperCase())
+            }
             maxLength={8}
           />
         </div>
