@@ -1,7 +1,7 @@
 const SPACE_WEIGHTS = [
-  ['Mechanic', 44],
+  ['Mechanic', 48],
   ['Action', 15],
-  ['Battle', 16],
+  ['Battle', 12],
   ['Event', 8],
   ['Gamble', 4],
   ['Action Shop', 5],
