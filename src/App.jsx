@@ -519,7 +519,7 @@ const battleCards = [
     ],
   },
   {
-    number: 26,
+    number: 27,
     id: 'turtle-unlimited-boost-1v1',
     name: 'Turtle Unlimited Boost 1v1',
     rules: [
@@ -544,6 +544,21 @@ const battleCards = [
       'If the final two players are effectively demoed at the same time, only those two replay a sudden-death round.',
       'Winner earns +3 board points.',
       'Every other participating player loses 1 board point.',
+    ],
+  },
+  {
+    number: 28,
+    id: 'kph-guess-battle',
+    name: 'Guess the KPH',
+    allPlayers: true,
+    rules: [
+      'Every active player participates.',
+      'Each player takes exactly 1 shot. Before the replay reveals that shot speed, every participating player — including the shooter — guesses the KPH.',
+      'After the replay shows the actual KPH, each player records the absolute difference between their guess and the real speed for that shot.',
+      'Repeat until every participating player has taken 1 shot. Add each player’s errors from every shot; the lowest total error wins.',
+      'If the lowest total is tied, only the tied players enter sudden death. Each tied player takes 1 shot per round, and every tied player guesses each sudden-death shot before the replay reveals the KPH.',
+      'Add each tied player’s errors for that sudden-death round. The lowest round total wins. If still tied, repeat another sudden-death round.',
+      'Winner earns +3 board points. Every other participating player loses 1 board point.',
     ],
   },
 ]

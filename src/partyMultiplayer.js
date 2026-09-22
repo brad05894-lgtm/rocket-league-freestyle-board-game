@@ -297,6 +297,20 @@ export const PARTY_BATTLES = [
       'If tied, play sudden death with the same turtle and unlimited-boost rules. Next valid goal wins.',
     ],
   },
+  {
+    number: 27,
+    id: 'kph-guess-battle',
+    name: 'Guess the KPH',
+    allPlayers: true,
+    rules: [
+      'Every active player participates.',
+      'Each player takes exactly 1 shot. Before the replay reveals that shot speed, every participating player — including the shooter — guesses the KPH.',
+      'After the replay shows the actual KPH, each player records the absolute difference between their guess and the real speed for that shot.',
+      'Repeat until every participating player has taken 1 shot. Add each player’s errors from every shot; the lowest total error wins.',
+      'If the lowest total is tied, only the tied players enter sudden death. Each tied player takes 1 shot per round, and every tied player guesses each sudden-death shot before the replay reveals the KPH.',
+      'Add each tied player’s errors for that sudden-death round. The lowest round total wins. If still tied, repeat another sudden-death round.',
+    ],
+  },
 ]
 
 const BOARD_NODE_BY_ID = Object.fromEntries(
@@ -329,10 +343,13 @@ function getAdjacentPartyMechanicDifficulty(currentDifficulty, direction) {
   return PARTY_MECHANIC_DIFFICULTY_ORDER[nextIndex]
 }
 
-function getPartyBattleBySeed(seed = 0) {
-  if (!PARTY_BATTLES.length) return null
+function getPartyBattleBySeed(seed = 0, allowAllPlayers = true) {
+  const pool = allowAllPlayers
+    ? PARTY_BATTLES
+    : PARTY_BATTLES.filter((battle) => !battle.allPlayers)
+  if (!pool.length) return null
   const normalized = Math.max(0, Math.min(0.999999999, Number(seed) || 0))
-  return PARTY_BATTLES[Math.floor(normalized * PARTY_BATTLES.length)] || PARTY_BATTLES[0]
+  return pool[Math.floor(normalized * pool.length)] || pool[0]
 }
 
 function getPartyBattleOpponent(room, challengerId, seed = 0) {
@@ -343,17 +360,26 @@ function getPartyBattleOpponent(room, challengerId, seed = 0) {
 }
 
 function makePartyBattle(room, challengerId, opponentId, source, battleSeed = 0, battleMechanic = null) {
-  const battle = getPartyBattleBySeed(battleSeed)
-  if (!battle || !challengerId || !opponentId) return null
+  // Challenge Glove is specifically a chosen 1v1, so it cannot draw an all-player Battle.
+  const battle = getPartyBattleBySeed(battleSeed, source !== 'challenge-glove')
+  if (!battle || !challengerId) return null
+  if (!battle.allPlayers && !opponentId) return null
+
+  const participantIds = battle.allPlayers
+    ? orderedPlayerIds(room).filter((id) => id && room.playerSetup?.[id])
+    : [challengerId, opponentId]
+
+  if (participantIds.length < 2) return null
 
   const state = {
     id: battle.id,
     name: battle.name,
     number: battle.number,
     rules: battle.rules,
+    allPlayers: Boolean(battle.allPlayers),
     challengerId,
-    opponentId,
-    participantIds: [challengerId, opponentId],
+    opponentId: battle.allPlayers ? '' : opponentId,
+    participantIds,
     source,
     status: 'active',
     rewardTokens: PARTY_BATTLE_WIN_REWARD,
@@ -394,7 +420,9 @@ function startPartyBattle(room, turn, challengerId, source, options = {}) {
     addPartyActivity(
       room,
       challengerId,
-      `${challengerName} landed on a Battle Space and drew ${battle.name} against ${opponentName}.`,
+      battle.allPlayers
+        ? `${challengerName} landed on a Battle Space and drew ${battle.name} for everyone.`
+        : `${challengerName} landed on a Battle Space and drew ${battle.name} against ${opponentName}.`,
       'battle'
     )
   }
@@ -3649,35 +3677,55 @@ export async function resolvePartyBattle(roomCode, reporterId, winnerId) {
       return
     }
 
-    if (![battle.challengerId, battle.opponentId].includes(winnerId)) {
-      failureReason = 'Choose one of the two Battle players as the winner.'
+    const participantIds = Array.isArray(battle.participantIds) && battle.participantIds.length
+      ? battle.participantIds.filter((id) => room.playerSetup?.[id])
+      : [battle.challengerId, battle.opponentId].filter((id) => room.playerSetup?.[id])
+
+    if (!participantIds.includes(winnerId)) {
+      failureReason = 'Choose a participating Battle player as the winner.'
       return
     }
 
-    const loserId = winnerId === battle.challengerId ? battle.opponentId : battle.challengerId
     const winnerSetup = room.playerSetup?.[winnerId]
-    const loserSetup = room.playerSetup?.[loserId]
-    if (!winnerSetup || !loserSetup) {
-      failureReason = 'Battle player data could not be found.'
+    if (!winnerSetup) {
+      failureReason = 'Battle winner data could not be found.'
       return
     }
 
     const reward = Number(battle.rewardTokens) || PARTY_BATTLE_WIN_REWARD
     const requestedLoss = Number(battle.lossTokens) || PARTY_BATTLE_LOSS_PENALTY
-    const actualLoss = Math.min(requestedLoss, Math.max(0, loserSetup.tokens || 0))
-
     winnerSetup.tokens = (winnerSetup.tokens || 0) + reward
-    loserSetup.tokens = Math.max(0, (loserSetup.tokens || 0) - requestedLoss)
+
+    const loserIds = battle.allPlayers
+      ? participantIds.filter((id) => id !== winnerId)
+      : [winnerId === battle.challengerId ? battle.opponentId : battle.challengerId]
+
+    const losses = {}
+    for (const loserId of loserIds) {
+      const loserSetup = room.playerSetup?.[loserId]
+      if (!loserSetup) continue
+      const actualLoss = Math.min(requestedLoss, Math.max(0, loserSetup.tokens || 0))
+      loserSetup.tokens = Math.max(0, (loserSetup.tokens || 0) - requestedLoss)
+      losses[loserId] = actualLoss
+    }
 
     battle.status = 'resolved'
     battle.winnerId = winnerId
-    battle.loserId = loserId
+    battle.loserId = battle.allPlayers ? '' : loserIds[0] || ''
+    battle.loserIds = loserIds
     battle.rewardApplied = reward
-    battle.lossApplied = actualLoss
+    battle.lossApplied = battle.allPlayers ? losses : (losses[loserIds[0]] || 0)
     battle.resolvedAt = Date.now()
-    battle.resultMessage = `${room.players?.[winnerId]?.name || 'Winner'} won ${battle.name}: +${reward} Tokens. ${room.players?.[loserId]?.name || 'Loser'} lost ${actualLoss} Token${actualLoss === 1 ? '' : 's'}.`
-    turn.battle = battle
 
+    if (battle.allPlayers) {
+      battle.resultMessage = `${room.players?.[winnerId]?.name || 'Winner'} won ${battle.name}: +${reward} Tokens. Every other participant lost up to ${requestedLoss} Token${requestedLoss === 1 ? '' : 's'}.`
+    } else {
+      const loserId = loserIds[0]
+      const actualLoss = losses[loserId] || 0
+      battle.resultMessage = `${room.players?.[winnerId]?.name || 'Winner'} won ${battle.name}: +${reward} Tokens. ${room.players?.[loserId]?.name || 'Loser'} lost ${actualLoss} Token${actualLoss === 1 ? '' : 's'}.`
+    }
+
+    turn.battle = battle
     addPartyActivity(room, winnerId, battle.resultMessage, 'battle')
     room.turnState = turn
     return room

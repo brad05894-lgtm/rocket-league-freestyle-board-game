@@ -269,7 +269,14 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const battle = turn.battle || null
   const battleChallenger = battle ? room.players?.[battle.challengerId] || null : null
   const battleOpponent = battle ? room.players?.[battle.opponentId] || null : null
-  const isBattleParticipant = Boolean(battle && [battle.challengerId, battle.opponentId].includes(clientId))
+  const battleParticipants = battle
+    ? (battle.participantIds || [battle.challengerId, battle.opponentId])
+        .map((id) => room.players?.[id])
+        .filter(Boolean)
+    : []
+  const isBattleParticipant = Boolean(
+    battle && (battle.participantIds || [battle.challengerId, battle.opponentId]).includes(clientId)
+  )
   const battleConcedeVotes = battle?.mutualConcedeVotes || {}
   const activeNode = nodeMap[activeSetup.boardNodeId || board.startId]
   const activeTrophyNode = nodeMap[room.activeTrophyNodeId] || null
@@ -301,7 +308,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
       winner: battle.name,
       options: rouletteLabels(PARTY_BATTLES.map((entry) => entry.name), battle.name),
       opponentName: room.players?.[battle.opponentId]?.name || 'Opponent',
-      opponentOptions: battle.source === 'challenge-glove'
+      opponentOptions: battle.allPlayers || battle.source === 'challenge-glove'
         ? []
         : players
             .filter((player) => player.id !== battle.challengerId)
@@ -1580,11 +1587,21 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           {room.phase === 'board' && battle && (
             <div className="party-turn-panel__section party-landing-effect">
               <p className="home-mode-card__eyebrow">
-                {battle.source === 'challenge-glove' ? 'Challenge Glove Battle' : 'Battle Space'}
+                {battle.allPlayers
+                  ? 'Everyone Battle'
+                  : battle.source === 'challenge-glove'
+                    ? 'Challenge Glove Battle'
+                    : 'Battle Space'}
               </p>
               <h2>⚔️ {battle.name}</h2>
               <p>
-                <strong>{battleChallenger?.name || 'Player 1'}</strong> vs <strong>{battleOpponent?.name || 'Player 2'}</strong>
+                {battle.allPlayers ? (
+                  <strong>{battleParticipants.map((player) => player.name).join(' · ')}</strong>
+                ) : (
+                  <>
+                    <strong>{battleChallenger?.name || 'Player 1'}</strong> vs <strong>{battleOpponent?.name || 'Player 2'}</strong>
+                  </>
+                )}
               </p>
 
               {battle.battleMechanic && (
@@ -1604,29 +1621,47 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
 
               <div className="party-card-statuses">
                 <span>Winner: +{battle.rewardTokens || 5} Tokens</span>
-                <span>Loser: -{battle.lossTokens || 1} Token{(battle.lossTokens || 1) === 1 ? '' : 's'} (minimum 0)</span>
+                <span>
+                  {battle.allPlayers ? 'Everyone else:' : 'Loser:'} -{battle.lossTokens || 1} Token{(battle.lossTokens || 1) === 1 ? '' : 's'} (minimum 0)
+                </span>
               </div>
 
               {battle.status === 'active' ? (
                 <>
                   {isMyTurn ? (
                     <div className="party-landing-effect__actions">
-                      <button
-                        type="button"
-                        className="party-primary-action"
-                        onClick={() => handleBattleWinner(battle.challengerId)}
-                        disabled={busy}
-                      >
-                        {battleChallenger?.name || 'Challenger'} Won
-                      </button>
-                      <button
-                        type="button"
-                        className="party-secondary-action"
-                        onClick={() => handleBattleWinner(battle.opponentId)}
-                        disabled={busy}
-                      >
-                        {battleOpponent?.name || 'Opponent'} Won
-                      </button>
+                      {battle.allPlayers ? (
+                        battleParticipants.map((player) => (
+                          <button
+                            type="button"
+                            key={player.id}
+                            className="party-primary-action"
+                            onClick={() => handleBattleWinner(player.id)}
+                            disabled={busy}
+                          >
+                            {player.name} Won
+                          </button>
+                        ))
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="party-primary-action"
+                            onClick={() => handleBattleWinner(battle.challengerId)}
+                            disabled={busy}
+                          >
+                            {battleChallenger?.name || 'Challenger'} Won
+                          </button>
+                          <button
+                            type="button"
+                            className="party-secondary-action"
+                            onClick={() => handleBattleWinner(battle.opponentId)}
+                            disabled={busy}
+                          >
+                            {battleOpponent?.name || 'Opponent'} Won
+                          </button>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <div className="party-waiting-box">
