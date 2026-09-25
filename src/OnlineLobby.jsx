@@ -233,7 +233,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
           ))}
         </div>
 
-        <p>{roomPlayers.length} / 4 Players</p>
+        <p>{roomPlayers.length} / 6 Players</p>
 
         {error && <p><strong>{error}</strong></p>}
 
@@ -243,7 +243,7 @@ function OnlineLobby({ mode, onBack, onGameStart }) {
 
             <button
               onClick={handleStartGame}
-              disabled={roomPlayers.length < 2}
+              disabled={roomPlayers.length < 2 || roomPlayers.length > 6}
             >
               Start Game
             </button>

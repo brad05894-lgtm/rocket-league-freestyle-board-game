@@ -14,7 +14,8 @@ const LANDING_REVEAL_MS = 1600
 const ONLINE_SESSION_STORAGE_KEY = 'rl-freestyle-online-session-v2'
 const LOCAL_GAME_STORAGE_KEY = 'rl-freestyle-local-game-v1'
 const SOUND_STORAGE_KEY = 'rl-freestyle-sound-enabled-v1'
-const PLAYER_ACCENTS = ['#38bdf8', '#f472b6', '#a3e635', '#fb923c']
+const CLASSIC_MAX_PLAYERS = 6
+const PLAYER_ACCENTS = ['#38bdf8', '#f472b6', '#a3e635', '#fb923c', '#a78bfa', '#facc15']
 let sharedAudioContext = null
 let nextPlayerId = 1
 
@@ -1758,7 +1759,7 @@ function App() {
     const name = playerName.trim()
 
     if (name === '') return
-    if (players.length >= 4) return
+    if (players.length >= CLASSIC_MAX_PLAYERS) return
 
     setPlayers([
       ...players,
@@ -1828,6 +1829,7 @@ function App() {
   }
 
   function startGame() {
+    if (players.length < 2 || players.length > CLASSIC_MAX_PLAYERS) return
     setGameActivity([])
     activityPrevious.current = null
     setTravel(null)
@@ -6866,7 +6868,7 @@ if (currentPlayer.hotStreakActive) {
       <div className="game">
         <h1>Game Lobby</h1>
 
-        <p>{players.length} / 4 Players</p>
+        <p>{players.length} / {CLASSIC_MAX_PLAYERS} Players</p>
 
         <div className="player-form">
           <input
@@ -6881,7 +6883,7 @@ if (currentPlayer.hotStreakActive) {
 
           <button
             onClick={addPlayer}
-            disabled={players.length >= 4}
+            disabled={players.length >= CLASSIC_MAX_PLAYERS}
           >
             Add Player
           </button>
@@ -6913,7 +6915,7 @@ if (currentPlayer.hotStreakActive) {
           </button>
 
           <button
-            disabled={players.length < 2}
+            disabled={players.length < 2 || players.length > CLASSIC_MAX_PLAYERS}
             onClick={() => setScreen('rules')}
           >
             Continue to Rules
@@ -8879,7 +8881,7 @@ if (screen === 'online-join') {
         <span>Board Game</span>
       </h1>
 
-      <p className="home-screen__subtitle">2–4 Players</p>
+      <p className="home-screen__subtitle">Classic: 2–6 Players • Party: 2–4 Players</p>
 
       <div className="home-mode-grid">
         <section className="home-mode-card">

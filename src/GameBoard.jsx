@@ -14,7 +14,7 @@ const SPACE_COLORS = {
   'Shortcut Gate': '#eab308',
 }
 
-const PLAYER_COLORS = ['#38bdf8', '#f472b6', '#a3e635', '#fb923c']
+const PLAYER_COLORS = ['#38bdf8', '#f472b6', '#a3e635', '#fb923c', '#a78bfa', '#facc15']
 
 function routeToPath(points) {
   if (!points || points.length < 2) return ''
@@ -411,14 +411,14 @@ export default function GameBoard({
             const angle =
               (sameNodeIndex / Math.max(1, sameNodeMarkers.length)) * Math.PI * 2 -
               Math.PI / 2
-            const radius = sameNodeMarkers.length > 1 ? 34 : 0
+            const radius = sameNodeMarkers.length > 4 ? 40 : sameNodeMarkers.length > 1 ? 34 : 0
             const x = point.x + Math.cos(angle) * radius
             const y = point.y + Math.sin(angle) * radius - 38
             const isCurrent = playerIndex === currentPlayerIndex
 
             return (
               <g
-                key={`${player.id ?? playerIndex}-${player.boardNodeId || player.position}`} 
+                key={`${player.id ?? playerIndex}-${player.boardNodeId || player.position}`}
                 transform={`translate(${x}, ${y})`}
                 className={`player-marker ${isCurrent ? 'player-marker--current' : ''}`}
               >

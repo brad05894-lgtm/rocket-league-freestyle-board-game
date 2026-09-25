@@ -99,8 +99,10 @@ export async function joinProtectedRoom(namespace, code, playerName) {
   let seat = Object.keys(seats).find((key) => seats[key] === uid)
   let newlyClaimed = false
 
+    const maxPlayers = namespace === 'secureRooms' ? 6 : 4
+
   if (seat === undefined) {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < maxPlayers; i++) {
       if (seats[i]) continue
 
       try {
