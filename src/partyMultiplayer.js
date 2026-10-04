@@ -1,10 +1,13 @@
-import { joinProtectedRoom, releasedSeatUpdates, requireOnlineIdentity, normalizeRoomCode, cleanPlayerName, randomRoomCode } from './onlineIdentity'
-import { ref, set, get, onValue, update, runTransaction } from 'firebase/database'
+import { createBattle } from './partyChallengeEngine'
+import { PARTY_CHALLENGES } from './partyChallengeCatalog'
+import { awardPartyBonuses, addPartyStat } from './partyProgress'
+import { joinProtectedRoom, requireOnlineIdentity, normalizeRoomCode, cleanPlayerName, randomRoomCode } from './onlineIdentity'
+import { ref, set, get, onValue, update, runTransaction, serverTimestamp } from 'firebase/database'
 import { db } from './firebase'
 import { BOOSTSTONE_RUINS } from './booststoneRuins'
 import { getPartyCar, formatPartyDieFace } from './partyCars'
 import { PARTY_MECHANICS, pickPartyMechanic } from './partyMechanics'
-import { getPartyCard, normalizePartyCards, pickPartyCard } from './partyCards'
+import { getEnabledPartyCards, getPartyCard, normalizePartyCards, pickPartyCard } from './partyCards'
 
 const PARTY_ROUNDS = [10, 15, 20]
 const PARTY_MAP_ID = 'booststone-ruins'
@@ -83,235 +86,7 @@ const PARTY_SUPPLY_CRATE_REWARDS = [
   { id: 'crate-shield', name: 'Shield', kind: 'card', cardId: 'shield' },
 ]
 
-export const PARTY_BATTLES = [
-  {
-    number: 1,
-    id: 'one-minute-1v1',
-    name: '1-Minute 1v1',
-    rules: [
-      'Play a normal 1v1 for 60 seconds, starting with a normal midfield kickoff.',
-      'Both players may score however they want.',
-      'After 60 seconds, the player with more goals wins.',
-      'If tied, play sudden death. Next goal wins.',
-    ],
-  },
-  {
-    number: 2,
-    id: 'beat-the-defender',
-    name: 'Beat the Defender',
-    rules: [
-      'Take turns as attacker and defender.',
-      'Each player gets 3 attacking attempts from around midfield while the other player defends the net.',
-      'Each attacking goal is 1 mini-point. A save or miss is 0.',
-      'After 3 attacks each, the player with more goals wins.',
-      'If tied, play sudden-death rounds: each player gets 1 attack; one score and one miss decides the winner.',
-    ],
-  },
-  {
-    number: 3,
-    id: 'freestyle-shootout',
-    name: 'Freestyle Shootout',
-    rules: [
-      'Each player gets 3 freestyle attempts total. Any freestyle move is allowed.',
-      'Only successful goals are eligible for judging.',
-      "After all attempts, compare each player's best successful freestyle shot and judge which was better.",
-      'If one player misses all 3 and the other makes at least 1, the scorer wins automatically.',
-      'If both miss all 3, use sudden death with 1 freestyle attempt each per round.',
-    ],
-  },
-  {
-    number: 4,
-    id: 'goalie-challenge',
-    name: 'Goalie Challenge',
-    rules: [
-      'Each player gets 3 shots to defend as goalie.',
-      'Player A shoots 3 while Player B is goalie, then Player B shoots 3 while Player A is goalie.',
-      'The goalie earns 1 mini-point for each save.',
-      'After both players defend 3 shots, more saves wins.',
-      'If tied, use sudden-death rounds with 1 shot faced by each goalie.',
-    ],
-  },
-  {
-    number: 5,
-    id: 'crossbar-contest',
-    name: 'Crossbar Contest',
-    rules: [
-      'Each player gets 3 attempts to hit the crossbar.',
-      'Every attempt starts with the ball on the exact center kickoff spot and the shot taken from center.',
-      'No wall, dribble, ceiling, or moved-ball setup is allowed.',
-      'A crossbar hit is 1 mini-point. More hits after 3 attempts each wins.',
-      'If tied, use sudden-death center-kickoff attempts.',
-    ],
-  },
-  {
-    number: 6,
-    id: 'same-mechanic-duel',
-    name: 'Same Mechanic Duel',
-    needsBattleMechanic: true,
-    allowMutualConcede: true,
-    rules: [
-      'Both players must attempt the exact same randomly drawn Battle mechanic shown below.',
-      'Each player gets 3 attempts. Every successful completion is 1 mini-point.',
-      'After 3 attempts each, more completions wins.',
-      'If tied, use sudden-death rounds on the same mechanic: 1 attempt each.',
-      'If the mechanic is unreasonable for both players, both may agree to mutually concede for no Token change.',
-    ],
-  },
-  {
-    number: 9,
-    id: 'one-letter-horse',
-    name: 'One-Letter HORSE',
-    rules: [
-      'Randomly decide who sets first outside the app.',
-      'The Setter clearly calls a freestyle shot and gets exactly 1 attempt.',
-      'If the Setter misses, roles switch and no challenge is set.',
-      'If the Setter makes it, the Copier gets exactly 1 attempt to copy the called shot.',
-      'If the Copier misses, the Copier immediately loses. If the Copier makes it, roles switch.',
-    ],
-  },
-  {
-    number: 12,
-    id: 'copycat-chain',
-    name: 'Copycat Chain',
-    rules: [
-      'One player starts by setting and making a freestyle shot.',
-      'The other player gets exactly 1 attempt to copy it. Failing a copy is an immediate loss.',
-      'If the copy succeeds, that player gets 1 attempt to upgrade the shot by adding something or making it harder.',
-      'Failing an upgrade does not lose the Battle; the chain ends and the original Setter starts a new chain.',
-      'A player only loses by failing to copy a successfully made shot.',
-    ],
-  },
-  {
-    number: 14,
-    id: 'accuracy-horse',
-    name: 'Accuracy HORSE',
-    rules: [
-      'Randomly decide who sets first outside the app.',
-      'The Setter calls a target such as top left, top right, bottom left, bottom right, crossbar in, or post in.',
-      'Every attempt must be a legitimate flick from a fair distance from goal.',
-      'The Setter gets 1 attempt. If they hit the called target, the Copier gets 1 attempt to reproduce it.',
-      'If the Copier misses, the Copier immediately loses. If the Copier makes it, roles switch.',
-    ],
-  },
-  {
-    number: 15,
-    id: 'speed-challenge',
-    name: 'Speed Challenge',
-    rules: [
-      'Each player gets exactly 3 attempts to score the fastest shot possible. Pinches are allowed.',
-      'Record the KPH of every successful goal. A miss counts as 0 KPH.',
-      'Add all 3 attempt speeds together for each player.',
-      'Higher total KPH wins.',
-      'If exactly tied, use sudden death: 1 shot each, faster successful shot wins.',
-    ],
-  },
-  {
-    number: 18,
-    id: 'kuxir-pinch-battle',
-    name: 'Kuxir Pinch Battle',
-    rules: [
-      'Play repeated rounds. Each player gets exactly 1 Kuxir pinch attempt per round.',
-      'If exactly one player scores the Kuxir pinch, that player wins immediately.',
-      'If both miss, repeat another round.',
-      'If both score in the same round, the faster Kuxir pinch wins.',
-      'If the speeds tie exactly, repeat another round.',
-    ],
-  },
-  {
-    number: 19,
-    id: 'reset-ladder',
-    name: 'Reset Ladder',
-    allowMutualConcede: true,
-    rules: [
-      'Start at 1 reset. Both players get exactly 1 attempt at the same required reset count.',
-      'If one player scores and the other misses, the scorer wins immediately.',
-      'If both miss, repeat the same reset level.',
-      'If both score, add 1 reset for the next round: single to double to triple to quadruple and so on.',
-      'If the required reset count becomes unreasonable, both players may agree to mutually concede for no Token change.',
-    ],
-  },
-  {
-    number: 20,
-    id: 'kickoff-battle',
-    name: 'Kickoff Battle',
-    rules: [
-      'Play a best-of-3 series of normal 1v1 kickoffs.',
-      "If the ball clearly ends up on the opponent's side of the field, you win that kickoff and earn 1 mini-point.",
-      'First player to 2 mini-points wins the Battle.',
-      'If a kickoff is too close or ambiguous to judge, redo that kickoff with no mini-point awarded.',
-    ],
-  },
-  {
-    number: 21,
-    id: 'training-pack-race',
-    name: 'Training Pack Race',
-    rules: [
-      'Choose a random training pack yourselves. The app does not choose the pack.',
-      'The training pack must contain at least 10 shots.',
-      'Both players race through Shots 1-10 in order, retrying each shot until it is scored.',
-      'The first player to successfully complete Shot 10 wins.',
-    ],
-  },
-  {
-    number: 23,
-    id: 'reverse-one-minute-1v1',
-    name: 'Reverse 1v1',
-    rules: [
-      'Play a 60-second 1v1, but both players must drive in reverse for the entire Battle, including kickoff.',
-      'No normal forward driving is allowed; a play made by clearly driving forward does not count.',
-      'After 60 seconds, more goals wins.',
-      'If tied, play sudden death under the same reverse-only rule.',
-    ],
-  },
-  {
-    number: 24,
-    id: 'random-car-one-minute-1v1',
-    name: 'Random Car 1v1',
-    rules: [
-      'Before starting, each player chooses a random car and keeps it for the entire Battle.',
-      'Play a normal 1v1 for 60 seconds, starting with a normal midfield kickoff.',
-      'After 60 seconds, more goals wins.',
-      'If tied, play sudden death with the same random cars.',
-    ],
-  },
-  {
-    number: 25,
-    id: 'random-mutators-one-minute-1v1',
-    name: 'Random Mutators 1v1',
-    rules: [
-      'Before starting, set random Rocket League mutators for the private match. Both players use the same settings.',
-      'Play a 60-second 1v1 with those mutators, starting from kickoff.',
-      'After 60 seconds, more goals wins.',
-      'If tied, keep the same mutators and play sudden death.',
-    ],
-  },
-  {
-    number: 26,
-    id: 'turtle-unlimited-boost-1v1',
-    name: 'Turtle Unlimited Boost 1v1',
-    rules: [
-      'Play a 60-second 1v1 with unlimited boost.',
-      'Both players must stay turtled with their cars upside down for the entire Battle, including kickoff.',
-      'Use boost and upside-down movement to attack, defend, and score; intentionally flipping back onto your wheels is not allowed.',
-      'After 60 seconds, more goals wins.',
-      'If tied, play sudden death with the same turtle and unlimited-boost rules. Next valid goal wins.',
-    ],
-  },
-  {
-    number: 27,
-    id: 'kph-guess-battle',
-    name: 'Guess the KPH',
-    allPlayers: true,
-    rules: [
-      'Every active player participates.',
-      'Each player takes exactly 1 shot. Before the replay reveals that shot speed, every participating player — including the shooter — guesses the KPH.',
-      'After the replay shows the actual KPH, each player records the absolute difference between their guess and the real speed for that shot.',
-      'Repeat until every participating player has taken 1 shot. Add each player’s errors from every shot; the lowest total error wins.',
-      'If the lowest total is tied, only the tied players enter sudden death. Each tied player takes 1 shot per round, and every tied player guesses each sudden-death shot before the replay reveals the KPH.',
-      'Add each tied player’s errors for that sudden-death round. The lowest round total wins. If still tied, repeat another sudden-death round.',
-    ],
-  },
-]
+export const PARTY_BATTLES = PARTY_CHALLENGES
 
 const BOARD_NODE_BY_ID = Object.fromEntries(
   BOOSTSTONE_RUINS.nodes.map((node) => [node.id, node])
@@ -359,44 +134,10 @@ function getPartyBattleOpponent(room, challengerId, seed = 0) {
   return candidates[Math.floor(normalized * candidates.length)] || candidates[0]
 }
 
-function makePartyBattle(room, challengerId, opponentId, source, battleSeed = 0, battleMechanic = null) {
-  // Challenge Glove is specifically a chosen 1v1, so it cannot draw an all-player Battle.
-  const battle = getPartyBattleBySeed(battleSeed, source !== 'challenge-glove')
-  if (!battle || !challengerId) return null
-  if (!battle.allPlayers && !opponentId) return null
-
-  const participantIds = battle.allPlayers
-    ? orderedPlayerIds(room).filter((id) => id && room.playerSetup?.[id])
-    : [challengerId, opponentId]
-
-  if (participantIds.length < 2) return null
-
-  const state = {
-    id: battle.id,
-    name: battle.name,
-    number: battle.number,
-    rules: battle.rules,
-    allPlayers: Boolean(battle.allPlayers),
-    challengerId,
-    opponentId: battle.allPlayers ? '' : opponentId,
-    participantIds,
-    source,
-    status: 'active',
-    rewardTokens: PARTY_BATTLE_WIN_REWARD,
-    lossTokens: PARTY_BATTLE_LOSS_PENALTY,
-    allowMutualConcede: Boolean(battle.allowMutualConcede),
-    startedAt: Date.now(),
-  }
-
-  if (battle.needsBattleMechanic && battleMechanic) {
-    state.battleMechanic = {
-      id: battleMechanic.id,
-      name: battleMechanic.name,
-      difficulty: getPartyMechanicDifficulty(battleMechanic),
-    }
-  }
-
-  return state
+function makePartyBattle(room, challengerId, opponentId, source, battleSeed = 0) {
+  const ids = orderedPlayerIds(room).filter(id => room.players?.[id] && room.playerSetup?.[id] && !room.departedPlayers?.[id])
+  if (ids.length < 2) return null
+  return createBattle({ ids, hostId: room.hostId, challengerId, opponentId, source, seed: Math.floor(battleSeed * 4294967295), now: Date.now() })
 }
 
 function startPartyBattle(room, turn, challengerId, source, options = {}) {
@@ -429,13 +170,18 @@ function startPartyBattle(room, turn, challengerId, source, options = {}) {
   return battle
 }
 
-function pickTrophySpot(excludeNodeId = '') {
-  const spots = BOOSTSTONE_RUINS.trophySpots || []
-  if (!spots.length) return BOOSTSTONE_RUINS.startId
+function eligibleTrophySpots(room = {}, excludeNodeId = '') {
+  const occupied = new Set(Object.values(room.playerSetup || {})
+    .filter((setup) => setup && setup.onStartDeck !== true)
+    .map((setup) => setup.boardNodeId || BOOSTSTONE_RUINS.startId))
+  return (BOOSTSTONE_RUINS.trophySpots || []).filter((id) =>
+    id !== excludeNodeId && !occupied.has(id)
+  )
+}
 
-  const candidates = spots.filter((nodeId) => nodeId !== excludeNodeId)
-  const pool = candidates.length ? candidates : spots
-  return pool[Math.floor(Math.random() * pool.length)]
+function pickTrophySpot(excludeNodeId = '', room = {}) {
+  const pool = eligibleTrophySpots(room, excludeNodeId)
+  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : ''
 }
 
 function findNodeOneSpaceBefore(targetNodeId) {
@@ -778,12 +524,9 @@ function transferPartyTokensToAll(room, fromPlayerId, requestedEach, seed = 0) {
 }
 
 function relocatePartyTrophy(room, seed = 0) {
-  const spots = BOOSTSTONE_RUINS.trophySpots || []
-  if (!spots.length) return { from: '', to: '' }
-
-  const from = room.activeTrophyNodeId || spots[0]
-  const candidates = spots.filter((id) => id !== from)
-  const to = choosePartySeeded(candidates.length ? candidates : spots, seed, 19) || from
+  const from = room.activeTrophyNodeId || ''
+  const candidates = eligibleTrophySpots(room, from)
+  const to = choosePartySeeded(candidates, seed, 19) || ''
   room.activeTrophyNodeId = to
   return { from, to }
 }
@@ -1195,9 +938,12 @@ function applyPartyEventLanding(room, turn, playerId, nodeId, seed = 0) {
       const affectedNodes = Array.isArray(event?.affectedNodes) ? event.affectedNodes : []
       const resetTo = event?.resetTo || BOOSTSTONE_RUINS.startId
       const affectedIds = []
+      effect.animationStartedAt = serverTimestamp()
+      effect.fromPositions = {}
       for (const id of orderedPlayerIds(room)) {
         const playerSetup = room.playerSetup?.[id]
         if (!playerSetup || !affectedNodes.includes(playerSetup.boardNodeId)) continue
+        effect.fromPositions[id] = playerSetup.boardNodeId
         playerSetup.boardNodeId = resetTo
         affectedIds.push(id)
       }
@@ -1212,9 +958,9 @@ function applyPartyEventLanding(room, turn, playerId, nodeId, seed = 0) {
   } else if (eventId.startsWith('gate-switch-')) {
     const nextGate = rotatePartyGarageGate(room)
     effect.closedGarageGateId = nextGate?.id || ''
-    const gateName = nextGate?.id?.includes('west') ? 'West Garage Gate' : 'Center Garage Gate'
+    const gateName = nextGate?.label || 'Garage Gate'
     effect.publicMessage = nextGate
-      ? `${playerName} hit the Garage Gate Switch. ${gateName} is now CLOSED and costs ${nextGate.toll || 3} Tokens to pass; the other gate is open.`
+      ? `${playerName} hit the Garage Gate Switch. ${gateName} is now CLOSED and costs ${nextGate.toll || 3} Tokens to pass; the other gates are open.`
       : `${playerName} hit the Garage Gate Switch, but no Garage Gate was available.`
     effect.privateMessage = effect.publicMessage
   } else if (eventId === 'ancient-boost-cache') {
@@ -1417,8 +1163,8 @@ function normalizeCode(roomCode) {
 }
 
 function orderedPlayerIds(room) {
-  if (Array.isArray(room.playerOrder)) return room.playerOrder.filter(Boolean)
-  if (room.playerOrder) return Object.values(room.playerOrder).filter(Boolean)
+  if (Array.isArray(room.playerOrder)) return room.playerOrder.filter((id) => room.players?.[id] && !room.departedPlayers?.[id])
+  if (room.playerOrder) return Object.values(room.playerOrder).filter((id) => room.players?.[id] && !room.departedPlayers?.[id])
 
   return Object.values(room.players || {})
     .sort((first, second) => (first.joinedAt || 0) - (second.joinedAt || 0))
@@ -1619,10 +1365,14 @@ export async function startPartyRoom(roomCode, requesterId) {
     ])
   )
 
-  const activeTrophyNodeId = pickTrophySpot()
+  const activeTrophyNodeId = pickTrophySpot('', { playerSetup })
 
   await update(roomRef, {
     status: 'playing',
+    partyStats: null,
+    bonusResults: null,
+    boardMotion: null,
+    motionSequence: 0,
     startedAt: Date.now(),
     currentRound: 1,
     turnIndex: 0,
@@ -1938,11 +1688,14 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
       return
     }
 
+    if (turn.awaitingService) { failureReason = 'Resolve this stop first.'; return }
     turn.movementStarted = true
 
     let currentNodeId = setup.boardNodeId || BOOSTSTONE_RUINS.startId
     let remaining = turn.movementRemaining || 0
     let choiceUsed = false
+    const path = [currentNodeId]
+    let openGateId = ''
 
     while (remaining > 0) {
       const currentNode = BOARD_NODE_BY_ID[currentNodeId]
@@ -1984,10 +1737,21 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
         turn.gateToll = Number(closedGate.toll) || 3
         break
       }
-      if (turn.gatePassApproved === gateEdgeKey) delete turn.gatePassApproved
+      if (turn.gatePassApproved === gateEdgeKey) {
+        openGateId = closedGate?.id || ''
+        delete turn.gatePassApproved
+      }
 
       currentNodeId = nextId
+      path.push(nextId)
       remaining -= 1
+      const serviceType = BOARD_NODE_BY_ID[nextId]?.type
+      if (['Shop', 'Paratroopa', 'Lakitu'].includes(serviceType)) {
+        turn.awaitingService = { nodeId: nextId, type: serviceType }
+        turn.awaitingChoice = false
+        delete turn.choices
+        break
+      }
 
       if (currentNodeId === room.activeTrophyNodeId) {
         turn.awaitingChoice = false
@@ -2011,9 +1775,13 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
     }
 
     setup.boardNodeId = currentNodeId
+    if (path.length > 1) {
+      room.motionSequence = (room.motionSequence || 0) + 1
+      room.boardMotion = { id: room.motionSequence, playerId, path, openGateId, startedAt: serverTimestamp(), stepMs: 280 }
+    }
     turn.movementRemaining = remaining
 
-    if (remaining === 0 && !turn.awaitingTrophy) {
+    if (remaining === 0 && !turn.awaitingTrophy && !turn.awaitingService) {
       turn.awaitingChoice = false
       delete turn.choiceNodeId
       delete turn.choices
@@ -2113,7 +1881,7 @@ export async function resolvePartyTrophyPass(roomCode, playerId, buyTrophy) {
   requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
   const roomRef = ref(db, `securePartyRooms/${code}`)
-  const nextTrophySpot = pickTrophySpot()
+  const nextTrophySeed = Math.random()
   const landingMechanic = pickPartyMechanic()
   const landingCard = pickPartyCard()
   const landingBattleMechanic = pickPartyMechanic()
@@ -2169,15 +1937,9 @@ export async function resolvePartyTrophyPass(roomCode, playerId, buyTrophy) {
         delete room.temporaryTrophyPriceUntil
       }
 
-      const currentTrophy = room.activeTrophyNodeId
-      const spots = BOOSTSTONE_RUINS.trophySpots || []
-      let newTrophy = nextTrophySpot
-      if (newTrophy === currentTrophy && spots.length > 1) {
-        const currentIndex = spots.indexOf(currentTrophy)
-        newTrophy = spots[(currentIndex + 1) % spots.length]
-      }
-
-      room.activeTrophyNodeId = newTrophy
+      // Select inside the transaction against the latest player positions.
+      // The seed is captured outside, so retries make a consistent choice.
+      relocatePartyTrophy(room, nextTrophySeed)
       turn.trophyResult = 'bought'
       turn.trophyMessage = `Bought a Trophy for ${trophyPrice} Tokens.`
     } else {
@@ -3188,6 +2950,8 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       return
     }
 
+    if (!blockedByShield) addPartyStat(room, playerId, 'cardsPlayed')
+
     // Shared Activity follows the lobby's hand-visibility rule.
     // Hidden Hands always records that a Card was played, but keeps the Card's
     // identity private unless the visible board result naturally gives away
@@ -3610,6 +3374,7 @@ export async function resolvePartyMechanicLanding(roomCode, playerId, success) {
     turn.landingEffect = effect
 
     if (madeIt) {
+      addPartyStat(room, playerId, 'mechanicsCompleted')
       room.lastScoredMechanic = {
         playerId,
         challengeId: effect.challengeId,
@@ -3667,7 +3432,7 @@ export async function resolvePartyBattle(roomCode, reporterId, winnerId) {
     const turn = room.turnState
     const battle = turn?.battle
 
-    if (!battle || battle.status !== 'active') {
+    if (!battle || battle.stage || battle.status !== 'active') {
       failureReason = 'There is no unresolved Battle.'
       return
     }
@@ -3911,7 +3676,7 @@ export async function preparePartyBattleDevTest(roomCode, requesterId) {
       battleName: battle.name,
       testerId: requesterId,
       opponentId,
-      instructions: `Play ${battle.name}, then report either player as winner. Winner should gain +${PARTY_BATTLE_WIN_REWARD} Tokens and loser should lose up to ${PARTY_BATTLE_LOSS_PENALTY}.`,
+      instructions: 'Use the Challenge controls, then confirm rewards once. The Test Lab below can select a specific game and format.',
       preparedAt: Date.now(),
     }
     return room
@@ -4160,6 +3925,8 @@ export async function endPartyTurn(roomCode, playerId) {
       return
     }
 
+    if (room.turnState?.awaitingService) { failureReason = 'Resolve this stop first.'; return }
+
     if (room.turnState?.awaitingTrophy) {
       failureReason = 'Resolve the Trophy decision first.'
       return
@@ -4209,7 +3976,7 @@ export async function endPartyTurn(roomCode, playerId) {
     taken.add(playerId)
     room.roundTakenPlayerIds = [...taken]
 
-    if (taken.size < order.length) {
+    if (order.some((id) => !taken.has(id))) {
       const direction = room.turnDirection === -1 ? -1 : 1
       let nextIndex = activeIndex
       let foundNext = false
@@ -4230,25 +3997,11 @@ export async function endPartyTurn(roomCode, playerId) {
       }
     }
 
-    const currentRound = room.currentRound || 1
-    const totalRounds = room.settings?.rounds || 10
-
     room.turnIndex = 0
     room.roundTakenPlayerIds = []
 
-    if (currentRound >= totalRounds) {
-      room.phase = 'party-complete-test'
-      room.turnState = {
-        playerId: order[0],
-        rolled: false,
-        movementRemaining: 0,
-        awaitingChoice: false,
-        readyToEnd: false,
-      }
-      return room
-    }
-
     room.phase = 'round-complete'
+    delete room.roundBattle
     room.turnState = {
       playerId: order[0],
       rolled: false,
@@ -4277,7 +4030,7 @@ export async function beginNextPartyRound(roomCode, requesterId) {
     }
 
     if (room.hostId !== requesterId) {
-      failureReason = 'Only the host can begin the next round during this test.'
+      failureReason = 'Only the host can continue after the Challenge break.'
       return
     }
 
@@ -4286,7 +4039,14 @@ export async function beginNextPartyRound(roomCode, requesterId) {
       return
     }
 
+    if (!room.roundBattle || room.roundBattle.status !== 'resolved') { failureReason = 'Finish the round Challenge first.'; return }
+    delete room.roundBattle
     const order = orderedPlayerIds(room)
+    if ((room.currentRound || 1) >= (room.settings?.rounds || 10)) {
+      awardPartyBonuses(room, order)
+      room.phase = 'party-complete-test'
+      return room
+    }
     room.currentRound = (room.currentRound || 1) + 1
     room.turnIndex = 0
     room.roundTakenPlayerIds = []
@@ -4302,29 +4062,128 @@ export async function beginNextPartyRound(roomCode, requesterId) {
 
 export async function leavePartyRoom(roomCode, playerId) {
   requireOnlineIdentity(playerId)
-  const code = normalizeCode(roomCode)
-  const roomRef = ref(db, `securePartyRooms/${code}`)
-  const snapshot = await get(roomRef)
-
-  if (!snapshot.exists()) return
-
-  const room = snapshot.val()
-
-  if (room.hostId === playerId) {
-    await update(roomRef, {
-      status: 'ended',
-      endedAt: Date.now(),
-      endedBy: playerId,
-    })
-    return
-  }
-
-  await update(roomRef, {
-    ...releasedSeatUpdates(room, playerId),
-    [`players/${playerId}`]: null,
-    [`departedPlayers/${playerId}`]: {
-      leftAt: Date.now(),
-      reason: 'left',
-    },
+  const roomRef = ref(db, `securePartyRooms/${normalizeCode(roomCode)}`)
+  const result = await runTransaction(roomRef, (room) => {
+    if (!room || !room.players?.[playerId]) return
+    if (room.hostId === playerId) {
+      room.status = 'ended'
+      room.endedAt = Date.now()
+      room.endedBy = playerId
+      return room
+    }
+    const before = orderedPlayerIds(room)
+    const activeId = room.turnState?.playerId
+    const name = room.players[playerId].name
+    if (room.status === 'lobby') {
+      for (const [seat, occupant] of Object.entries(room.seats || {})) {
+        if (occupant === playerId) delete room.seats[seat]
+      }
+    }
+    delete room.players[playerId]
+    room.departedPlayers ||= {}
+    room.departedPlayers[playerId] = { leftAt: Date.now(), reason: 'left' }
+    const order = before.filter((id) => id !== playerId)
+    room.playerOrder = order
+    if (room.phase === 'turn-order') {
+      if (room.turnOrderRolls) delete room.turnOrderRolls[playerId]
+      if (order.every((id) => Number(room.turnOrderRolls?.[id]) > 0)) {
+        order.sort((a,b) => room.turnOrderRolls[b] - room.turnOrderRolls[a])
+        room.phase = 'board'
+        room.turnIndex = 0
+        room.turnState = makeTurnState(order[0])
+      }
+    } else if (room.phase === 'board') {
+      if (activeId === playerId) {
+        const taken = new Set(Object.values(room.roundTakenPlayerIds || {}))
+        const direction = room.turnDirection === -1 ? -1 : 1
+        const start = before.indexOf(playerId)
+        let nextId
+        for (let step=1; step<=before.length; step++) {
+          const candidate = before[(start + direction*step + before.length*2) % before.length]
+          if (order.includes(candidate) && !taken.has(candidate)) { nextId=candidate; break }
+        }
+        if (!nextId) {
+          room.phase = 'round-complete'
+    delete room.roundBattle
+          room.roundTakenPlayerIds = []
+          nextId = order[0]
+        }
+        room.turnIndex = order.indexOf(nextId)
+        room.turnState = makeTurnState(nextId)
+      } else {
+        room.turnIndex = Math.max(0, order.indexOf(activeId))
+        const battle = room.turnState?.battle
+        if (battle?.status === 'active' && (Object.values(battle.participantIds || {}).includes(playerId) || battle.opponentId === playerId)) {
+          battle.status = 'resolved'
+          battle.resultMessage = 'Battle cancelled because a participant left. No Tokens changed.'
+          battle.resolvedAt = Date.now()
+        }
+      }
+    }
+    if (room.phase === 'round-complete' && room.roundBattle?.status === 'active' && room.roundBattle.participantIds?.includes(playerId)) {
+      room.roundBattle.status = 'resolved'
+      room.roundBattle.cancelled = true
+      room.roundBattle.resultMessage = 'Challenge cancelled because a participant left. No Tokens changed.'
+    }
+    addPartyActivity(room, playerId, `${name} left the Party game.`, 'system')
+    return room
   })
+  if (!result.committed) throw new Error('This Party room is no longer available.')
+}
+
+
+// Services pause movement; prices are centralized here for future balancing.
+export const PARTY_SERVICE_PRICES = { card: 5, transport: 5, stealTokens: 3, stealTrophy: 30 }
+export async function resolvePartyService(roomCode, playerId, action = 'skip', targetId = '') {
+  requireOnlineIdentity(playerId)
+  let failure = ''
+  const result = await runTransaction(ref(db, `securePartyRooms/${normalizeCode(roomCode)}`), (room) => {
+    const turn = room?.turnState
+    const stop = turn?.awaitingService
+    const setup = room?.playerSetup?.[playerId]
+    if (!room || room.status !== 'playing' || room.phase !== 'board' || turn?.playerId !== playerId || !stop || !setup) return
+    let cost = 0
+    let message = `${room.players[playerId].name} passed the stop.`
+    if (action === 'buy' && stop.type === 'Shop') {
+      const card = getEnabledPartyCards().find((c) => c.id === targetId)
+      const cards = normalizePartyCards(setup.cards)
+      if (!card || cards.length >= 3) { failure = 'Choose an available Card; your hand must have room.'; return }
+      cost = PARTY_SERVICE_PRICES.card
+      if ((setup.tokens || 0) < cost) { failure = 'Not enough Tokens.'; return }
+      setup.cards = [...cards, card.id]
+      message = `${room.players[playerId].name} bought ${room.settings?.cardVisibility === 'open' ? card.name : 'an Action Card'} for ${cost} Tokens.`
+    } else if (action === 'transport' && stop.type === 'Paratroopa') {
+      if (!['n11', 'n32', 'n51'].includes(targetId)) return
+      cost = PARTY_SERVICE_PRICES.transport
+      if ((setup.tokens || 0) < cost) { failure = 'Not enough Tokens.'; return }
+      setup.boardNodeId = targetId
+      message = `${room.players[playerId].name} flew to Space ${partyNodeNumber(targetId)} for ${cost} Tokens. Movement continues from there.`
+    } else if (['tokens', 'trophy'].includes(action) && stop.type === 'Lakitu') {
+      const target = room.playerSetup?.[targetId]
+      if (targetId === playerId || !room.players?.[targetId] || !target) return
+      cost = action === 'tokens' ? PARTY_SERVICE_PRICES.stealTokens : PARTY_SERVICE_PRICES.stealTrophy
+      if ((setup.tokens || 0) < cost) { failure = 'Not enough Tokens.'; return }
+      if (action === 'trophy') {
+        if (!(target.trophies > 0)) { failure = 'That player has no Trophy.'; return }
+        target.trophies -= 1
+        setup.trophies = (setup.trophies || 0) + 1
+      } else {
+        const amount = Math.min(5, Math.max(0, target.tokens || 0))
+        if (!amount) { failure = 'That player has no Tokens.'; return }
+        target.tokens -= amount
+        setup.tokens = (setup.tokens || 0) + amount
+      }
+      message = `${room.players[playerId].name} paid ${cost} Tokens to steal ${action === 'trophy' ? '1 Trophy' : 'up to 5 Tokens'} from ${room.players[targetId].name}.`
+    } else if (action !== 'skip') return
+    setup.tokens = Math.max(0, (setup.tokens || 0) - cost)
+    delete turn.awaitingService
+    if (!(turn.movementRemaining > 0)) {
+      turn.readyToEnd = true
+      turn.landedNodeId = setup.boardNodeId
+      turn.landedType = BOARD_NODE_BY_ID[setup.boardNodeId]?.type || 'Space'
+    }
+    addPartyActivity(room, playerId, message, 'event')
+    return room
+  })
+  if (!result.committed) throw new Error(failure || 'This stop is no longer available.')
 }

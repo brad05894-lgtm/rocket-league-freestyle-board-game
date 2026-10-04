@@ -1,3 +1,6 @@
+import PartyChallenge, { ChallengeDev } from './PartyChallenge'
+import { onValue, ref as databaseRef } from 'firebase/database'
+import { db } from './firebase'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import RouletteReel from './RouletteReel'
 import { BOOSTSTONE_RUINS } from './booststoneRuins'
@@ -6,6 +9,8 @@ import { formatPartyDieFace, getPartyCar, getPartyCarImageUrl, getPartyCarImageF
 import { getEnabledPartyCards, getPartyCard, normalizePartyCards } from './partyCards'
 import {
   beginNextPartyRound,
+  resolvePartyService,
+  PARTY_SERVICE_PRICES,
   choosePartyMechanicChoice,
   continuePartyMovement,
   endPartyTurn,
@@ -211,7 +216,23 @@ function getPartyCardUseState(card, turn, isMyTurn, currentSetup, roomPhase, roo
 }
 
 export default function PartyGame({ roomCode, room, clientId, onLeave, isHost }) {
-  const [busy, setBusy] = useState(false)
+  const [actionBusy, setBusy] = useState(false)
+  const [motionBusy, setMotionBusy] = useState(false)
+  const [clockOffset, setClockOffset] = useState(0)
+  const busy = actionBusy || motionBusy
+  useEffect(() => onValue(databaseRef(db, '.info/serverTimeOffset'), (snapshot) => setClockOffset(Number(snapshot.val()) || 0)), [])
+  useEffect(() => {
+    const motion = room.boardMotion
+    const moveEnd = Number(motion?.startedAt || 0) + Math.max(0, (motion?.path?.length || 1) - 1) * (motion?.stepMs || 280)
+    const event = room.turnState?.eventEffect
+    const ballEnd = event?.id === 'reactor-trigger-c' && Number(event.animationStartedAt)
+      ? Math.max(Number(event.animationStartedAt), moveEnd) + 3200 : 0
+    const remaining = Math.max(moveEnd, ballEnd) - Date.now() - clockOffset
+    setMotionBusy(remaining > 0)
+    if (remaining <= 0) return undefined
+    const timer = window.setTimeout(() => setMotionBusy(false), Math.min(remaining, 15000))
+    return () => window.clearTimeout(timer)
+  }, [room.boardMotion, room.turnState?.eventEffect, clockOffset])
   const [error, setError] = useState('')
   const [selectedCardIndex, setSelectedCardIndex] = useState(null)
   const [selectedStealTargetId, setSelectedStealTargetId] = useState('')
@@ -298,7 +319,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const openHands = cardVisibility === 'open'
 
   useEffect(() => {
-    if (battle?.status !== 'active') return
+    if (battle?.status !== 'active' || battle.stage) return
     const key = `battle-${room.currentRound}-${room.turnIndex}-${battle.id}-${battle.opponentId}`
     if (seenRouletteKeyRef.current === key) return
     seenRouletteKeyRef.current = key
@@ -370,6 +391,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   )
 
   async function runAction(action) {
+    if (busy) return
     try {
       setBusy(true)
       setError('')
@@ -524,7 +546,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           )}
         </div>
         <button type="button" onClick={onLeave} disabled={busy}>
-          {isHost ? 'End Party Test' : 'Leave Party Test'}
+          {isHost ? 'End Party Test' : 'Leave Party Game'}
         </button>
       </div>
 
@@ -1130,6 +1152,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                   <span>{room.devCardTest.instructions}</span>
                 </div>
               )}
+              {isHost && <ChallengeDev room={room} roomCode={roomCode} clientId={clientId} runAction={runAction} busy={busy} />}
+
               {room.devBattleTest && (
                 <div className="party-private-card-message" style={{ marginTop: 12 }}>
                   <strong>DEV Battle Ready — {room.devBattleTest.battleName}</strong>
@@ -1584,137 +1608,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'board' && battle && (
-            <div className="party-turn-panel__section party-landing-effect">
-              <p className="home-mode-card__eyebrow">
-                {battle.allPlayers
-                  ? 'Everyone Battle'
-                  : battle.source === 'challenge-glove'
-                    ? 'Challenge Glove Battle'
-                    : 'Battle Space'}
-              </p>
-              <h2>⚔️ {battle.name}</h2>
-              <p>
-                {battle.allPlayers ? (
-                  <strong>{battleParticipants.map((player) => player.name).join(' · ')}</strong>
-                ) : (
-                  <>
-                    <strong>{battleChallenger?.name || 'Player 1'}</strong> vs <strong>{battleOpponent?.name || 'Player 2'}</strong>
-                  </>
-                )}
-              </p>
-
-              {battle.battleMechanic && (
-                <div className="party-card-statuses">
-                  <span>Battle Mechanic: {battle.battleMechanic.name}</span>
-                  <span>Difficulty: {battle.battleMechanic.difficulty}</span>
-                </div>
-              )}
-
-              <div style={{ textAlign: 'left', margin: '12px 0' }}>
-                {(battle.rules || []).map((rule, index) => (
-                  <p key={`${battle.id}-rule-${index}`} style={{ margin: '6px 0' }}>
-                    <strong>{index + 1}.</strong> {rule}
-                  </p>
-                ))}
-              </div>
-
-              <div className="party-card-statuses">
-                <span>Winner: +{battle.rewardTokens || 5} Tokens</span>
-                <span>
-                  {battle.allPlayers ? 'Everyone else:' : 'Loser:'} -{battle.lossTokens || 1} Token{(battle.lossTokens || 1) === 1 ? '' : 's'} (minimum 0)
-                </span>
-              </div>
-
-              {battle.status === 'active' ? (
-                <>
-                  {isMyTurn ? (
-                    <div className="party-landing-effect__actions">
-                      {battle.allPlayers ? (
-                        battleParticipants.map((player) => (
-                          <button
-                            type="button"
-                            key={player.id}
-                            className="party-primary-action"
-                            onClick={() => handleBattleWinner(player.id)}
-                            disabled={busy}
-                          >
-                            {player.name} Won
-                          </button>
-                        ))
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            className="party-primary-action"
-                            onClick={() => handleBattleWinner(battle.challengerId)}
-                            disabled={busy}
-                          >
-                            {battleChallenger?.name || 'Challenger'} Won
-                          </button>
-                          <button
-                            type="button"
-                            className="party-secondary-action"
-                            onClick={() => handleBattleWinner(battle.opponentId)}
-                            disabled={busy}
-                          >
-                            {battleOpponent?.name || 'Opponent'} Won
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="party-waiting-box">
-                      Waiting for {battleChallenger?.name || 'the current player'} to report the Battle winner…
-                    </div>
-                  )}
-
-                  {battle.allowMutualConcede && isBattleParticipant && (
-                    <div style={{ marginTop: 10 }}>
-                      {!battleConcedeVotes[clientId] ? (
-                        <button
-                          type="button"
-                          className="party-card-cancel"
-                          onClick={handleBattleConcedeVote}
-                          disabled={busy}
-                        >
-                          Request Mutual Concede
-                        </button>
-                      ) : (
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          <button
-                            type="button"
-                            className="party-card-cancel"
-                            disabled
-                          >
-                            Mutual Concede Requested
-                          </button>
-                          <button
-                            type="button"
-                            className="party-secondary-action"
-                            onClick={handleBattleConcedeCancel}
-                            disabled={busy}
-                          >
-                            Cancel Concede Request
-                          </button>
-                        </div>
-                      )}
-                      <small style={{ display: 'block', marginTop: 6 }}>
-                        Both Battle players must request it. You can cancel your request any time before the other player agrees.
-                      </small>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="party-mechanic-result">
-                  {battle.resultMessage || 'Battle resolved.'}
-                  {battle.source === 'challenge-glove' && !turn.rolled && (
-                    <div style={{ marginTop: 8 }}>Battle complete — the current player can now roll normally.</div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          {room.phase === 'board' && battle && <PartyChallenge room={room} roomCode={roomCode} clientId={clientId} />}
 
           {room.phase === 'board' && turn.awaitingJackpotDecision && (
             <div className="party-turn-panel__section party-landing-effect party-landing-effect--mechanic">
@@ -1954,7 +1848,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'board' && isMyTurn && turn.rolled && !turn.readyToEnd && !turn.awaitingChoice && !turn.awaitingTrophy && !turn.awaitingGate && battle?.status !== 'active' && (
+          {room.phase === 'board' && isMyTurn && turn.rolled && !turn.readyToEnd && !turn.awaitingChoice && !turn.awaitingTrophy && !turn.awaitingGate && !turn.awaitingService && battle?.status !== 'active' && (
             <button className="party-primary-action" type="button" onClick={() => handleMove()} disabled={busy}>
               Move {turn.movementRemaining} Space{turn.movementRemaining === 1 ? '' : 's'}
             </button>
@@ -1985,45 +1879,72 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'board' && isMyTurn && turn.readyToEnd && !turn.awaitingJackpotDecision && !turn.awaitingGate && battle?.status !== 'active' && (!turn.landingEffect || turn.landingEffect.resolved) && (!turn.spaceEffect || turn.spaceEffect.resolved) && (!turn.eventEffect || turn.eventEffect.resolved) && (
+          {room.phase === 'board' && isMyTurn && turn.readyToEnd && !turn.awaitingJackpotDecision && !turn.awaitingGate && !turn.awaitingService && battle?.status !== 'active' && (!turn.landingEffect || turn.landingEffect.resolved) && (!turn.spaceEffect || turn.spaceEffect.resolved) && (!turn.eventEffect || turn.eventEffect.resolved) && (
             <button className="party-primary-action" type="button" onClick={handleEndTurn} disabled={busy}>
               End Turn
             </button>
           )}
 
-          {room.phase === 'board' && !isMyTurn && !turn.awaitingTrophy && !turn.awaitingGate && !turn.awaitingJackpotDecision && battle?.status !== 'active' && !(turn.landingEffect && !turn.landingEffect.resolved) && !(turn.spaceEffect && !turn.spaceEffect.resolved) && !(turn.eventEffect && !turn.eventEffect.resolved) && (
+          {room.phase === 'board' && !isMyTurn && !turn.awaitingTrophy && !turn.awaitingGate && !turn.awaitingService && !turn.awaitingJackpotDecision && battle?.status !== 'active' && !(turn.landingEffect && !turn.landingEffect.resolved) && !(turn.spaceEffect && !turn.spaceEffect.resolved) && !(turn.eventEffect && !turn.eventEffect.resolved) && (
             <div className="party-waiting-box">
               Waiting for {activePlayer?.name || 'the current player'} to finish their turn…
             </div>
           )}
 
-          {room.phase === 'round-complete' && (
-            <div className="party-turn-panel__section party-round-complete">
-              <p className="home-mode-card__eyebrow">Round Complete</p>
-              <h2>Challenge comes next</h2>
-              <p>The end-of-round Challenge system is the next build step. For now, this button lets us keep testing board movement.</p>
-              {isHost ? (
-                <button type="button" className="party-primary-action" onClick={handleNextRound} disabled={busy}>
-                  Begin Round {(room.currentRound || 1) + 1}
-                </button>
-              ) : (
-                <div className="party-waiting-box">Waiting for the host to begin the next test round…</div>
-              )}
+          {turn.awaitingService && room.phase === 'board' && (
+            <div className="party-turn-panel__section">
+              <h2>{turn.awaitingService.type === 'Shop' ? 'Action Shop' : turn.awaitingService.type === 'Paratroopa' ? 'Transportation' : 'Steal Stop'}</h2>
+              <p>Your remaining {turn.movementRemaining || 0} moves resume after this stop.</p>
+              {isMyTurn ? <>
+                {turn.awaitingService.type === 'Shop' && <>
+                  <p>Each Card costs {PARTY_SERVICE_PRICES.card} Tokens. Maximum hand: 3.</p>
+                  {getEnabledPartyCards().map((card) => <button key={card.id} disabled={busy || (currentSetup.tokens || 0) < PARTY_SERVICE_PRICES.card || normalizePartyCards(currentSetup.cards).length >= 3}
+                    title={card.description} onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'buy', card.id))}>{card.name}</button>)}
+                </>}
+                {turn.awaitingService.type === 'Paratroopa' && <>
+                  <p>Fly for {PARTY_SERVICE_PRICES.transport} Tokens. The destination stop does not activate again.</p>
+                  {['n11', 'n32', 'n51'].map((id) => <button key={id} disabled={busy || (currentSetup.tokens || 0) < PARTY_SERVICE_PRICES.transport}
+                    onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'transport', id))}>Fly to Space {nodeNumber(id)}</button>)}
+                </>}
+                {turn.awaitingService.type === 'Lakitu' && <>
+                  <p>Pay {PARTY_SERVICE_PRICES.stealTokens} to take up to 5 Tokens, or {PARTY_SERVICE_PRICES.stealTrophy} to take 1 Trophy.</p>
+                  {players.filter((p) => p.id !== clientId).map((p) => <div key={p.id}>
+                    <strong>{p.name}</strong>
+                    <button disabled={busy || (currentSetup.tokens || 0) < PARTY_SERVICE_PRICES.stealTokens || !(room.playerSetup?.[p.id]?.tokens > 0)} onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'tokens', p.id))}>Steal Tokens</button>
+                    <button disabled={busy || (currentSetup.tokens || 0) < PARTY_SERVICE_PRICES.stealTrophy || !(room.playerSetup?.[p.id]?.trophies > 0)} onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'trophy', p.id))}>Steal Trophy</button>
+                  </div>)}
+                </>}
+                <button disabled={busy} onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'skip'))}>Skip stop</button>
+              </> : <p>Waiting for {activePlayer?.name} to choose…</p>}
             </div>
           )}
 
+          {room.phase === 'round-complete' && <PartyChallenge room={room} roomCode={roomCode} clientId={clientId} onNextRound={handleNextRound} />}
+
           {room.phase === 'party-complete-test' && (
             <div className="party-turn-panel__section party-round-complete">
-              <p className="home-mode-card__eyebrow">Movement Test Complete</p>
-              <h2>{room.settings?.rounds || 10} rounds finished</h2>
-              <p>Trophies, Mechanics, Battles, Lucky/Bad Luck, Very Bad Luck, Booststone Ruins Events, Supply Crates, Boost Reactors, and Garage Gates are active. Shops and end-of-round Challenges are next.</p>
+              <h2>Final Results</h2>
+              {(Array.isArray(room.bonusResults) ? room.bonusResults : Object.values(room.bonusResults || {})).map((bonus) => <div key={bonus.key}>
+                <h3>{bonus.name} · +1 Trophy</h3>
+                <p>{bonus.description}</p>
+                <p>{(bonus.winners || []).length ? bonus.winners.map((id) => room.players?.[id]?.name || 'Player').join(', ') + ` — ${bonus.score}` : 'No qualifying actions; no bonus awarded.'}</p>
+              </div>)}
+              <p>Ranked by Trophies, then Tokens. Equal totals share a rank.</p>
+              {[...players].sort((a,b) => (room.playerSetup?.[b.id]?.trophies || 0) - (room.playerSetup?.[a.id]?.trophies || 0) || (room.playerSetup?.[b.id]?.tokens || 0) - (room.playerSetup?.[a.id]?.tokens || 0)).map((p) => {
+                const score = room.playerSetup?.[p.id] || {}
+                const rank = 1 + players.filter((other) => {
+                  const v = room.playerSetup?.[other.id] || {}
+                  return (v.trophies || 0) > (score.trophies || 0) || ((v.trophies || 0) === (score.trophies || 0) && (v.tokens || 0) > (score.tokens || 0))
+                }).length
+                return <p key={p.id}><strong>#{rank} {p.name}</strong> — {score.trophies || 0} Trophies · {score.tokens || 0} Tokens</p>
+              })}
             </div>
           )}
 
           {error && <p className="party-form-error"><strong>{error}</strong></p>}
 
           <div className="party-stage-note party-game-stage-note">
-            Booststone Ruins board Events are active now, including Supply Crates, one-use Boost Reactor chains, the Garage Gate switch/toll system, and the Ancient Boost Cache. Card visibility still follows the lobby setting for any Cards awarded by Events.
+            Explore Booststone Ruins: shops, transport, stealing, Supply Crates, reactors, gates and Trophies. Each round ends with a Challenge break. Bonus Trophies are awarded after the final round.
           </div>
         </aside>
       </div>

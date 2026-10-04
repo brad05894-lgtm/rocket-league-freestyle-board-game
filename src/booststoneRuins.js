@@ -75,12 +75,12 @@ const NODE_POSITIONS = {
   n04: [1048, 508],
   n05: [1048, 444],
   n06: [984, 444],
-  n07: [856, 444],
-  n08: [856, 508],
-  n09: [856, 572],
-  n10: [856, 700],
-  n11: [920, 700],
-  n12: [984, 700],
+  n07: [920, 444],
+  n08: [920, 508],
+  n09: [920, 572],
+  n10: [920, 700],
+  n11: [962.666667, 700],
+  n12: [1005.333333, 700],
 
   // TOP-RIGHT LOOP — LOCKED.
   n53: [1048, 380],
@@ -269,7 +269,11 @@ const SPECIAL_BY_ID = {
   n43: 'gate-switch-top-left',
 }
 
-const TROPHY_SPOTS = ['n35', 'n47', 'n52', 'n55']
+const TROPHY_SPOTS = Object.keys(NODE_POSITIONS).filter((id) =>
+  (TYPE_BY_ID[id] || 'Mechanic') !== 'Event' &&
+  !['Shop', 'Junction', 'Lakitu', 'Paratroopa'].includes(TYPE_BY_ID[id]) &&
+  !['n05', 'n54', 'n26', 'n37', 'n42'].includes(id)
+)
 const CHOICE_JUNCTIONS = new Set(['n05', 'n54', 'n26', 'n37', 'n42'])
 const VISUAL_MODE_BY_ID = {
   n05: 'junction',
@@ -359,15 +363,15 @@ export const BOOSTSTONE_RUINS = {
   ],
 
   shops: [
-    { id: 'shop-first-loop', label: 'Action Shop', nodeId: 'n11', x: 920, y: 778, elevated: true },
+    { id: 'shop-first-loop', label: 'Action Shop', nodeId: 'n11', x: 900, y: 748, elevated: true },
     { id: 'shop-bottom-left', label: 'Action Shop', nodeId: 'n51', x: 252, y: 748, elevated: true, linkDirection: 'left' },
   ],
 
   gates: [
-    { id: 'garage-gate-bridge-east', label: 'Garage Gate', between: ['n04', 'n05'], x: 1090, y: 476, toll: 3, group: 'ruins-gates' },
-    { id: 'garage-gate-bridge-west', label: 'Garage Gate', between: ['n06', 'n07'], x: 920, y: 408, toll: 3, group: 'ruins-gates' },
-    { id: 'garage-gate-west', label: 'Garage Gate', between: ['n20', 'n21'], x: 440, y: 540, toll: 3, group: 'ruins-gates' },
-    { id: 'garage-gate-center', label: 'Garage Gate', between: ['n49', 'n50'], x: 504, y: 664, toll: 3, group: 'ruins-gates' },
+    { id: 'garage-gate-bridge-east', modelGateId: 'bridge_east', label: 'Right North Garage Gate', between: ['n05', 'n53'], x: 1048, y: 412, toll: 3, group: 'ruins-gates' },
+    { id: 'garage-gate-bridge-west', modelGateId: 'bridge_west', label: 'Right West Garage Gate', between: ['n05', 'n06'], x: 1016, y: 444, toll: 3, group: 'ruins-gates' },
+    { id: 'garage-gate-west', modelGateId: 'west_straight', label: 'Left South Garage Gate', between: ['n37', 'n41'], x: 344, y: 540, toll: 3, group: 'ruins-gates' },
+    { id: 'garage-gate-center', modelGateId: 'west_branch', label: 'Left East Garage Gate', between: ['n37', 'n43'], x: 376, y: 508, toll: 3, group: 'ruins-gates' },
   ],
 
   landmarks: [
@@ -401,13 +405,13 @@ export const BOOSTSTONE_RUINS = {
   // Visual-only Manhattan routing. Movement still follows MAIN_NEXT.
   edgeRoutes: {
     // Locked lower-right loop.
-    'n12->n01': [[984, 700]],
+    'n12->n01': [],
 
     // Locked top-right branch merge.
     'n20->n15': [[856, 124]],
 
     // Bottom-left return: Bad Luck is the corner, then path rises vertically into n10.
-    'n67->n10': [[856, 700]],
+    'n67->n10': [],
   },
 
   boardEvents: {

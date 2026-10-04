@@ -1,3 +1,4 @@
+import { BattleAudioCheck } from './PartyChallenge'
 import { useEffect, useMemo, useState } from 'react'
 import V2BoardPreview from './V2BoardPreview'
 import PartyGame from './PartyGame'
@@ -355,6 +356,7 @@ function PartyMode({ onBack }) {
         </div>
 
         <section className="party-car-select-panel">
+          <BattleAudioCheck />
           <div className="party-car-select-panel__header">
             <div>
               <p className="home-mode-card__eyebrow">Your Car</p>

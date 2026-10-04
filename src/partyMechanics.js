@@ -18,7 +18,7 @@ export const PARTY_MECHANICS = [
   { id: 'fast-aerial-goal', name: 'Fast Aerial Goal', difficulty: 'Easy' },
   { id: 'under-5-kph-shot', name: 'Less Than 5 KPH Shot', difficulty: 'Easy' },
   { id: 'ninety-degree-flick', name: '90° Flick', difficulty: 'Easy' },
-  { id: 'backwards-half-field-dribble', name: 'Backwards Dribble From Half Field to Goal — Flicks Allowed', difficulty: 'Easy' },
+  { id: 'post-pinch-100-kph', name: 'Post Pinch 100+ KPH', difficulty: 'Easy' },
   { id: 'diagonal-flick', name: 'Diagonal Flick', difficulty: 'Easy' },
   { id: 'evan-pop', name: 'Evan Pop', difficulty: 'Easy' },
   { id: 'doomsee-dish', name: 'Doomsee Dish', difficulty: 'Easy' },
