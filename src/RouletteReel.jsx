@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-export default function RouletteReel({ title, options, winner, onComplete }) {
+export default function RouletteReel({ title, options, winner, onComplete, canContinue = true, autoContinue = false, waitingText = 'Waiting for the current player to continue…' }) {
   const [index, setIndex] = useState(0)
   const [settled, setSettled] = useState(false)
   const completeRef = useRef(onComplete)
@@ -37,6 +37,12 @@ export default function RouletteReel({ title, options, winner, onComplete }) {
     return () => window.clearTimeout(timer)
   }, [optionsKey, winner])
 
+  useEffect(() => {
+    if (!settled || !autoContinue) return undefined
+    const timer = window.setTimeout(() => completeRef.current?.(), 650)
+    return () => window.clearTimeout(timer)
+  }, [settled, autoContinue, optionsKey, winner])
+
   return (
     <div className="selection-roulette">
       <p className="home-mode-card__eyebrow">Random Selection</p>
@@ -50,7 +56,7 @@ export default function RouletteReel({ title, options, winner, onComplete }) {
         <div className="selection-roulette__selector" aria-hidden="true" />
       </div>
       <p>{settled ? `Selected: ${winner}` : 'The selector is slowing down…'}</p>
-      {settled && (
+      {settled && canContinue && (
         <button
           type="button"
           className="selection-roulette__continue"
@@ -59,6 +65,7 @@ export default function RouletteReel({ title, options, winner, onComplete }) {
           Continue
         </button>
       )}
+      {settled && !canContinue && <small>{waitingText}</small>}
     </div>
   )
 }

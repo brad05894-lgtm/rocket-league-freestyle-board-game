@@ -44,7 +44,7 @@ function SpriteLabel({ text, y = 0.42, width = 1.05 }) {
   </sprite>
 }
 
-function BoardModel({ board, room, finalFive, closedGarageGateId, showNumbers, ballRun, clockOffset }) {
+function BoardModel({ board, room, finalFive, closedGarageGateIds = [], showNumbers, ballRun, clockOffset }) {
   const invalidate = useThree((state) => state.invalidate)
   const gltf = useGLTF(MODEL_URL)
   const model = useMemo(() => {
@@ -76,21 +76,43 @@ function BoardModel({ board, room, finalFive, closedGarageGateId, showNumbers, b
         o.material = Array.isArray(o.material) ? mats : mats[0]
       })
     }
+    // Junctions are navigation points, not Mechanic spaces. Give every choice dot
+    // the same dark/black junction treatment even if the GLB originally baked one blue.
+    for (const node of board.nodes) {
+      if (node.type !== 'Junction') continue
+      spaces[node.id]?.traverse((o) => {
+        if (!o.isMesh) return
+        const source = Array.isArray(o.material) ? o.material : [o.material]
+        const mats = source.map((m) => {
+          const copy = m.clone()
+          if (copy.color) copy.color.set('#111318')
+          if (copy.emissive) copy.emissive.set('#000000')
+          return copy
+        })
+        o.material = Array.isArray(o.material) ? mats : mats[0]
+      })
+    }
     if (!ball || !trophy || Object.keys(spaces).length !== 66) throw new Error('Incomplete board model')
     return { scene, spaces, doors, trophy, ball, originals,
       ballRest: ball.position.clone(), ballRotation: ball.quaternion.clone(), trophyScale: trophy.scale.clone() }
   }, [gltf.scene, board.nodes])
   const initialized = useRef(false)
   const trophyReveal = useRef(0)
-  const gateId = board.gates?.find((g) => g.id === closedGarageGateId)?.modelGateId
-    || LEGACY_GATES[closedGarageGateId] || ''
+  const closedGateKey = (closedGarageGateIds || []).join('|')
+  const closedModelGateIds = useMemo(() => new Set(
+    (closedGarageGateIds || []).map((closedId) =>
+      board.gates?.find((gate) => gate.id === closedId)?.modelGateId || LEGACY_GATES[closedId] || ''
+    ).filter(Boolean)
+  ), [board.gates, closedGateKey])
 
   useEffect(() => {
     for (const { object, rest, gateId: id } of model.doors) {
-      if (!initialized.current) object.position.copy(rest).add(new THREE.Vector3(0, id === gateId && !room.turnState?.gatePassApproved ? 0 : 0.81, 0))
+      if (!initialized.current) {
+        object.position.copy(rest).add(new THREE.Vector3(0, closedModelGateIds.has(id) ? 0 : 0.81, 0))
+      }
     }
     initialized.current = true
-  }, [model, gateId])
+  }, [model, closedModelGateIds])
   useEffect(() => {
     const id = room.activeTrophyNodeId
     const anchor = layout.nodes[id]
@@ -110,18 +132,20 @@ function BoardModel({ board, room, finalFive, closedGarageGateId, showNumbers, b
 
   useEffect(() => {
     invalidate()
-  }, [invalidate, model, gateId, room.activeTrophyNodeId, room.turnState?.gatePassApproved, room.boardMotion, finalFive, ballRun])
+  }, [invalidate, model, closedGateKey, room.activeTrophyNodeId, room.boardMotion, finalFive, ballRun])
 
   useFrame((_, dt) => {
     let moving = false
     const motion = room.boardMotion
     const moveEnd = Number(motion?.startedAt || 0) + Math.max(0, (motion?.path?.length || 1)-1) * (motion?.stepMs || 280)
-    const crossing = Date.now() + clockOffset < moveEnd + 200 && motion?.openGateId === closedGarageGateId
+    const crossingModelGateId = board.gates?.find((gate) => gate.id === motion?.openGateId)?.modelGateId || LEGACY_GATES[motion?.openGateId] || ''
+    const crossing = Boolean(crossingModelGateId) && Date.now() + clockOffset < moveEnd + 200
     const reveal = Math.min(1, (performance.now() - trophyReveal.current) / 500)
     model.trophy.scale.copy(model.trophyScale).multiplyScalar(1 - Math.pow(1-reveal, 3))
     if (reveal < 1 || crossing) moving = true
     for (const { object, rest, gateId: id } of model.doors) {
-      const target = rest.y + (id === gateId && !room.turnState?.gatePassApproved && !crossing ? 0 : 0.81)
+      const gateShouldBeClosed = closedModelGateIds.has(id) && !(crossing && id === crossingModelGateId)
+      const target = rest.y + (gateShouldBeClosed ? 0 : 0.81)
       if (Math.abs(object.position.y - target) > 0.001) {
         object.position.y = THREE.MathUtils.damp(object.position.y, target, 7, Math.min(dt, 0.1))
         moving = true
@@ -165,7 +189,8 @@ function AnimatedPiece({ position, motion, playerId, clockOffset, followPoint, i
     const duration = Math.max(0, path.length - 1) * stepMs
     if (path.length > 1 && elapsed >= 0 && elapsed < duration) {
       const step = Math.min(path.length - 2, Math.floor(elapsed / stepMs))
-      const a = layout.nodes[path[step]], b = layout.nodes[path[step + 1]]
+      const point = id => id === 'start-deck' ? DECK : layout.nodes[id]
+      const a = point(path[step]), b = point(path[step + 1])
       if (a && b) {
         const t = (elapsed % stepMs) / stepMs
         ref.current.position.set(a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t + 0.14 + Math.sin(t*Math.PI)*0.08, a[2] + (b[2]-a[2])*t)
@@ -200,34 +225,43 @@ function PlayerTokens({ board, room, players, activePlayer, turnOrderPhase, turn
   })}</group>
 }
 
-function CameraControls({ resetKey, follow, followPoint }) {
+function CameraControls({ resetKey, overview, followPoint, topDown }) {
   const ref = useRef()
   const { camera, size, invalidate } = useThree()
-  const fit = Math.max(14, Math.min(size.width / 17, size.height / 17))
+  const fit = Math.max(8, Math.min(size.width / 18, size.height / 17))
+  const previous = useRef(null)
+  useEffect(() => { previous.current = null; invalidate() }, [overview, fit, resetKey, invalidate])
   useEffect(() => {
-    camera.position.set(...CAMERA)
-    camera.zoom = fit
-    camera.lookAt(...TARGET)
-    camera.updateProjectionMatrix()
+    camera.position.set(...(topDown ? [TARGET[0],28,TARGET[2]+.01] : CAMERA))
     ref.current?.target.set(...TARGET)
-    ref.current?.update()
-  }, [camera, fit, resetKey])
+    camera.zoom = fit
+    camera.updateProjectionMatrix()
+    previous.current = null
+    invalidate()
+  }, [resetKey, topDown, camera, invalidate])
   useFrame((_, dt) => {
-    if (!follow || !ref.current || !followPoint.current) return
-    const desired = followPoint.current
-    const difference = desired.clone().sub(ref.current.target)
-    if (difference.lengthSq() > 0.0001) {
-      difference.multiplyScalar(1 - Math.exp(-4 * Math.min(dt, 0.1)))
-      camera.position.add(difference)
-      ref.current.target.add(difference)
+    if (!ref.current) return
+    if (overview && previous.current === overview) return
+    const desired = overview ? new THREE.Vector3(...TARGET) : followPoint.current
+    if (!desired) return
+    const factor = 1 - Math.exp(-8 * Math.min(dt, .1))
+    const delta = desired.clone().sub(ref.current.target)
+    const zoom = fit * (overview ? 1 : 2.65)
+    if (delta.lengthSq() > .00001 || Math.abs(camera.zoom - zoom) > .015) {
+      delta.multiplyScalar(factor)
+      camera.position.add(delta)
+      ref.current.target.add(delta)
+      camera.zoom += (zoom - camera.zoom) * factor
+      camera.updateProjectionMatrix()
       ref.current.update()
       invalidate()
-    }
+    } else previous.current = overview
+    if (!overview) previous.current = false
   })
-  return <OrbitControls ref={ref} makeDefault target={TARGET} enableRotate
-    minPolarAngle={0.15} maxPolarAngle={Math.PI / 2 - 0.08}
-    enablePan enableZoom enableDamping dampingFactor={0.12} panSpeed={0.5}
-    minZoom={fit * 0.65} maxZoom={fit * 2.5} />
+  return <OrbitControls ref={ref} makeDefault target={TARGET} enabled={overview}
+    minPolarAngle={topDown ? 0 : .15} maxPolarAngle={topDown ? 0 : Math.PI / 2 - .08}
+    enablePan enableZoom enableRotate={!topDown} enableDamping={false}
+    minZoom={fit * .65} maxZoom={fit * 4} />
 }
 
 class ModelErrorBoundary extends Component {
@@ -236,7 +270,7 @@ class ModelErrorBoundary extends Component {
   componentDidCatch(error) { console.error('Booststone model could not load:', error) }
   render() {
     if (this.state.failed) return <div role="alert" style={{ padding: 32, color: '#fff' }}>
-      The 3D board could not load. You can switch back to 2D above.
+      The board could not load. Check the model file below, then refresh.
       <p>Check that public/models/booststone-v7.glb was copied, then refresh.</p>
     </div>
     return this.props.children
@@ -244,14 +278,11 @@ class ModelErrorBoundary extends Component {
 }
 
 export default function BooststoneRuins3D({ board, room, players = [], activePlayer,
-  finalFive = false, closedGarageGateId = '', turnOrderPhase = false, turnOrderRolls = {} }) {
-  const [quality, setQuality] = useState('performance')
-  const [follow, setFollow] = useState(false)
+  finalFive = false, closedGarageGateIds = [], turnOrderPhase = false, turnOrderRolls = {}, overview = false, quality = 'low', showNumbers = false, topDown = false }) {
   const [clockOffset, setClockOffset] = useState(0)
   const followPoint = useRef(new THREE.Vector3(...TARGET))
   useEffect(() => onValue(databaseRef(db, '.info/serverTimeOffset'), (snapshot) => setClockOffset(Number(snapshot.val()) || 0)), [])
   const [resetKey, setResetKey] = useState(0)
-  const [showNumbers, setShowNumbers] = useState(false)
   const [ballRun, setBallRun] = useState(null)
   const previousPositions = useRef({})
   const seenEvent = useRef('')
@@ -289,25 +320,16 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
     if (!eventKey) previousPositions.current = Object.fromEntries(players.map((p) => [p.id, room.playerSetup?.[p.id]?.boardNodeId]))
   }, [room.playerSetup, players, eventKey])
 
-  const button = { border: '1px solid #ffffff44', borderRadius: 8, background: '#10231fed', color: '#fff', padding: '7px 10px', cursor: 'pointer' }
-  return <div style={{ position: 'relative', width: '100%', height: 'min(76vh, 820px)', minHeight: 420,
-    borderRadius: 18, overflow: 'hidden', border: '1px solid #8ca69c66', background: '#182a28' }}>
-    <div style={{ position: 'absolute', zIndex: 2, top: 12, left: 12, color: '#eef9f6', fontSize: 12, pointerEvents: 'none' }}>
-      Left-drag: rotate • right-drag: pan • scroll: zoom
-    </div>
-    <div style={{ position: 'absolute', zIndex: 2, right: 12, top: 36, display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: 'calc(100% - 24px)', gap: 6 }}>
-      <button type="button" style={button} onClick={() => setFollow((v) => !v)}>{follow ? 'Following player' : 'Follow player'}</button>
-      <select aria-label="3D graphics quality" value={quality} onChange={(event) => setQuality(event.target.value)} style={button}>
-        <option value="performance">Performance</option>
-        <option value="low">Low graphics</option>
-        <option value="detail">Detailed shadows</option>
-      </select>
-      <button type="button" style={button} onClick={() => setShowNumbers((v) => !v)}>{showNumbers ? 'Hide numbers' : 'Show numbers'}</button>
-      <button type="button" style={button} onClick={() => setResetKey((v) => v + 1)}>Reset view</button>
-    </div>
+  const effectiveClosedGarageGateIds = closedGarageGateIds.length
+    ? closedGarageGateIds
+    : Object.values(room.boardState?.closedGarageGateIds || Object.fromEntries(
+        (board.garageGatePairs || []).map((pair) => [pair.id, pair.defaultClosedGateId])
+      )).filter(Boolean)
+
+  return <div className="party-immersive-canvas" style={{ position:'absolute', inset:0, background:'#182a28' }}>
     <ModelErrorBoundary>
       <Canvas orthographic frameloop="demand" shadows={quality === 'detail'} dpr={quality === 'low' ? 0.75 : 1} camera={{ position: CAMERA, zoom: 35, near: 0.1, far: 100 }}
-        gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}>
+        gl={{ antialias: quality !== 'low', alpha: false, powerPreference: 'default' }}>
         <color attach="background" args={['#182a28']} />
         <fog attach="fog" args={['#243a36', 29, 55]} />
         <hemisphereLight color="#dce9e3" groundColor="#36483f" intensity={1.6} />
@@ -317,12 +339,12 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
           shadow-bias={-0.001} />
         <directionalLight position={[6, 6, -8]} color="#9cc9db" intensity={0.8} />
         <Suspense fallback={<Html center><div style={{ color: '#fff', whiteSpace: 'nowrap' }}>Loading your board…</div></Html>}>
-          <BoardModel board={board} room={room} finalFive={finalFive} closedGarageGateId={closedGarageGateId}
+          <BoardModel board={board} room={room} finalFive={finalFive} closedGarageGateIds={effectiveClosedGarageGateIds}
             showNumbers={showNumbers} ballRun={ballRun} clockOffset={clockOffset} />
           <PlayerTokens board={board} room={room} players={players} activePlayer={activePlayer}
             turnOrderPhase={turnOrderPhase} turnOrderRolls={turnOrderRolls} ballRun={ballRun} clockOffset={clockOffset} followPoint={followPoint} />
         </Suspense>
-        <CameraControls resetKey={resetKey} follow={follow} followPoint={followPoint} />
+        <CameraControls topDown={topDown} resetKey={resetKey} overview={overview || turnOrderPhase} followPoint={followPoint} />
       </Canvas>
     </ModelErrorBoundary>
   </div>

@@ -1,7 +1,7 @@
 import { secretAction, SECRET_ENGINES } from './partyChallengeSecretEngine'
 import { PARTY_CHALLENGES, CHALLENGE_BY_ID, FORMAT_SIZES, challengePool } from './partyChallengeCatalog'
 import { PARTY_MECHANICS } from './partyMechanics'
-export const CHALLENGE_REWARDS = { winner: 5, draw: 0 } // Existing reward amount; no loss for Challenges.
+export const CHALLENGE_REWARDS = { winner: 8, draw: 0 } // Per-person Battle rewards; ties are resolved in rewardDistribution.
 export const MODES = ['Soccar','Hoops','Snow Day','Rumble','Dropshot','Heatseeker']
 export const ARENAS = ['DFH Stadium','Mannfield','Champions Field','Beckwith Park','Utopia Coliseum','Neo Tokyo','Forbidden Temple','Farmstead']
 export const TARGETS = ['Upper Half','Lower Half','Left Side','Right Side','Top-Left Corner','Top-Right Corner','Bottom-Left Corner','Bottom-Right Corner','Crossbar-In','Post-In']
@@ -43,8 +43,8 @@ export function createBattle({ids,hostId,source,challengerId,opponentId,seed,now
  need(ids.length>=2&&ids.length<=4,'Challenges need 2–4 players.');const r=seeded(seed);
  const b={version:0,id:'battle-'+now+'-'+seed,status:'active',source,hostId:source==='battle-space'?challengerId:hostId,challengerId,opponentId:opponentId||'',allPlayers:true,participantIds:ids,name:'Selecting Challenge',stage:'format',createdAt:now,seed};
  if(source==='challenge-glove'){b.participantIds=[challengerId,opponentId];b.format='1v1';b.stage='draw'}
- else if(source!=='battle-space'){b.format=pick(ids.length===2?['1v1']:ids.length===3?['1v2','1v1v1']:['1v3','2v2','1v1v1v1'],r);b.stage=ids.length===2?'draw':'formatReveal'}
- return b
+ else {b.format=pick(ids.length===2?['1v1']:ids.length===3?['1v2','1v1v1']:['1v3','2v2','1v1v1v1'],r);b.stage=ids.length===2?'draw':'formatReveal'}
+ b.stage='intro';return b
 }
 export function createGame(challengeId,format,ids,r,now,options={}) {
  const c=CHALLENGE_BY_ID[challengeId];need(c&&c.formats.includes(format),'Unsupported Challenge format.');const order=shuffle(ids,r);
@@ -119,7 +119,7 @@ export function gameAction(g,a,uid,host,r,now) {
  if(g.engine==='speedladder'){person(current());if(g.subphase==='set'){need(a.type==='baseline');g.subphase='beat';g.turn=(g.turn+1)%active(g).length}else if(a.type==='higher')g.turn=(g.turn+1)%active(g).length;else{const id=current();g.lives[id]--;g.subphase='set';if(!g.lives[id]){eliminate(g,[id],now);g.order=shuffle(active(g),r);g.turn=0}}return}
  if(g.engine==='reverseSpeed'){person(current());need(g.timer?.pausedAt,'Press Goal Scored before entering KPH.');const value=numeric(a.value),id=current(),alive=active(g),index=alive.indexOf(id);if(value===0){eliminate(g,[alive[(index+1)%alive.length]],now);g.baseline=null}else if(g.baseline!==null&&value>g.baseline){g.lives[id]--;if(!g.lives[id])eliminate(g,[id],now)}else g.baseline=value;const next=alive.slice(index+1).concat(alive.slice(0,index+1)).find(x=>!g.out.includes(x));g.turn=active(g).indexOf(next);delete g.timer;return}
  if(g.engine==='names'&&a.type==='invalidAnswer'){admin();need(active(g).includes(own));const next=current();eliminate(g,[own],now);if(!g.result){g.turn=next===own?g.turn%active(g).length:active(g).indexOf(next);g.timer={startedAt:now,duration:10000,pauseTotal:0}}return}
- if(g.engine==='names'){person(current());need(a.type==='pass'&&timerLeft(g.timer,now)>0);g.lastPlayer=current();g.turn=(g.turn+1)%active(g).length;g.timer={startedAt:now,duration:10000,pauseTotal:0};return}
+ if(g.engine==='names'){need(uid===current(),'Wait for your turn.');need(a.type==='pass'&&timerLeft(g.timer,now)>0);g.lastPlayer=current();g.turn=(g.turn+1)%active(g).length;g.timer={startedAt:now,duration:10000,pauseTotal:0};return}
  if(g.engine==='series'){
  if(g.matches?.current){
    if(a.type==='matchAction'){need(a.matchId==='current');gameAction(g.matches.current,a.action,uid,host,r,now);return}
@@ -176,7 +176,7 @@ function handleTournament(g,a,uid,host,r,now){if(g.engine==='potatoTournament'&&
  if(g.stage==='placements'&&g.matches.final.result&&g.matches.third.result)result(g,[...g.matches.final.result.placements,...g.matches.third.result.placements],now);return}
  throw Error('Choose a match action.')}
 export function bombPosition(g,now){if(!g.bomb)return 0;const end=g.timer?.pausedAt??now;return Math.max(-1,Math.min(1,g.bomb.position+g.bomb.direction*Math.max(0,end-g.bomb.at)/10000))}
-export function lightAt(g,now){const elapsed=timerElapsed(g.timer,now);const r=seeded(g.lightSeed);let at=0,color='green',index=0;while(at<=elapsed&&index<50000){const v=r(),trio=g.format==='1v3',duo=g.format==='1v2';color=v<(trio?.35:.5)?'green':v<.8?'yellow':'red';const range=trio?(color==='red'?[2,3]:[5,8]):duo?(color==='green'?[6,10]:color==='yellow'?[4,7]:[2,4]):(color==='green'?[6,9]:color==='yellow'?[4,6]:[2,3]);at+=(range[0]+r()*(range[1]-range[0]))*1000;index++}return {color,index}}
+export function lightAt(g,now){const elapsed=timerElapsed(g.timer,now);const r=seeded(g.lightSeed);let at=0,color='green',index=0;while(at<=elapsed&&index<50000){const v=r(),trio=g.format==='1v3',duo=g.format==='1v2';color=v<(trio?.35:.5)?'green':v<.8?'yellow':'red';const range=trio?(color==='red'?[3,4.5]:[7.5,12]):duo?(color==='green'?[9,15]:color==='yellow'?[6,10.5]:[3,6]):(color==='green'?[9,13.5]:color==='yellow'?[6,9]:[3,4.5]);at+=(range[0]+r()*(range[1]-range[0]))*1000;index++}return {color,index}}
 function nextGauntlet(g,now){g.turn++;delete g.timer;if(g.turn>=g.ids.length){const compare=(a,b)=>{const x=g.laps?.[a]||[],y=g.laps?.[b]||[];if(x.length!==y.length)return y.length-x.length;for(let i=x.length-1;i>=0;i--)if(x[i]!==y[i])return x[i]-y[i];return 0};const ids=[...g.ids].sort(compare),groups=[];for(const id of ids){if(groups.length&&!compare(id,groups.at(-1)[0]))groups.at(-1).push(id);else groups.push([id])}result(g,groups,now)}}
 function tick(g,now,r){if(g.phase!=='active')return;const n=nOf(g);if(g.engine==='bomb'){const pos=bombPosition(g,now);if(Math.abs(pos)>=1)sideWin(g,pos<0?1:0,now);return}if(!g.timer||g.timer.pausedAt||timerLeft(g.timer,now)>0)return;
  if(g.engine==='names'){const alive=active(g),id=alive[g.turn%alive.length];eliminate(g,[id],now);if(!g.result){g.turn%=active(g).length;g.timer={startedAt:g.timer.startedAt+g.timer.duration+g.timer.pauseTotal,duration:10000,pauseTotal:0}}}
@@ -191,9 +191,18 @@ function timedAction(g,a,now){const n=nOf(g);need(g.phase==='overtime'||g.engine
  if(g.phase==='overtime'||[67,77].includes(n)||g.engine==='goals'&&g.scores[g.sides[side][0]]>=2||[66,76].includes(n)&&g.scores[g.sides[1][0]]>=(n===66?3:5))sideWin(g,side,now);
  else if(n===83)g.timer.pausedAt=now;
 }
-export function rewardDistribution(b){const placements=b.game?.result?.placements||[];const ids=b.participantIds;return Object.fromEntries(ids.map(id=>[id,placements.length>1&&placements[0].includes(id)?CHALLENGE_REWARDS.winner:CHALLENGE_REWARDS.draw]))}
+export function rewardDistribution(b){
+ const groups=b.game?.result?.placements||[],ids=b.participantIds||[]
+ const rewards=Object.fromEntries(ids.map(id=>[id,0]));if(groups.length<=1)return rewards
+ const ffa=['1v1v1','1v1v1v1'].includes(b.format||b.game?.format)
+ if(!ffa){for(const id of groups[0])rewards[id]=8;return rewards}
+ const scale=ids.length===3?[8,4,0]:[8,4,2,0];let rank=0
+ // Tied players each receive the lowest payout occupied by their tie group.
+ for(const group of groups){const payout=scale[rank+group.length-1]||0;for(const id of group)rewards[id]=payout;rank+=group.length}
+ return rewards
+}
 export function reduceBattle(b,a,uid,seed,now){b=clone(b);const r=seeded(seed),host=uid===b.hostId;need(b.status==='active','Battle is already complete.');need(b.participantIds.includes(uid)||host,'Not a Battle participant.');if(a.type==='format'){need(host&&b.stage==='format');need(FORMAT_SIZES[a.format]<=b.participantIds.length,'Not enough players.');b.format=a.format;b.stage='draw'}
- else if(a.type==='next'){need(host);if(b.stage==='formatReveal')b.stage='draw';else if(b.stage==='draw'){const c=pick(challengePool(b.format),r);b.challengeId=c.id;b.name=c.name;b.stage='challengeReveal'}else if(b.stage==='challengeReveal'){let ids=shuffle(b.participantIds,r);if(FORMAT_SIZES[b.format]<ids.length)ids=[b.challengerId,...ids.filter(id=>id!==b.challengerId)].slice(0,FORMAT_SIZES[b.format]);b.participantIds=ids;b.game=createGame(b.challengeId,b.format,ids,r,now);b.stage='rules'}else if(b.stage==='rules'){b.stage='play';gameAction(b.game,{type:'start'},uid,true,r,now)}else throw Error('Use the Challenge controls.')}
+ else if(a.type==='next'){need(host);b.revealStartedAt=now;if(b.stage==='intro'){b.stage=b.devSelected?'challengeReveal':b.format==='1v1'?'draw':'formatReveal'}else if(b.stage==='formatReveal')b.stage='draw';else if(b.stage==='draw'){const c=pick(challengePool(b.format),r);b.challengeId=c.id;b.name=c.name;b.stage='challengeReveal'}else if(b.stage==='challengeReveal'){let ids=shuffle(b.participantIds,r);if(FORMAT_SIZES[b.format]<ids.length)ids=[b.challengerId,...ids.filter(id=>id!==b.challengerId)].slice(0,FORMAT_SIZES[b.format]);b.participantIds=ids;b.game=createGame(b.challengeId,b.format,ids,r,now);b.stage=['2v2','1v2','1v3'].includes(b.format)?'teamReveal':'rules'}else if(b.stage==='teamReveal'){b.stage='rules'}else if(b.stage==='rules'){b.stage='play';gameAction(b.game,{type:'start'},uid,true,r,now)}else throw Error('Use the Challenge controls.')}
  else if(a.type==='game'){need(b.stage==='play'||b.stage==='rules'&&a.action.type==='reroll');if(a.action.type==='tiebreak'){need(host);startTiebreak(b.game,r)}else gameAction(b.game,a.action,uid,host,r,now)}else throw Error('Unknown Battle action.');b.version++;return b}
 function kuxirDuel(g,a,uid,host,now){const id=a.playerId||uid;need(g.ids.includes(id)&&(host||uid===id));g.kuxir||={};g.kph||={};if(a.type==='scored'||a.type==='missed'){need(g.kuxir[id]===undefined);g.kuxir[id]=a.type==='scored'}else{need(a.type==='kph'&&g.ids.every(id=>g.kuxir[id]));g.kph[id]=numeric(a.value)}if(!g.ids.every(id=>g.kuxir[id]!==undefined))return;const made=g.ids.filter(id=>g.kuxir[id]);if(made.length===1){sideWin(g,sideOf(g,made[0]),now);return}if(!made.length){g.kuxir={};g.kph={};g.round++;return}if(g.ids.every(id=>g.kph[id]!==undefined)){const [a,b]=g.ids;if(g.kph[a]!==g.kph[b])sideWin(g,sideOf(g,g.kph[a]>g.kph[b]?a:b),now);else{g.kuxir={};g.kph={};g.round++}}}
 function placementMatch(parent,old,ids,r,now){if(!old)return createMatch(parent,ids,r,now);const fresh=createGame(old.challengeId,'1v1',ids,r,now);for(const key of ['sprint','playerChosen','setting'])if(old[key]!==undefined)fresh[key]=old[key];if(old.sprint)return createSprint(old.sprint,'1v1',ids,r,now);if(old.playerChosen)fresh.engine='manual';return fresh}

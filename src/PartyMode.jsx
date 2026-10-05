@@ -1,6 +1,5 @@
-import { BattleAudioCheck } from './PartyChallenge'
+import PartyBoardSelection from './PartyBoardSelection'
 import { useEffect, useMemo, useState } from 'react'
-import V2BoardPreview from './V2BoardPreview'
 import PartyGame from './PartyGame'
 import { BOOSTSTONE_RUINS } from './booststoneRuins'
 import { getClientId } from './multiplayer'
@@ -238,6 +237,8 @@ function PartyMode({ onBack }) {
     }
   }
 
+  if(roomCode && room?.status==='playing' && room.phase==='board-select')return <PartyBoardSelection room={room} roomCode={roomCode} clientId={clientId} isHost={isHost} onLeave={handleLeaveParty}/>
+
   if (roomCode && room?.status === 'playing') {
     return (
       <PartyGame
@@ -301,7 +302,7 @@ function PartyMode({ onBack }) {
             <div>
               <p className="home-mode-card__eyebrow">Game Settings</p>
               <h2>{rounds} Rounds</h2>
-              <p><strong>Map:</strong> {BOOSTSTONE_RUINS.name}</p>
+              <p>Choose your board on the next screen.</p>
               <p><strong>Trophy price:</strong> {BOOSTSTONE_RUINS.defaultTrophyPrice} Tokens</p>
               <p><strong>Players:</strong> 2–4</p>
             </div>
@@ -356,7 +357,6 @@ function PartyMode({ onBack }) {
         </div>
 
         <section className="party-car-select-panel">
-          <BattleAudioCheck />
           <div className="party-car-select-panel__header">
             <div>
               <p className="home-mode-card__eyebrow">Your Car</p>
@@ -457,7 +457,7 @@ function PartyMode({ onBack }) {
               onClick={handleStartParty}
               disabled={loading || !allPlayersReady}
             >
-              {loading ? 'Starting…' : `Start ${rounds}-Round Party`}
+              {loading ? 'Continuing…' : 'Continue to Board Selection'}
             </button>
           ) : (
             <div className="party-waiting-box">
@@ -469,14 +469,10 @@ function PartyMode({ onBack }) {
         </div>
 
         <p className="party-stage-note">
-          Stage 4 test: car selection shows each special die, and starting the Party now enters the synced dice + movement prototype.
+          Choose your car, then roll a normal die on the starting deck to decide turn order.
         </p>
       </div>
     )
-  }
-
-  if (screen === 'booststone-preview') {
-    return <V2BoardPreview onBack={() => setScreen('home')} />
   }
 
   if (screen === 'create' || screen === 'join') {
@@ -578,27 +574,8 @@ function PartyMode({ onBack }) {
           </div>
         </section>
 
-        <section className="home-mode-card">
-          <div>
-            <p className="home-mode-card__eyebrow">Map 1</p>
-            <h2>Booststone Ruins</h2>
-            <p>Preview the fixed 58-space board separately from an online Party lobby.</p>
-          </div>
 
-          <div className="menu home-mode-card__menu">
-            <button type="button" onClick={() => setScreen('booststone-preview')}>
-              Preview Booststone Ruins
-            </button>
-          </div>
-        </section>
 
-        <section className="home-mode-card party-coming-soon-card">
-          <div>
-            <p className="home-mode-card__eyebrow">Current Build Step</p>
-            <h2>20 Cars + Special Dice</h2>
-            <p>Each player chooses a unique Rocket League car. The normal 1–6 die and all 20 special dice are now defined for the next movement step.</p>
-          </div>
-        </section>
       </div>
     </div>
   )

@@ -1,4 +1,5 @@
 export const PARTY_CARDS = [
+  { id: 'unlimited-tries', name: 'Unlimited Tries', description: 'After your Mechanic is revealed, use before Attempt 1. Take unlimited attempts within 90 seconds. An existing timer is never extended.', enabled: true, effect: 'unlimited-attempts', timing: 'before-mechanic-attempt' },
   {
     id: 'boost-canister',
     name: 'Boost Canister',
@@ -284,6 +285,48 @@ export function getPartyCard(cardId) {
 
 export function getEnabledPartyCards() {
   return PARTY_CARDS.filter((card) => card.enabled !== false)
+}
+
+
+// Action Shop pricing. Cards without a numeric shop price are intentionally
+// Card-space-only (or otherwise unavailable for purchase).
+export const PARTY_CARD_SHOP_PRICES = Object.freeze({
+  'boost-canister': 2,
+  'golden-boost': 3,
+  'precision-dice': 4,
+  'token-tornado': 1,
+  'teleport-pad': 4,
+  'golden-teleporter': 6,
+  shield: 2,
+  'double-payout': 2,
+  'steal-card': 2,
+  'swap-hands': 2,
+  lockout: 2,
+  'clean-slate': 1,
+  mulligan: 2,
+  reroll: 1,
+  'pick-your-poison': 2,
+  pressure: 2,
+  'zero-bounce': 2,
+  '100-kph': 2,
+  'top-corner': 2,
+  copycat: 2,
+  'hot-streak': 1,
+  jackpot: 1,
+  'difficulty-spike': 1,
+  'difficulty-drop': 1,
+  'free-pass': 3,
+  reverse: 1,
+  'challenge-glove': 2,
+})
+
+export function getPartyCardShopPrice(cardId) {
+  const price = PARTY_CARD_SHOP_PRICES[cardId]
+  return Number.isFinite(price) ? price : null
+}
+
+export function getPartyShopCards() {
+  return getEnabledPartyCards().filter((card) => getPartyCardShopPrice(card.id) !== null)
 }
 
 export function pickPartyCard() {

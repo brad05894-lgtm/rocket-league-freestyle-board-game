@@ -1,3 +1,5 @@
+import TokenIcon from './TokenIcon'
+import './partyImmersive.css'
 import PartyChallenge, { ChallengeDev } from './PartyChallenge'
 import { onValue, ref as databaseRef } from 'firebase/database'
 import { db } from './firebase'
@@ -6,7 +8,7 @@ import RouletteReel from './RouletteReel'
 import { BOOSTSTONE_RUINS } from './booststoneRuins'
 import BooststoneRuins3D from './BooststoneRuins3D'
 import { formatPartyDieFace, getPartyCar, getPartyCarImageUrl, getPartyCarImageFallback } from './partyCars'
-import { getEnabledPartyCards, getPartyCard, normalizePartyCards } from './partyCards'
+import { getEnabledPartyCards, getPartyCard, getPartyCardShopPrice, normalizePartyCards } from './partyCards'
 import {
   beginNextPartyRound,
   resolvePartyService,
@@ -24,9 +26,12 @@ import {
   resolvePartySupplyCrate,
   resolvePartyGarageGate,
   resolvePartyMechanicLanding,
+  resolvePartyPendingLanding,
   resolvePartyTrophyPass,
   rollPartyDie,
   rollPartyTurnOrder,
+  confirmPartyTurnOrder,
+  startPartyMechanicTimer,
   usePartyCard,
   votePartyBattleMutualConcede,
   cancelPartyBattleMutualConcede,
@@ -60,6 +65,28 @@ const TURN_ORDER_OFFSETS = [
 
 function nodeNumber(nodeId) {
   return Number(String(nodeId || '').replace('n', '')) || 0
+}
+
+function junctionDirection(nodeMap, currentId, nextId, previousId = '') {
+  const current = nodeMap[currentId]
+  const next = nodeMap[nextId]
+  const previous = nodeMap[previousId]
+  if (!current || !next) return { label: 'PATH', symbol: '➜' }
+
+  // If we know the direction the car entered the junction from, label each choice
+  // relative to the driver's view, like Mario Party's junction arrows.
+  if (previous) {
+    const incoming = Math.atan2(current.y - previous.y, current.x - previous.x)
+    const outgoing = Math.atan2(next.y - current.y, next.x - current.x)
+    let delta = outgoing - incoming
+    while (delta <= -Math.PI) delta += Math.PI * 2
+    while (delta > Math.PI) delta -= Math.PI * 2
+    if (Math.abs(delta) < Math.PI / 4) return { label: 'FORWARD', symbol: '↑' }
+    if (delta < 0) return { label: 'LEFT', symbol: '↰' }
+    return { label: 'RIGHT', symbol: '↱' }
+  }
+
+  return { label: 'PATH', symbol: '➜' }
 }
 
 function buildEdgePoints(from, to, via = []) {
@@ -219,7 +246,11 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const [actionBusy, setBusy] = useState(false)
   const [motionBusy, setMotionBusy] = useState(false)
   const [clockOffset, setClockOffset] = useState(0)
-  const busy = actionBusy || motionBusy
+  const roomMotion = room.boardMotion
+  const roomMoveEnd = Number(roomMotion?.startedAt || 0) + Math.max(0, (roomMotion?.path?.length || 1) - 1) * (roomMotion?.stepMs || 280)
+  const carStillMoving = Boolean(roomMotion?.playerId) && Date.now() + clockOffset < roomMoveEnd
+  const movementBusy = motionBusy || carStillMoving
+  const busy = actionBusy || movementBusy
   useEffect(() => onValue(databaseRef(db, '.info/serverTimeOffset'), (snapshot) => setClockOffset(Number(snapshot.val()) || 0)), [])
   useEffect(() => {
     const motion = room.boardMotion
@@ -236,7 +267,19 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const [error, setError] = useState('')
   const [selectedCardIndex, setSelectedCardIndex] = useState(null)
   const [selectedStealTargetId, setSelectedStealTargetId] = useState('')
-  const [boardView, setBoardView] = useState('2d')
+  const [boardView, setBoardView] = useState('3d')
+  const [overview, setOverview] = useState(false)
+  const [hudPanel, setHudPanel] = useState(null)
+  const [quality, setQuality] = useState('low')
+  const [showNumbers, setShowNumbers] = useState(false)
+  const immersiveRef = useRef(null)
+  const [fullscreenError, setFullscreenError] = useState('')
+  useEffect(() => { localStorage.setItem('party-board-view', boardView) }, [boardView])
+  useEffect(() => { const old = document.body.style.overflow; document.body.style.overflow='hidden'; return () => {document.body.style.overflow=old} }, [])
+  async function enterFullscreen() {
+    try {if (!document.fullscreenElement && document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();if(screen.orientation?.lock) await screen.orientation.lock('landscape').catch(()=>{});setFullscreenError('')}
+    catch {setFullscreenError('Fullscreen is unavailable here. Turn your phone sideways; the board still fills the browser.')}
+  }
   const [partyRoulette, setPartyRoulette] = useState(null)
   const [rollingDieType, setRollingDieType] = useState('')
   const seenRouletteKeyRef = useRef('')
@@ -301,8 +344,18 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const battleConcedeVotes = battle?.mutualConcedeVotes || {}
   const activeNode = nodeMap[activeSetup.boardNodeId || board.startId]
   const activeTrophyNode = nodeMap[room.activeTrophyNodeId] || null
-  const closedGarageGateId = room.boardState?.closedGarageGateId || board.gates?.[0]?.id || ''
-  const closedGarageGate = board.gates?.find((gate) => gate.id === closedGarageGateId) || null
+  const defaultClosedGarageGateIds = Object.fromEntries(
+    (board.garageGatePairs || []).map((pair) => [pair.id, pair.defaultClosedGateId])
+  )
+  const closedGarageGateState = { ...defaultClosedGarageGateIds, ...(room.boardState?.closedGarageGateIds || {}) }
+  if (room.boardState?.closedGarageGateId && !room.boardState?.closedGarageGateIds) {
+    const legacyGate = board.gates?.find((gate) => gate.id === room.boardState.closedGarageGateId)
+    if (legacyGate?.pairId) closedGarageGateState[legacyGate.pairId] = legacyGate.id
+  }
+  const closedGarageGateIds = Object.values(closedGarageGateState).filter(Boolean)
+  const closedGarageGates = closedGarageGateIds
+    .map((id) => board.gates?.find((gate) => gate.id === id))
+    .filter(Boolean)
   const totalRounds = room.settings?.rounds || 10
   const currentRound = room.currentRound || 1
   const finalFive = currentRound > Math.max(0, totalRounds - 5)
@@ -319,7 +372,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const openHands = cardVisibility === 'open'
 
   useEffect(() => {
-    if (battle?.status !== 'active' || battle.stage) return
+    // Never start the Battle selection overlay while the car is still visibly moving.
+    if (movementBusy || battle?.status !== 'active' || battle.stage) return
     const key = `battle-${room.currentRound}-${room.turnIndex}-${battle.id}-${battle.opponentId}`
     if (seenRouletteKeyRef.current === key) return
     seenRouletteKeyRef.current = key
@@ -335,22 +389,11 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             .filter((player) => player.id !== battle.challengerId)
             .map((player) => player.name),
     })
-  }, [battle, room.currentRound, room.turnIndex, room.players, players])
+  }, [battle, room.currentRound, room.turnIndex, room.players, players, movementBusy])
 
-  useEffect(() => {
-    const event = turn.eventEffect
-    if (!event?.name) return
-    const key = `event-${room.currentRound}-${room.turnIndex}-${event.id}-${event.name}`
-    if (seenRouletteKeyRef.current === key) return
-    seenRouletteKeyRef.current = key
-    const eventNames = Object.values(BOOSTSTONE_RUINS.boardEvents || {}).map((entry) => entry.name)
-    setPartyRoulette({
-      phase: 'event',
-      title: 'Selecting Event',
-      winner: event.name,
-      options: rouletteLabels(eventNames, event.name),
-    })
-  }, [turn.eventEffect, room.currentRound, room.turnIndex])
+  // Event spaces are fixed by their physical board location. There is no Event roulette:
+  // Garage-Gate Event spaces always trigger the gate switch, and the back Boost-Boulder
+  // lane Event spaces always trigger the rolling-ball event.
 
   function completePartyRoulette(roulette) {
     if (roulette.phase === 'battle' && roulette.opponentOptions?.length) {
@@ -438,6 +481,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   async function handleUseCard(options = {}) {
     if (!Number.isInteger(selectedCardIndex)) return
     await runAction(() => usePartyCard(roomCode, clientId, selectedCardIndex, options))
+    if(selectedCard?.effect === 'unlimited-attempts')setHudPanel('turn')
     setSelectedCardIndex(null)
     setSelectedStealTargetId('')
   }
@@ -519,9 +563,40 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
     await runAction(() => beginNextPartyRound(roomCode, clientId))
   }
 
+  const [mechanicNow, setMechanicNow] = useState(Date.now())
+  const mechanicDeadline = turn.landingEffect?.deadlineAt
+  useEffect(()=>{
+    if(isMyTurn && turn.landingEffect && !turn.landingEffect.resolved && !mechanicDeadline && !actionBusy && !movementBusy)
+      runAction(()=>startPartyMechanicTimer(roomCode,clientId))
+  },[isMyTurn,turn.landingEffect?.challengeId,turn.landingEffect?.resolved,mechanicDeadline,movementBusy])
+  useEffect(() => {
+    if (!mechanicDeadline || turn.landingEffect?.resolved) return
+    const tick=()=>setMechanicNow(Date.now()+clockOffset)
+    tick();const timer=setInterval(tick,250);return()=>clearInterval(timer)
+  },[mechanicDeadline,turn.landingEffect?.resolved,clockOffset])
+  useEffect(() => {
+    if(isMyTurn && mechanicDeadline && mechanicNow>=mechanicDeadline && !turn.landingEffect?.resolved && !actionBusy) runAction(()=>resolvePartyMechanicLanding(roomCode,clientId,false))
+  },[mechanicNow,mechanicDeadline,isMyTurn,turn.landingEffect?.resolved,actionBusy])
+  useEffect(() => {
+    if (!isMyTurn || movementBusy || actionBusy || !turn.pendingLanding?.nodeId) return
+    runAction(() => resolvePartyPendingLanding(roomCode, clientId))
+  }, [isMyTurn, movementBusy, actionBusy, turn.pendingLanding?.nodeId, roomCode, clientId])
+
+  const [mapCenter, setMapCenter] = useState({x:activeNode?.x||board.width/2,y:activeNode?.y||board.height/2})
+  const promptKey = JSON.stringify([room.phase,turn.playerId,turn.rolled,turn.awaitingChoice,turn.awaitingTrophy,turn.awaitingGate,turn.awaitingService,turn.awaitingJackpotDecision,turn.landingEffect?.resolved,turn.spaceEffect?.resolved,turn.eventEffect?.resolved,turn.pendingLanding?.nodeId,turn.readyToEnd])
+  useEffect(() => { if(movementBusy)setHudPanel(null);else if (battle?.status!=='active' && room.phase!=='round-complete') setHudPanel('turn') }, [promptKey,movementBusy,battle?.status])
+  useEffect(() => { setOverview(false) }, [turn.playerId,room.currentRound])
+  useEffect(() => {
+    const update=()=>{const m=room.boardMotion;const path=m?.playerId===activePlayer?.id?m.path||[]:[];const index=Math.max(0,Math.floor((Date.now()+clockOffset-Number(m?.startedAt||0))/(m?.stepMs||280)));const n=path.length?nodeMap[path[Math.min(index,path.length-1)]]:activeNode;if(n)setMapCenter({x:n.x,y:n.y})}
+    update();if(!motionBusy)return;const timer=setInterval(update,70);return()=>clearInterval(timer)
+  },[room.boardMotion,activePlayer?.id,activeNode,motionBusy,clockOffset,nodeMap])
+  const fullBox=board.viewBox||{x:0,y:0,width:board.width,height:board.height}
+  const boardBox=overview?`${fullBox.x} ${fullBox.y} ${fullBox.width} ${fullBox.height}`:`${mapCenter.x-230} ${mapCenter.y-140} 460 280`
+  const orderResults = isTurnOrderPhase && room.turnOrderComplete
+  const battleLocked=battle?.status==='active'||room.phase==='round-complete'||orderResults
   return (
-    <div className="game party-game-screen">
-      {partyRoulette && (
+    <div ref={immersiveRef} className="game party-game-screen party-immersive" data-panel={hudPanel||'none'}>
+      {partyRoulette && !movementBusy && (
         <div className="party-roulette-overlay">
           <div className="game-modal-card selection-roulette">
             <RouletteReel
@@ -530,463 +605,105 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
               options={partyRoulette.options}
               winner={partyRoulette.winner}
               onComplete={() => completePartyRoulette(partyRoulette)}
+              canContinue={isMyTurn}
+              autoContinue={!isMyTurn}
+              waitingText={`Waiting for ${activePlayer?.name || 'the current player'} to continue…`}
             />
           </div>
         </div>
       )}
-      <div className="party-game-topbar">
-        {currentCar && <img className="hud-car-image" src={getPartyCarImageUrl(currentCar)} alt={`Your car: ${currentCar.name}`} />}
-        <span className="hand-mode-badge">Party · {openHands ? 'Open Hands' : 'Hidden Hands'}</span>
-        <div>
-          <p className="home-mode-card__eyebrow">Party Mode • Booststone Ruins</p>
-          <h1>{isTurnOrderPhase ? 'Roll for Turn Order' : `Round ${room.currentRound || 1} / ${room.settings?.rounds || 10}`}</h1>
-          <p>Room <strong>{roomCode}</strong></p>
-          {finalFive && (
-            <p><strong>FINAL 5:</strong> Bad Luck Spaces are now Very Bad Luck Spaces.</p>
-          )}
-        </div>
-        <button type="button" onClick={onLeave} disabled={busy}>
-          {isHost ? 'End Party Test' : 'Leave Party Game'}
-        </button>
+      <div className="party-hud" inert={battleLocked?true:undefined}>
+        <header className="party-hud-top">
+          <div className="party-hud-round"><strong>{isTurnOrderPhase?'Starting order':`Round ${room.currentRound||1} / ${room.settings?.rounds||10}`}</strong><small>Room {roomCode} · {openHands?'Open':'Hidden'} Hands</small></div>
+          <div className="party-hud-standings">{players.map(player=>{const score=room.playerSetup?.[player.id]||{};const car=getPartyCar(player.carId);return <button key={player.id} className={player.id===activePlayer?.id?'active':''} onClick={()=>setHudPanel(hudPanel==='players'?null:'players')}><img src={getPartyCarImageUrl(car)} alt=""/><span><strong>{player.name}</strong><small>🏆 {score.trophies||0} · <TokenIcon/> {score.tokens??5}</small></span></button>})}</div>
+        </header>
+        <nav className="party-hud-menu" aria-label="Game controls">
+          <button aria-pressed={hudPanel==='turn'} onClick={()=>setHudPanel(hudPanel==='turn'?null:'turn')}>🎲 {isMyTurn&&!turn.rolled?'Dice':'Turn'}</button>
+          <button aria-pressed={hudPanel==='cards'} onClick={()=>setHudPanel(hudPanel==='cards'?null:'cards')}>▣ Action Cards <small>{currentCardIds.length}/3</small></button>
+          <button aria-pressed={overview} onClick={()=>{setOverview(!overview);setHudPanel(null)}}>{overview?'↘ Follow Player':'▦ Board'}</button>
+          <button onClick={()=>setHudPanel(hudPanel==='log'?null:'log')}>Activity</button>
+          <button onClick={()=>setHudPanel(hudPanel==='settings'?null:'settings')}>Settings</button>
+          {isHost&&<button onClick={()=>setHudPanel(hudPanel==='dev'?null:'dev')}>Dev</button>}
+        </nav>
+        <footer className="party-hud-footer"><strong>{activePlayer?.name||'Players'}{movementBusy?' is moving…':isMyTurn?' · Your turn':' · Current turn'}</strong><span>🏆 Trophy: Space {activeTrophyNode?nodeNumber(activeTrophyNode.id):'…'} · {trophyPrice} Tokens</span></footer>
       </div>
-
+      <div className="party-rotate-hint">Turn your phone sideways for the full board experience.</div>
+      {room.phase === 'board' && !movementBusy && turn.awaitingChoice && battle?.status !== 'active' && (() => {
+        const currentId = turn.choiceNodeId || activeSetup.boardNodeId
+        const motionPath = Array.isArray(room.boardMotion?.path) ? room.boardMotion.path : []
+        const previousId = motionPath.at(-1) === currentId ? motionPath.at(-2) : ''
+        return (
+          <div className="party-junction-overlay" role="dialog" aria-modal="true" aria-label="Choose a path">
+            <section className="party-junction-card">
+              <p className="home-mode-card__eyebrow">Junction</p>
+              <h2>{isMyTurn ? 'Which way do you want to go?' : `${activePlayer?.name || 'The current player'} is choosing a path…`}</h2>
+              <p><strong>{turn.movementRemaining}</strong> move{turn.movementRemaining === 1 ? '' : 's'} remaining after this junction.</p>
+              <div className="party-junction-arrows">
+                {(turn.choices || []).map((nextId) => {
+                  const nextNode = nodeMap[nextId]
+                  const direction = junctionDirection(nodeMap, currentId, nextId, previousId)
+                  const gate = board.gates?.find((candidate) =>
+                    Array.isArray(candidate.between) && candidate.between.includes(currentId) && candidate.between.includes(nextId)
+                  )
+                  const blocked = Boolean(gate && closedGarageGateIds.includes(gate.id))
+                  return (
+                    <button
+                      type="button"
+                      key={nextId}
+                      className={`party-junction-arrow party-junction-arrow--${direction.label.toLowerCase()}`}
+                      onClick={() => isMyTurn && handleMove(nextId)}
+                      disabled={busy || !isMyTurn}
+                    >
+                      <span className="party-junction-arrow__symbol" aria-hidden="true">{direction.symbol}</span>
+                      <strong>{direction.label}</strong>
+                      <small>
+                        Space {nodeNumber(nextId)} · {nextNode?.type === 'Bad Luck' && finalFive ? 'Very Bad Luck' : nextNode?.type || 'Space'}
+                      </small>
+                      {gate && <small className={blocked ? 'party-junction-gate is-closed' : 'party-junction-gate is-open'}>{blocked ? `🚧 CLOSED · ${gate.toll || 3} Tokens to pass` : '✓ Garage Gate OPEN'}</small>}
+                    </button>
+                  )
+                })}
+              </div>
+              {!isMyTurn && <small>Only {activePlayer?.name || 'the current player'} can choose.</small>}
+            </section>
+          </div>
+        )
+      })()}
+      {orderResults&&<div className="bc-backdrop"><section className="bc-dialog party-order-results" role="dialog" aria-modal="true" aria-label="Turn order results"><h1>Turn order is set!</h1><p>Everyone starts on the deck. Your first movement point reaches the first blue Mechanic space.</p><ol>{players.map((player,index)=><li key={player.id}><strong>{player.name}</strong><span>🎲 {turnOrderRolls[player.id]}</span><small>{index===0?'Goes first':'Turn order locked'}</small></li>)}</ol><p>Equal rolls use a random tiebreak. Only the player going first needs to continue.</p>{players[0]?.id===clientId?<button disabled={actionBusy} onClick={()=>runAction(()=>confirmPartyTurnOrder(roomCode,clientId))}>Continue to Board</button>:<p>Waiting for <strong>{players[0]?.name||'the first player'}</strong> to continue…</p>}{error&&<p role="alert">{error}</p>}</section></div>}
+      {!movementBusy&&(battle?.status==='active'||room.phase==='round-complete')&&<PartyChallenge room={room} roomCode={roomCode} clientId={clientId} onNextRound={handleNextRound}/>}
       <div className="party-game-layout">
         <section className="party-game-board-card party-game-board-card--ruins">
-          <div style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 8,
-            padding: '4px 8px 8px',
-          }}>
-            <button
-              type="button"
-              onClick={() => setBoardView('2d')}
-              aria-pressed={boardView === '2d'}
-              style={{
-                border: boardView === '2d' ? '1px solid #86efac' : '1px solid rgba(255,255,255,.16)',
-                background: boardView === '2d' ? 'rgba(22,101,52,.55)' : 'rgba(15,23,42,.72)',
-                color: '#f8fafc',
-                borderRadius: 10,
-                padding: '7px 11px',
-                fontWeight: 900,
-                cursor: 'pointer',
-              }}
-            >
-              2D Board
-            </button>
-            <button
-              type="button"
-              onClick={() => setBoardView('3d')}
-              aria-pressed={boardView === '3d'}
-              style={{
-                border: boardView === '3d' ? '1px solid #fde68a' : '1px solid rgba(255,255,255,.16)',
-                background: boardView === '3d' ? 'rgba(146,64,14,.58)' : 'rgba(15,23,42,.72)',
-                color: '#f8fafc',
-                borderRadius: 10,
-                padding: '7px 11px',
-                fontWeight: 900,
-                cursor: 'pointer',
-              }}
-            >
-              3D Preview
-            </button>
-          </div>
-
-          {boardView === '3d' && (
+          {true && (
             <BooststoneRuins3D
+              overview={overview||boardView==='2d'} topDown={boardView==='2d'} quality={quality} showNumbers={showNumbers}
               board={board}
               room={room}
               players={players}
               activePlayer={activePlayer}
               finalFive={finalFive}
-              closedGarageGateId={closedGarageGateId}
+              closedGarageGateIds={closedGarageGateIds}
               turnOrderPhase={isTurnOrderPhase}
               turnOrderRolls={turnOrderRolls}
             />
           )}
 
-          <div className="party-board-legend" aria-label="Board space legend" style={{ display: boardView === '2d' ? 'flex' : 'none' }}>
-            <span><i className="party-board-legend__dot party-board-legend__dot--mechanic" />Mechanic</span>
-            <span><i className="party-board-legend__dot party-board-legend__dot--danger" />Danger Mechanic</span>
-            <span><i className="party-board-legend__dot party-board-legend__dot--card">A</i>Action Card</span>
-            <span><i className="party-board-legend__dot party-board-legend__dot--event">!</i>Board Event</span>
-            <span><i className="party-board-legend__dot party-board-legend__dot--lucky">🍀</i>Lucky</span>
-            <span><i className={`party-board-legend__dot ${finalFive ? 'party-board-legend__dot--very-bad' : 'party-board-legend__dot--bad'}`}>!</i>{finalFive ? 'Very Bad Luck' : 'Bad Luck'}</span>
-            <span><i className="party-board-legend__dot party-board-legend__dot--battle"><b>VS</b></i>Battle</span>
-            <span><i className="party-board-legend__junction" />Choice Junction</span>
-          </div>
-
-          <div className="v2-board-scroll party-ruins-scroll" style={{ display: boardView === '2d' ? 'block' : 'none' }}>
-            <svg
-              className="v2-board-svg party-live-board-svg party-ruins-board-svg"
-              viewBox={board.viewBox ? `${board.viewBox.x} ${board.viewBox.y} ${board.viewBox.width} ${board.viewBox.height}` : `0 0 ${board.width} ${board.height}`}
-              role="img"
-              aria-label="Booststone Ruins live Party Mode board"
-            >
-              <defs>
-                <linearGradient id="ruins-sky" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#101c22" />
-                  <stop offset="60%" stopColor="#071116" />
-                  <stop offset="100%" stopColor="#030809" />
-                </linearGradient>
-                <linearGradient id="ruins-stone" x1="0" y1="0" x2="0.85" y2="1">
-                  <stop offset="0%" stopColor="#7a8d82" />
-                  <stop offset="50%" stopColor="#53685e" />
-                  <stop offset="100%" stopColor="#35483f" />
-                </linearGradient>
-                <linearGradient id="ruins-stone-top" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#a7b8aa" />
-                  <stop offset="100%" stopColor="#65796c" />
-                </linearGradient>
-                <linearGradient id="ruins-stone-side" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#52665a" />
-                  <stop offset="58%" stopColor="#31463b" />
-                  <stop offset="100%" stopColor="#17271f" />
-                </linearGradient>
-                <linearGradient id="ruins-edge-light" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#dce9df" stopOpacity=".82" />
-                  <stop offset="100%" stopColor="#9eb0a4" stopOpacity=".1" />
-                </linearGradient>
-                <pattern id="ruins-tile-pattern" width="64" height="64" patternUnits="userSpaceOnUse">
-                  <rect width="64" height="64" fill="transparent" />
-                  <path d="M64 0H0V64" fill="none" stroke="#d8e3db" strokeOpacity=".14" strokeWidth="2" />
-                  <path d="M6 58 L17 48 M47 10 L58 21 M30 35 L37 28" fill="none" stroke="#263b31" strokeOpacity=".22" strokeWidth="2" />
-                </pattern>
-                <filter id="ruins-block-shadow" x="-40%" y="-40%" width="180%" height="220%">
-                  <feDropShadow dx="0" dy="7" stdDeviation="4" floodColor="#000" floodOpacity=".52" />
-                </filter>
-                <radialGradient id="ruins-moss" cx="50%" cy="50%" r="55%">
-                  <stop offset="0%" stopColor="#68d36f" />
-                  <stop offset="100%" stopColor="#1d6b35" />
-                </radialGradient>
-                <filter id="ruins-shadow" x="-30%" y="-30%" width="160%" height="180%">
-                  <feDropShadow dx="0" dy="10" stdDeviation="8" floodColor="#000" floodOpacity=".55" />
-                </filter>
-                <filter id="space-glow" x="-80%" y="-80%" width="260%" height="260%">
-                  <feDropShadow dx="0" dy="0" stdDeviation="5" floodColor="#dffcff" floodOpacity=".45" />
-                </filter>
-                <filter id="trophy-glow" x="-120%" y="-120%" width="340%" height="340%">
-                  <feDropShadow dx="0" dy="0" stdDeviation="8" floodColor="#fde047" floodOpacity=".95" />
-                </filter>
-              </defs>
-
-              <rect x="0" y="0" width={board.width} height={board.height} rx="34" fill="url(#ruins-sky)" />
-              <ellipse cx="560" cy="770" rx="520" ry="72" className="party-ruins-abyss-glow" />
-
-              <g className="party-ruins-backdrop" aria-hidden="true">
-                <path d="M40 154 L88 84 L146 116 L194 52 L246 112 L314 68 L382 120 L448 44 L514 110 L590 68 L654 118 L726 54 L790 112 L860 70 L930 120 L1000 68 L1080 150 L1080 202 L40 202 Z" />
-                <rect x="66" y="120" width="44" height="164" rx="7" />
-                <rect x="1012" y="132" width="38" height="182" rx="7" />
-                <rect x="488" y="78" width="38" height="126" rx="7" />
-                <rect x="746" y="90" width="42" height="116" rx="7" />
-              </g>
-
-              <g className="party-ruins-terrain" filter="url(#ruins-shadow)">
-                {(board.terrain || []).map((slab) => (
-                  <g key={slab.id}>
-                    <polygon points={slab.points} transform={`translate(0 ${16 + (slab.elevation || 1) * 5})`} className="party-ruins-slab-deep" />
-                    <polygon points={slab.points} transform={`translate(0 ${8 + (slab.elevation || 1) * 3})`} className="party-ruins-slab-side" />
-                    <polygon points={slab.points} className={`party-ruins-slab party-ruins-slab--${slab.elevation || 1}`} />
-                    <polygon points={slab.points} className="party-ruins-slab-tiles" />
-                    <polyline points={slab.points} className="party-ruins-slab-rim" />
-                  </g>
-                ))}
-              </g>
-
-              <g className="party-ruins-blocks" aria-hidden="true">
-                {(board.ruinBlocks || []).map(([x, y, width, height, depth], index) => (
-                  <g key={`ruin-block-${index}`} transform={`translate(${x} ${y})`} filter="url(#ruins-block-shadow)">
-                    <rect x="0" y={depth} width={width} height={height} rx="4" className="party-ruins-block-side" />
-                    <rect x="0" y="0" width={width} height={height} rx="4" className="party-ruins-block-top" />
-                    <path d={`M8 ${height * .62} H${Math.max(10, width - 8)}`} className="party-ruins-block-crack" />
-                  </g>
-                ))}
-              </g>
-
-              {board.grid && (
-                <g className="party-ruins-grid" aria-hidden="true">
-                  {Array.from({ length: Math.ceil(board.width / board.grid.step) + 1 }, (_, index) => board.grid.offsetX + index * board.grid.step)
-                    .filter((x) => x >= 0 && x <= board.width)
-                    .map((x) => <line key={`grid-x-${x}`} x1={x} y1="0" x2={x} y2={board.height} />)}
-                  {Array.from({ length: Math.ceil(board.height / board.grid.step) + 1 }, (_, index) => board.grid.offsetY + index * board.grid.step)
-                    .filter((y) => y >= 0 && y <= board.height)
-                    .map((y) => <line key={`grid-y-${y}`} x1="0" y1={y} x2={board.width} y2={y} />)}
-                </g>
-              )}
-
-              <g className="party-ruins-stone-details" aria-hidden="true">
-                <path d="M118 596 H224 M170 526 H284 M190 438 H306 M278 262 H470 M520 210 H784 M730 592 H920 M486 518 H664" />
-                <path d="M236 646 V590 M424 642 V566 M746 654 V590 M944 622 V548 M924 262 V348 M322 204 V282" />
-              </g>
-
-              <g className="party-ruins-foliage" aria-hidden="true">
-                {(board.foliage || []).map(([x, y, r], index) => (
-                  <g key={`foliage-${index}`} transform={`translate(${x} ${y})`}>
-                    <circle cx="-12" cy="3" r={r * .58} />
-                    <circle cx="9" cy="-6" r={r * .68} />
-                    <circle cx="14" cy="12" r={r * .52} />
-                    <circle cx="-3" cy="-14" r={r * .48} />
-                  </g>
-                ))}
-              </g>
-
-              <g className="party-ruins-paths">
-                {edges.map(({ id, points }) => (
-                  <g key={id}>
-                    <polyline className="party-ruins-path-shadow" points={edgePointString(points)} />
-                    <polyline className="party-ruins-path" points={edgePointString(points)} />
-                    <path className="party-ruins-direction-arrow" d="M-5 -3.5 L5 0 L-5 3.5 Z" transform={edgeArrowTransform(points)} />
-                  </g>
-                ))}
-              </g>
-
-              <g className="party-ruins-lane-exit-hints" aria-hidden="true">
-                {(board.laneExitHints || []).map((hint) => (
-                  <polyline key={hint.id} points={edgePointString(hint.points.map(([x, y]) => ({ x, y })))} />
-                ))}
-              </g>
-
-              {board.startZone && (
-                <g className="party-ruins-start-zone" aria-hidden="true">
-                  <line
-                    x1={board.startZone.x}
-                    y1={board.startZone.y - board.startZone.height / 2}
-                    x2={board.startZone.bridgeTo?.[0] ?? board.startZone.x}
-                    y2={board.startZone.bridgeTo?.[1] ?? board.startZone.y - board.startZone.height / 2 - 40}
-                    className="party-ruins-start-connector"
-                  />
-                  <rect
-                    x={board.startZone.x - board.startZone.width / 2}
-                    y={board.startZone.y - board.startZone.height / 2}
-                    width={board.startZone.width}
-                    height={board.startZone.height}
-                    rx="10"
-                    className="party-ruins-start-pad"
-                  />
-                  {Array.from({ length: 5 }, (_, index) => (
-                    <line
-                      key={`start-plank-${index}`}
-                      x1={board.startZone.x - board.startZone.width / 2 + 10}
-                      x2={board.startZone.x + board.startZone.width / 2 - 10}
-                      y1={board.startZone.y - board.startZone.height / 2 + 24 + index * 23}
-                      y2={board.startZone.y - board.startZone.height / 2 + 24 + index * 23}
-                      className="party-ruins-start-plank"
-                    />
-                  ))}
-                  <text textAnchor="middle" className="party-ruins-start-label" x={board.startZone.x} y={board.startZone.y + 4}>START</text>
-                  <text textAnchor="middle" className="party-ruins-start-sub" x={board.startZone.x} y={board.startZone.y + 23}>Turn-order deck</text>
-                </g>
-              )}
-
-              <g className="party-ruins-landmarks">
-                {(board.landmarks || []).map((landmark) => {
-                  const used = landmark.kind === 'reactor' && Object.keys(room.boardState?.usedBoardEvents || {}).length > 0
-                  const crateWidth = Number(landmark.width) || 104
-                  const crateHeight = Number(landmark.height) || 72
-                  const chestSpacing = Math.min(86, Math.max(70, crateWidth * 0.27))
-                  const entranceNode = landmark.entranceNodeId ? nodeMap[landmark.entranceNodeId] : null
-                  return (
-                    <g key={landmark.id} transform={`translate(${landmark.x} ${landmark.y})`} className={`party-ruins-landmark party-ruins-landmark--${landmark.kind}`}>
-                      {landmark.kind === 'crates' && (
-                        <>
-                          {entranceNode && (
-                            <g transform={`translate(${-landmark.x} ${-landmark.y})`} className="party-ruins-crate-entrance">
-                              <polygon points={`${landmark.x + crateWidth / 2 - 2},${landmark.y - 20} ${entranceNode.x},${entranceNode.y - 20} ${entranceNode.x},${entranceNode.y + 20} ${landmark.x + crateWidth / 2 - 2},${landmark.y + 20}`} />
-                              <path d={`M${landmark.x + crateWidth / 2 + 4} ${landmark.y} H${entranceNode.x - 7}`} />
-                            </g>
-                          )}
-                          <rect x={-crateWidth / 2} y={-crateHeight / 2} width={crateWidth} height={crateHeight} rx="14" className="party-ruins-object-pad party-ruins-crate-platform" />
-                          <g className="party-ruins-crates">
-                            {[-chestSpacing, 0, chestSpacing].map((offset, index) => (
-                              <g key={`crate-chest-${index}`} transform={`translate(${offset} 2)`} className="party-ruins-chest">
-                                <ellipse cx="0" cy="35" rx="36" ry="9" className="party-ruins-chest-shadow" />
-                                <rect x="-31" y="-4" width="62" height="39" rx="5" className="party-ruins-chest-body" />
-                                <path d="M-31 -4 Q-29 -28 0 -31 Q29 -28 31 -4 Z" className="party-ruins-chest-lid" />
-                                <path d="M-31 4 H31 M-23 18 H23" className="party-ruins-chest-plank" />
-                                <rect x="-4" y="-29" width="8" height="54" rx="2" className="party-ruins-chest-band" />
-                                <rect x="-9" y="4" width="18" height="17" rx="3" className="party-ruins-chest-lock" />
-                                <path d="M-5 4 V-1 A5 5 0 0 1 5 -1 V4" className="party-ruins-chest-lock-loop" />
-                              </g>
-                            ))}
-                          </g>
-                        </>
-                      )}
-                      {landmark.kind === 'lakitu' && <><circle r="28" className="party-ruins-object-pad" /><text y="7">☁</text></>}
-                      {landmark.kind === 'paratroopa' && <><circle r="28" className="party-ruins-object-pad" /><text y="7">✈</text></>}
-                      {landmark.kind === 'reactor' && <><circle r="31" className={`party-ruins-reactor ${used ? 'party-ruins-reactor--used' : ''}`} /><path d="M-12 -4 L-2 -18 L2 -7 L13 -13 L7 2 L17 7 L2 10 L-2 23 L-7 10 L-19 6 Z" /></>}
-                      <text className="party-ruins-landmark-label" y={landmark.kind === 'crates' ? crateHeight / 2 + 20 : 48}>{landmark.label}</text>
-                      {landmark.note && <title>{landmark.note}</title>}
-                    </g>
-                  )
-                })}
-              </g>
-
-              <g className="v2-board-specials party-ruins-specials">
-                {board.shops.map((shop) => {
-                  const shopNode = shop.nodeId ? nodeMap[shop.nodeId] : null
-                  return (
-                    <g key={shop.id} className="party-ruins-shop-wrap">
-                      {shopNode && (
-                        <>
-                          {shop.linkDirection === 'left' ? (
-                            <line
-                              x1={shopNode.x - 9}
-                              y1={shopNode.y}
-                              x2={shop.x + 24}
-                              y2={shop.y}
-                              className="party-ruins-shop-link"
-                            />
-                          ) : (
-                            <line x1={shopNode.x} y1={shopNode.y + 8} x2={shop.x} y2={shop.y - 18} className="party-ruins-shop-link" />
-                          )}
-                          <text x={shopNode.x} y={shopNode.y - 13} textAnchor="middle" className="party-ruins-shop-stop-label">SHOP STOP</text>
-                        </>
-                      )}
-                      <g transform={`translate(${shop.x} ${shop.y})`} className={`party-ruins-shop-sign ${shop.elevated ? 'party-ruins-shop-sign--elevated' : ''}`}>
-                        {shop.elevated && (
-                          <>
-                            <ellipse cx="0" cy="14" rx="44" ry="18" className="party-ruins-shop-mound-shadow" />
-                            <ellipse cx="0" cy="9" rx="39" ry="15" className="party-ruins-shop-mound" />
-                          </>
-                        )}
-                        <rect x="-18" y="-18" width="36" height="36" rx="7" />
-                        <text textAnchor="middle" y="6">A</text>
-                        <text className="party-ruins-small-label" textAnchor="middle" y="50">ACTION SHOP</text>
-                      </g>
-                    </g>
-                  )
-                })}
-                {board.gates.map((gate) => {
-                  const isClosed = gate.id === closedGarageGateId
-                  return (
-                    <g key={gate.id} transform={`translate(${gate.x} ${gate.y})`} className={`party-ruins-gate ${isClosed ? 'party-ruins-gate--closed' : 'party-ruins-gate--open'}`}>
-                      <rect x="-23" y="-18" width="46" height="36" rx="5" />
-                      <path d="M-15 -10 V11 M-5 -10 V11 M5 -10 V11 M15 -10 V11" />
-                      <text className="party-ruins-small-label" textAnchor="middle" y="43">{isClosed ? `GATE • ${gate.toll || 3}T` : 'GATE • OPEN'}</text>
-                    </g>
-                  )
-                })}
-              </g>
-
-              <g className="v2-board-nodes party-ruins-nodes">
-                {board.nodes.map((node) => {
-                  const isVeryBad = node.type === 'Bad Luck' && finalFive
-                  const isBad = node.type === 'Bad Luck'
-                  const symbol = node.type === 'Card'
-                    ? 'A'
-                    : node.type === 'Event'
-                      ? '!'
-                      : node.type === 'Battle'
-                        ? 'VS'
-                        : node.type === 'Lucky'
-                          ? '🍀'
-                          : ''
-                  return (
-                    <g key={node.id} transform={`translate(${node.x} ${node.y})`} className={node.id === activeNode?.id ? 'party-ruins-space party-ruins-space--current' : 'party-ruins-space'}>
-                      {node.trophySpot && node.id !== room.activeTrophyNodeId && (
-                        <circle r="25" className="v2-board-trophy-ring v2-board-trophy-ring--inactive" />
-                      )}
-                      {node.id === room.activeTrophyNodeId && (
-                        <>
-                          <circle r="34" className="v2-board-trophy-ring v2-board-trophy-ring--active" filter="url(#trophy-glow)" />
-                          <text className="party-active-trophy-label" textAnchor="middle" y="-34">🏆</text>
-                          <text className="party-ruins-trophy-price" textAnchor="middle" y="-51">{trophyPrice}T</text>
-                        </>
-                      )}
-
-                      {isBad ? (
-                        <>
-                          <path
-                            d="M0 -22 L6 -14 L16 -17 L15 -7 L24 0 L15 7 L17 17 L6 14 L0 23 L-6 14 L-17 17 L-15 7 L-24 0 L-15 -7 L-17 -17 L-6 -14 Z"
-                            className={isVeryBad ? 'party-ruins-badluck party-ruins-badluck--very' : 'party-ruins-badluck'}
-                          />
-                          <text className="party-ruins-space-symbol party-ruins-space-symbol--bad" textAnchor="middle" y="5">{isVeryBad ? '☠' : '!'}</text>
-                        </>
-                      ) : node.visualMode === 'junction' || node.visualMode === 'shop-dot' || node.visualMode === 'paratroopa-dot' || node.visualMode === 'lakitu-dot' || node.visualMode === 'route-stub' ? (
-                        <>
-                          {node.visualMode === 'junction' && <circle cx="0" cy="0" r="29" className="party-ruins-junction-ring" />}
-                          <circle
-                            cx="0"
-                            cy="0"
-                            r={node.visualMode === 'route-stub' ? '3' : node.visualMode === 'shop-dot' || node.visualMode === 'paratroopa-dot' || node.visualMode === 'lakitu-dot' ? '6.2' : '4.8'}
-                            className={node.visualMode === 'route-stub' ? 'party-ruins-route-stub' : 'party-ruins-junction-dot'}
-                          />
-                          {node.visualMode === 'paratroopa-dot' && (
-                            <text className="party-ruins-stop-label" textAnchor="middle" y="-12">PARATROOPA</text>
-                          )}
-                          {node.visualMode === 'lakitu-dot' && (
-                            <text className="party-ruins-stop-label" textAnchor="end" x="-12" y="4">LAKITU</text>
-                          )}
-                        </>
-                      ) : node.type === 'Battle' ? (
-                        <>
-                          <polygon points="0,-22 22,0 0,22 -22,0" className="party-ruins-battle-space" filter="url(#space-glow)" />
-                          <text className="party-ruins-space-symbol party-ruins-space-symbol--battle" textAnchor="middle" y="5">VS</text>
-                        </>
-                      ) : (
-                        <>
-                          <circle r="18" fill={SPACE_COLORS[node.type] || '#64748b'} className="v2-board-node" filter="url(#space-glow)" />
-                          {symbol && <text className={node.type === 'Lucky' ? 'party-ruins-space-symbol party-ruins-space-symbol--lucky' : 'party-ruins-space-symbol'} textAnchor="middle" y="5">{symbol}</text>}
-                        </>
-                      )}
-
-                      {node.choiceJunction && node.visualMode !== 'junction' && (
-                        <>
-                          <circle cx="0" cy="0" r="29" className="party-ruins-junction-ring" />
-                          <circle cx="0" cy="0" r="4.8" className="party-ruins-junction-dot" />
-                        </>
-                      )}
-                      <title>{`Space ${nodeNumber(node.id)} • ${isVeryBad ? 'Very Bad Luck' : node.type}${node.choiceJunction ? ' • Choice Junction' : ''}`}</title>
-                    </g>
-                  )
-                })}
-              </g>
-
-              <g className="party-player-markers party-ruins-player-markers">
-                {players.map((player, index) => {
-                  const setup = room.playerSetup?.[player.id] || {}
-                  const node = nodeMap[setup.boardNodeId || board.startId]
-                  if (!node && !isTurnOrderPhase) return null
-                  const normalOffset = PLAYER_OFFSETS[index] || [0, 0]
-                  const deckOffset = TURN_ORDER_OFFSETS[index] || [0, 0]
-                  const onStartDeck = isTurnOrderPhase || setup.onStartDeck === true
-                  const markerX = onStartDeck
-                    ? (board.startZone?.x || node?.x || 0) + deckOffset[0]
-                    : node.x + normalOffset[0]
-                  const markerY = onStartDeck
-                    ? (board.startZone?.y || node?.y || 0) + deckOffset[1]
-                    : node.y + normalOffset[1]
-                  const roll = Number(turnOrderRolls[player.id]) || 0
-                  return (
-                    <g
-                      key={player.id}
-                      transform={`translate(${markerX} ${markerY})`}
-                      className={!isTurnOrderPhase && player.id === activePlayer?.id ? 'party-player-marker party-player-marker--active' : 'party-player-marker'}
-                    >
-                      <circle r="12" />
-                      <text textAnchor="middle" dominantBaseline="central">P{index + 1}</text>
-                      <text className="party-ruins-player-name" textAnchor="middle" y="-19">{player.name}</text>
-                      {isTurnOrderPhase && roll > 0 && <text className="party-turn-order-marker-roll" textAnchor="middle" y="27">🎲 {roll}</text>}
-                    </g>
-                  )
-                })}
-              </g>
-            </svg>
-          </div>
-
-          <div className="party-board-caption">
-            <strong>Booststone Ruins • corrected top-left geometry pass</strong>
-            <span>The shared Lucky and Action Card now align horizontally; the Garage-Gate loop is one-way counterclockwise from the first junction.</span>
-            <span>VS spaces are orange diamonds. Lakitu, Paratroopa, and Action Shop use black forced-stop dots rather than normal spaces.</span>
-          </div>
         </section>
 
-        <aside className="party-turn-panel">
+        <aside className="party-turn-panel" inert={battleLocked?true:undefined} aria-label="Game overlay">
+          <header className="party-panel-header"><strong>{({turn:'Your turn',cards:'Action Cards',players:'Standings',log:'Activity',dev:'Dev Test Lab',settings:'Settings'})[hudPanel]||'Game'}</strong><button aria-label="Close overlay" onClick={()=>setHudPanel(null)}>✕</button></header>
+          <section className="party-settings-panel">
+            <button onClick={enterFullscreen}>Enter fullscreen</button>{fullscreenError&&<p>{fullscreenError}</p>}
+            <label>Board graphics<select value={boardView} onChange={e=>setBoardView(e.target.value)}><option value="3d">3D follow camera</option><option value="2d">Overhead view (same 3D board)</option></select></label>
+            <label>3D quality<select value={quality} onChange={e=>setQuality(e.target.value)}><option value="low">Low (less GPU work)</option><option value="performance">Performance</option><option value="detail">Detailed shadows</option></select></label>
+            <button onClick={()=>setShowNumbers(!showNumbers)}>{showNumbers?'Hide':'Show'} space numbers</button>
+            <p>In Board view, drag to explore and pinch/scroll to zoom. Follow Player returns to the active player.</p>
+            <button onClick={onLeave} disabled={busy}>{isHost?'End Party Game':'Leave Party Game'}</button>
+          </section>
           {isTurnOrderPhase && (
             <div className="party-turn-panel__section party-turn-order-panel">
               <p className="home-mode-card__eyebrow">Starting Deck</p>
               <h2>Roll for turn order</h2>
-              <p>Every player gets one unique 1–6 roll. Highest roll goes first; duplicate rolls are impossible.</p>
+              <p>Everyone rolls a normal 1–6 die. Highest goes first; equal rolls use a random tiebreak.</p>
               <div className="party-turn-order-list">
                 {players.map((player) => {
                   const roll = Number(turnOrderRolls[player.id]) || 0
@@ -1006,11 +723,11 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
               >
                 {myTurnOrderRoll > 0 ? `You rolled ${myTurnOrderRoll}` : 'Roll Turn-Order Die'}
               </button>
-              <small>The board begins automatically as soon as everyone has rolled.</small>
+              <small>After everyone rolls, review the order. The player going first presses Continue to begin.</small>
             </div>
           )}
 
-          {!isTurnOrderPhase && <div className="party-turn-panel__section">
+          {!isTurnOrderPhase && <div className="party-turn-panel__section party-current-summary">
             <p className="home-mode-card__eyebrow">Current Turn</p>
             <h2>{activePlayer ? activePlayer.name : 'Waiting…'}</h2>
             {activePlayer && activeCar && (
@@ -1054,17 +771,18 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
               )}
             </div>
             <div>
-              <span>Closed Garage Gate</span>
+              <span>Closed Garage Gates</span>
               <strong>
-                {closedGarageGate
-                  ? `${closedGarageGate.id.includes('west') ? 'West' : 'Center'} • ${closedGarageGate.toll || 3} Tokens`
+                {closedGarageGates.length
+                  ? closedGarageGates.map((gate) => `${gate.pairId === 'right' ? 'Right' : 'Left'} ${gate.route === 'forward' ? 'Forward' : 'Side'}`).join(' • ')
                   : 'None'}
               </strong>
+              <small>Each pair always has one open route and one closed route.</small>
             </div>
           </div>}
 
           {isHost && !isTurnOrderPhase && (
-            <details className="party-turn-panel__section" open={Boolean(room.devCardTest)}>
+            <details className="party-turn-panel__section party-dev-panel" open>
               <summary style={{ cursor: 'pointer', fontWeight: 900 }}>DEV Test Lab</summary>
               <p style={{ marginTop: 12 }}>
                 Click any working Card. The room will instantly reset into the exact timing/prerequisite setup needed to test that Card.
@@ -1115,35 +833,19 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                 </button>
                 <button
                   type="button"
-                  onClick={() => handlePrepareEventTest('supply-crates')}
+                  onClick={() => handlePrepareEventTest('reactor-trigger-c')}
                   disabled={busy}
-                  title="Instantly test the interactive 3 Supply Crates Event."
+                  title="Instantly test the fixed Boost Boulder event used by the back-lane Event spaces."
                 >
-                  📦 Supply Crates Test
+                  ⚡ Boost Boulder Event Test
                 </button>
                 <button
                   type="button"
-                  onClick={() => handlePrepareEventTest('reactor-trigger-a')}
-                  disabled={busy}
-                  title="Instantly test a one-use Boost Reactor Chain with another player placed in the affected lane."
-                >
-                  ⚡ Boost Reactor Test
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePrepareEventTest('gate-switch-west')}
+                  onClick={() => handlePrepareEventTest('gate-switch-bridge-east')}
                   disabled={busy}
                   title="Instantly test the Garage Gate Switch."
                 >
                   🚧 Gate Switch Test
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePrepareEventTest('ancient-boost-cache')}
-                  disabled={busy}
-                  title="Instantly test the Ancient Boost Cache Event."
-                >
-                  🪙 Boost Cache Test
                 </button>
               </div>
               {room.devCardTest && (
@@ -1191,7 +893,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                   </div>
                   <div className="party-turn-player__stats">
                     <span>🏆 {setup.trophies || 0}</span>
-                    <span>Token {setup.tokens ?? 10}</span>
+                    <span>Token {setup.tokens ?? 5}</span>
                     <span>
                       {player.id === clientId
                         ? `Your Cards ${normalizePartyCards(setup.cards).length}/3`
@@ -1571,7 +1273,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'board' && turn.eventEffect && (
+          {room.phase === 'board' && !movementBusy && turn.eventEffect && (
             <div className="party-turn-panel__section party-landing-effect">
               <p className="home-mode-card__eyebrow">Booststone Ruins Event</p>
               <h2>⚡ {turn.eventEffect.name}</h2>
@@ -1608,7 +1310,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'board' && battle && <PartyChallenge room={room} roomCode={roomCode} clientId={clientId} />}
+          
 
           {room.phase === 'board' && turn.awaitingJackpotDecision && (
             <div className="party-turn-panel__section party-landing-effect party-landing-effect--mechanic">
@@ -1702,7 +1404,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                   </p>
 
                   <p>
-                    <strong>Attempt {(Number(turn.landingEffect.attemptsUsed) || 0) + 1} of {Math.max(1, Number(turn.landingEffect.attemptLimit) || 2)}</strong>
+                    <strong>{turn.landingEffect.unlimitedAttempts?'Unlimited attempts':`Attempt ${(Number(turn.landingEffect.attemptsUsed)||0)+1} of ${Math.max(1,Number(turn.landingEffect.attemptLimit)||2)}`}</strong>{mechanicDeadline&&<span className="party-mechanic-clock" role="timer"> {Math.floor(Math.max(0,Math.ceil((mechanicDeadline-mechanicNow)/1000))/60)}:{String(Math.max(0,Math.ceil((mechanicDeadline-mechanicNow)/1000))%60).padStart(2,'0')} left</span>}
                     {(Number(turn.landingEffect.attemptsUsed) || 0) > 0 && ' — you missed the previous attempt, so this is your next shot.'}
                   </p>
 
@@ -1712,7 +1414,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
 
                   {(turn.landingEffect.pressureTriggered || turn.landingEffect.noBounceRequired || turn.landingEffect.kph100Required || turn.landingEffect.topCornerRequired || turn.landingEffect.mulliganRetry || turn.landingEffect.insuranceActive || turn.landingEffect.hotStreakTriggered || turn.landingEffect.jackpotTriggered) && (
                     <div className="party-card-statuses">
-                      {turn.landingEffect.pressureTriggered && (
+                      {turn.landingEffect.pressureTriggered && !turn.landingEffect.unlimitedAttempts && (
                         <span>{isMyTurn || openHands ? 'Pressure: 1 attempt only' : 'Special effect: 1 attempt only'}</span>
                       )}
                       {turn.landingEffect.noBounceRequired && (
@@ -1730,7 +1432,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                       {turn.landingEffect.insuranceActive && (
                         <span>{isMyTurn || openHands ? 'Insurance: +1 Token even if missed' : 'Special effect: +1 Token even if missed'}</span>
                       )}
-                      {turn.landingEffect.hotStreakTriggered && (
+                      {turn.landingEffect.hotStreakTriggered && !turn.landingEffect.unlimitedAttempts && (
                         <span>{isMyTurn || openHands ? 'Hot Streak: 1 attempt, +2 bonus Tokens on success' : 'Special effect: 1 attempt, +2 bonus Tokens on success'}</span>
                       )}
                       {turn.landingEffect.jackpotTriggered && (
@@ -1771,7 +1473,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'board' && turn.awaitingTrophy && (
+          {room.phase === 'board' && !movementBusy && turn.awaitingTrophy && (
             <div className="party-turn-panel__section party-trophy-offer">
               <p className="home-mode-card__eyebrow">Trophy Stop</p>
               <h2>🏆 Trophy Available</h2>
@@ -1810,7 +1512,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'board' && turn.awaitingGate && (
+          {room.phase === 'board' && !movementBusy && turn.awaitingGate && (
             <div className="party-turn-panel__section party-path-choice">
               <p className="home-mode-card__eyebrow">Closed Garage Gate</p>
               <h3>🚧 Pay {turn.gateToll || 3} Tokens to pass?</h3>
@@ -1848,35 +1550,10 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'board' && isMyTurn && turn.rolled && !turn.readyToEnd && !turn.awaitingChoice && !turn.awaitingTrophy && !turn.awaitingGate && !turn.awaitingService && battle?.status !== 'active' && (
+          {room.phase === 'board' && isMyTurn && turn.rolled && (turn.movementRemaining || 0) > 0 && !turn.readyToEnd && !turn.awaitingChoice && !turn.awaitingTrophy && !turn.awaitingGate && !turn.awaitingService && battle?.status !== 'active' && (
             <button className="party-primary-action" type="button" onClick={() => handleMove()} disabled={busy}>
               Move {turn.movementRemaining} Space{turn.movementRemaining === 1 ? '' : 's'}
             </button>
-          )}
-
-          {room.phase === 'board' && isMyTurn && turn.awaitingChoice && battle?.status !== 'active' && (
-            <div className="party-turn-panel__section party-path-choice">
-              <h3>Choose a Path</h3>
-              <p>You reached a junction with {turn.movementRemaining} move{turn.movementRemaining === 1 ? '' : 's'} left.</p>
-              <div className="party-path-choice__buttons">
-                {(turn.choices || []).map((nextId, index) => {
-                  const nextNode = nodeMap[nextId]
-                  return (
-                    <button
-                      type="button"
-                      key={nextId}
-                      onClick={() => handleMove(nextId)}
-                      disabled={busy}
-                    >
-                      Path {index + 1} → Space {nodeNumber(nextId)}
-                      <small>
-                        {nextNode?.type === 'Bad Luck' && finalFive ? 'Very Bad Luck' : nextNode?.type || 'Space'}
-                      </small>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
           )}
 
           {room.phase === 'board' && isMyTurn && turn.readyToEnd && !turn.awaitingJackpotDecision && !turn.awaitingGate && !turn.awaitingService && battle?.status !== 'active' && (!turn.landingEffect || turn.landingEffect.resolved) && (!turn.spaceEffect || turn.spaceEffect.resolved) && (!turn.eventEffect || turn.eventEffect.resolved) && (
@@ -1885,21 +1562,36 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </button>
           )}
 
-          {room.phase === 'board' && !isMyTurn && !turn.awaitingTrophy && !turn.awaitingGate && !turn.awaitingService && !turn.awaitingJackpotDecision && battle?.status !== 'active' && !(turn.landingEffect && !turn.landingEffect.resolved) && !(turn.spaceEffect && !turn.spaceEffect.resolved) && !(turn.eventEffect && !turn.eventEffect.resolved) && (
+          {room.phase === 'board' && !isMyTurn && !turn.awaitingTrophy && !turn.awaitingGate && !turn.awaitingService && !turn.awaitingJackpotDecision && !turn.pendingLanding && battle?.status !== 'active' && !(turn.landingEffect && !turn.landingEffect.resolved) && !(turn.spaceEffect && !turn.spaceEffect.resolved) && !(turn.eventEffect && !turn.eventEffect.resolved) && (
             <div className="party-waiting-box">
               Waiting for {activePlayer?.name || 'the current player'} to finish their turn…
             </div>
           )}
 
-          {turn.awaitingService && room.phase === 'board' && (
+          {turn.awaitingService && room.phase === 'board' && !movementBusy && (
             <div className="party-turn-panel__section">
               <h2>{turn.awaitingService.type === 'Shop' ? 'Action Shop' : turn.awaitingService.type === 'Paratroopa' ? 'Transportation' : 'Steal Stop'}</h2>
               <p>Your remaining {turn.movementRemaining || 0} moves resume after this stop.</p>
               {isMyTurn ? <>
                 {turn.awaitingService.type === 'Shop' && <>
-                  <p>Each Card costs {PARTY_SERVICE_PRICES.card} Tokens. Maximum hand: 3.</p>
-                  {getEnabledPartyCards().map((card) => <button key={card.id} disabled={busy || (currentSetup.tokens || 0) < PARTY_SERVICE_PRICES.card || normalizePartyCards(currentSetup.cards).length >= 3}
-                    title={card.description} onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'buy', card.id))}>{card.name}</button>)}
+                  <p>Choose from this shop's 3 random Action Cards. Prices vary by Card; maximum hand size is 3.</p>
+                  <p><small>If a Card is bought, that slot stays empty for the rest of this turn and refills afterward.</small></p>
+                  {(turn.awaitingService.shopCardIds || []).map((cardId) => {
+                    const card = getPartyCard(cardId)
+                    const price = getPartyCardShopPrice(cardId)
+                    if (!card || price === null) return null
+                    return <button
+                      key={card.id}
+                      disabled={busy || (currentSetup.tokens || 0) < price || normalizePartyCards(currentSetup.cards).length >= 3}
+                      title={card.description}
+                      onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'buy', card.id))}
+                    >
+                      {card.name} — {price} Token{price === 1 ? '' : 's'}
+                    </button>
+                  })}
+                  {(turn.awaitingService.shopCardIds || []).length < 3 && (
+                    <p className="party-lobby-hint">A bought slot is empty until this turn ends.</p>
+                  )}
                 </>}
                 {turn.awaitingService.type === 'Paratroopa' && <>
                   <p>Fly for {PARTY_SERVICE_PRICES.transport} Tokens. The destination stop does not activate again.</p>
@@ -1919,7 +1611,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'round-complete' && <PartyChallenge room={room} roomCode={roomCode} clientId={clientId} onNextRound={handleNextRound} />}
+          
 
           {room.phase === 'party-complete-test' && (
             <div className="party-turn-panel__section party-round-complete">

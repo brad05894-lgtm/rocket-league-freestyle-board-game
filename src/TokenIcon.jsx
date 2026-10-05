@@ -1,0 +1,1 @@
+export default function TokenIcon(){return <svg className="party-token-icon" viewBox="0 0 24 24" role="img" aria-label="Tokens"><circle cx="12" cy="12" r="10" fill="#f6c44f" stroke="#97641a" strokeWidth="2"/><circle cx="12" cy="12" r="7" fill="none" stroke="#fff1a3"/><path d="M8 8h8v2h-3v7h-2v-7H8z" fill="#795013"/></svg>}

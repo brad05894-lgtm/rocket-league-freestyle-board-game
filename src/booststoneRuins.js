@@ -12,7 +12,7 @@ const TYPE_BY_ID = {
   n58: 'Event',
   n15: 'Lucky',
   n17: 'Paratroopa',
-  n19: 'Event',
+  n19: 'Mechanic',
   n20: 'Bad Luck',
 
   // LOCKED Boost Boulder lane.
@@ -258,7 +258,6 @@ const SPECIAL_BY_ID = {
 
   // Top-right loop board Events.
   n58: 'reactor-trigger-c',
-  n19: 'supply-crates',
 
   // Every Event on the horizontal Boost Boulder lane triggers the same boulder.
   n25: 'reactor-trigger-c',
@@ -292,7 +291,8 @@ const nodes = Object.entries(NODE_POSITIONS).map(([id, [x, y]]) => ({
   id,
   x,
   y,
-  type: TYPE_BY_ID[id] || 'Mechanic',
+  // A route-choice dot is a junction, never a blue Mechanic space.
+  type: CHOICE_JUNCTIONS.has(id) ? 'Junction' : (TYPE_BY_ID[id] || 'Mechanic'),
   next: MAIN_NEXT[id] || [],
   special: SPECIAL_BY_ID[id] || null,
   trophySpot: TROPHY_SPOTS.includes(id),
@@ -311,7 +311,7 @@ for (const node of nodes) {
 export const BOOSTSTONE_RUINS = {
   id: 'booststone-ruins',
   name: 'Booststone Ruins',
-  subtitle: 'Overgrown arena ruins with shifting Garage Gates, the Boost Boulder Chain, and hidden supply crates.',
+  subtitle: 'Overgrown arena ruins with shifting Garage Gates and the rolling Boost Boulder Chain.',
   playerCount: { min: 2, max: 4 },
   defaultTrophyPrice: 10,
   startId: 'n01',
@@ -367,11 +367,32 @@ export const BOOSTSTONE_RUINS = {
     { id: 'shop-bottom-left', label: 'Action Shop', nodeId: 'n51', x: 252, y: 748, elevated: true, linkDirection: 'left' },
   ],
 
+  // Whomp-style Garage Gates. Each junction has a two-gate pair: one route is always open and one is closed.
+  // Default = straight/forward route open, side branch closed, matching Whomp's Domino Ruins.
+  garageGatePairs: [
+    {
+      id: 'right',
+      label: 'Right Garage Gate Pair',
+      junctionNodeId: 'n05',
+      forwardGateId: 'garage-gate-bridge-east',
+      branchGateId: 'garage-gate-bridge-west',
+      defaultClosedGateId: 'garage-gate-bridge-west',
+    },
+    {
+      id: 'left',
+      label: 'Left Garage Gate Pair',
+      junctionNodeId: 'n37',
+      forwardGateId: 'garage-gate-west',
+      branchGateId: 'garage-gate-center',
+      defaultClosedGateId: 'garage-gate-center',
+    },
+  ],
+
   gates: [
-    { id: 'garage-gate-bridge-east', modelGateId: 'bridge_east', label: 'Right North Garage Gate', between: ['n05', 'n53'], x: 1048, y: 412, toll: 3, group: 'ruins-gates' },
-    { id: 'garage-gate-bridge-west', modelGateId: 'bridge_west', label: 'Right West Garage Gate', between: ['n05', 'n06'], x: 1016, y: 444, toll: 3, group: 'ruins-gates' },
-    { id: 'garage-gate-west', modelGateId: 'west_straight', label: 'Left South Garage Gate', between: ['n37', 'n41'], x: 344, y: 540, toll: 3, group: 'ruins-gates' },
-    { id: 'garage-gate-center', modelGateId: 'west_branch', label: 'Left East Garage Gate', between: ['n37', 'n43'], x: 376, y: 508, toll: 3, group: 'ruins-gates' },
+    { id: 'garage-gate-bridge-east', modelGateId: 'bridge_east', label: 'Right Forward Garage Gate', between: ['n05', 'n53'], x: 1048, y: 412, toll: 3, group: 'ruins-gates', pairId: 'right', route: 'forward' },
+    { id: 'garage-gate-bridge-west', modelGateId: 'bridge_west', label: 'Right Side Garage Gate', between: ['n05', 'n06'], x: 1016, y: 444, toll: 3, group: 'ruins-gates', pairId: 'right', route: 'branch' },
+    { id: 'garage-gate-west', modelGateId: 'west_straight', label: 'Left Forward Garage Gate', between: ['n37', 'n41'], x: 344, y: 540, toll: 3, group: 'ruins-gates', pairId: 'left', route: 'forward' },
+    { id: 'garage-gate-center', modelGateId: 'west_branch', label: 'Left Side Garage Gate', between: ['n37', 'n43'], x: 376, y: 508, toll: 3, group: 'ruins-gates', pairId: 'left', route: 'branch' },
   ],
 
   landmarks: [
@@ -415,34 +436,12 @@ export const BOOSTSTONE_RUINS = {
   },
 
   boardEvents: {
-    'reactor-trigger-a': {
-      name: 'Boost Reactor Chain',
-      oneUse: true,
-      affectedNodes: ['n38', 'n39', 'n40', 'n41'],
-      resetTo: 'n17',
-      description: 'Triggers the west reactor lane and knocks affected players back to its entrance.',
-    },
-    'reactor-trigger-b': {
-      name: 'Boost Reactor Chain',
-      oneUse: true,
-      affectedNodes: ['n42', 'n43', 'n44', 'n45'],
-      resetTo: 'n38',
-      description: 'Triggers the upper reactor lane and knocks affected players back to its entrance.',
-    },
     'reactor-trigger-c': {
       name: 'Boost Boulder Chain',
       oneUse: false,
       affectedNodes: ['n58', 'n13', 'n14', 'n15', 'n21', 'n22', 'n23', 'n24', 'n25', 'n26', 'n27', 'n28'],
       resetTo: 'n57',
       description: 'Launches the Boost Boulder down the full horizontal lane. Any player caught on its lane is knocked back toward the safe blue space below the right-side trigger.',
-    },
-    'supply-crates': {
-      name: '3 Supply Crates',
-      description: 'Choose one of three mystery crates for a random reward.',
-    },
-    'ancient-boost-cache': {
-      name: 'Ancient Boost Cache',
-      description: 'Recover 3 Tokens from an old boost cache hidden in the ruins.',
     },
     'gate-switch-bridge-east': {
       name: 'Garage Gate Switch',
