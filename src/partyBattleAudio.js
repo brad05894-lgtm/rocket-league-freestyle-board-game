@@ -64,3 +64,5 @@ export async function battleSound(word='Ready'){
  }
  return true
 }
+
+export function stopBattleSpeech(){if(typeof window!=='undefined')window.speechSynthesis?.cancel()}

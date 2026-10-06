@@ -6,7 +6,7 @@ import { makeSecretDeal } from './partyChallengeSecretEngine'
 import { identityKey, seal, hashSecret } from './partyChallengeSecrets'
 let offset=0,clockReady=false
 let clockPromise
-function clock(){if(!clockPromise)clockPromise=new Promise((resolve)=>{onValue(ref(db,'.info/serverTimeOffset'),s=>{offset=Number(s.val())||0;clockReady=true;resolve()},()=>resolve())});return clockPromise}
+function clock(){if(!clockPromise)clockPromise=new Promise((resolve)=>{setTimeout(()=>{clockReady=true;resolve()},1500);onValue(ref(db,'.info/serverTimeOffset'),s=>{offset=Number(s.val())||0;clockReady=true;resolve()},()=>resolve())});return clockPromise}
 export const challengeNow=()=>Date.now()+offset
 function hasPrivatePacket(g,uid){return !!g?.sealed?.[uid]||!!g?.commits?.[uid]||Object.values(g?.matches||{}).some(m=>hasPrivatePacket(m,uid))}
 export async function registerBattleKey(roomCode,uid){requireOnlineIdentity(uid);await clock();const keys=await identityKey(uid);let failure='';const result=await runTransaction(ref(db,`securePartyRooms/${normalizeRoomCode(roomCode)}`),room=>{failure='';if(!room)return;const old=room.battleKeys?.[uid];if(old&&(old.x!==keys.publicKey.x||old.y!==keys.publicKey.y)&&hasPrivatePacket(battleOf(room)?.game,uid)){failure='This private Battle belongs to your original browser. Use that browser, or ask the host to restart the Challenge, then press Retry connection.';return}room.battleKeys||={};room.battleKeys[uid]=keys.publicKey;return room},{applyLocally:false});if(!result.committed)throw Error(failure||'Could not register your private Battle screen. Try again.');return keys}

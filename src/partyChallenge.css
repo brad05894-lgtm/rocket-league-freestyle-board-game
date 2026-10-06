@@ -20,3 +20,10 @@
 .bc-dialog .bc-intro .bc-burst{position:static;transform:none;display:block;font-size:clamp(40px,8vw,84px);line-height:1.12;height:auto;min-height:0;margin:0 0 8px;flex:none}
 .bc-dialog .bc-intro p{margin:0;line-height:1.5;position:static;transform:none}.bc-dialog .bc-intro button{margin:6px 0 0}
 @media(max-height:540px){.bc-dialog .bc-intro{padding:12px 8px;gap:10px}.bc-dialog .bc-intro .bc-burst{font-size:46px}}
+
+.bc-scoreboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;padding:10px;margin:12px 0;border:1px solid #809eb8;border-radius:12px;background:#09192b}
+.bc-scoreboard>div{display:flex;flex-direction:column;gap:4px;min-width:0}.bc-scoreboard strong{overflow-wrap:anywhere}.bc-scoreboard small{display:block;color:#c4d9ef}.bc-scoreboard>p{grid-column:1/-1}
+.bc-rope-names{display:flex;justify-content:space-between;gap:16px}.bc-rope-names strong{max-width:45%}.bc-track{position:relative;height:32px!important}.bc-track>span{position:absolute;top:50%!important;transform:translate(-50%,-50%)!important;line-height:1!important}.bc-rope-marker{color:white}
+.bc-leave{float:right;font-size:12px!important;min-height:40px}
+.bc-tie{border:2px solid #fbbf24;border-radius:14px;padding:16px}
+@media(max-width:700px){.bc-backdrop{padding:max(8px,env(safe-area-inset-top)) 8px max(8px,env(safe-area-inset-bottom));box-sizing:border-box}.bc-dialog{width:100%!important;max-width:100%!important;max-height:calc(100dvh - 24px)!important;margin:auto!important;padding:14px!important;box-sizing:border-box}.bc h2{font-size:26px!important;line-height:1.15!important}.bc h3{font-size:20px!important}.bc-grid{grid-template-columns:1fr!important}.bc input,.bc select{font-size:16px!important;max-width:100%;box-sizing:border-box}.bc-inline{flex-wrap:wrap}.bc-inline label{flex:1 1 150px;min-width:0}.bc-controls button{white-space:normal}.bc-rules li{line-height:1.5;margin-bottom:9px}.bc-scoreboard{grid-template-columns:repeat(2,minmax(0,1fr))}.bc-teams{flex-wrap:wrap}}

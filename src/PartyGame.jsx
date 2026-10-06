@@ -277,7 +277,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   useEffect(() => { localStorage.setItem('party-board-view', boardView) }, [boardView])
   useEffect(() => { const old = document.body.style.overflow; document.body.style.overflow='hidden'; return () => {document.body.style.overflow=old} }, [])
   async function enterFullscreen() {
-    try {if (!document.fullscreenElement && document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();if(screen.orientation?.lock) await screen.orientation.lock('landscape').catch(()=>{});setFullscreenError('')}
+    try {if (!document.fullscreenElement && document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();setFullscreenError('')}
     catch {setFullscreenError('Fullscreen is unavailable here. Turn your phone sideways; the board still fills the browser.')}
   }
   const [partyRoulette, setPartyRoulette] = useState(null)
@@ -623,11 +623,12 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           <button aria-pressed={overview} onClick={()=>{setOverview(!overview);setHudPanel(null)}}>{overview?'↘ Follow Player':'▦ Board'}</button>
           <button onClick={()=>setHudPanel(hudPanel==='log'?null:'log')}>Activity</button>
           <button onClick={()=>setHudPanel(hudPanel==='settings'?null:'settings')}>Settings</button>
+          <button onClick={onLeave}>{isHost?'End game':'Leave'}</button>
           {isHost&&<button onClick={()=>setHudPanel(hudPanel==='dev'?null:'dev')}>Dev</button>}
         </nav>
         <footer className="party-hud-footer"><strong>{activePlayer?.name||'Players'}{movementBusy?' is moving…':isMyTurn?' · Your turn':' · Current turn'}</strong><span>🏆 Trophy: Space {activeTrophyNode?nodeNumber(activeTrophyNode.id):'…'} · {trophyPrice} Tokens</span></footer>
       </div>
-      <div className="party-rotate-hint">Turn your phone sideways for the full board experience.</div>
+
       {room.phase === 'board' && !movementBusy && turn.awaitingChoice && battle?.status !== 'active' && (() => {
         const currentId = turn.choiceNodeId || activeSetup.boardNodeId
         const motionPath = Array.isArray(room.boardMotion?.path) ? room.boardMotion.path : []
@@ -669,8 +670,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           </div>
         )
       })()}
-      {orderResults&&<div className="bc-backdrop"><section className="bc-dialog party-order-results" role="dialog" aria-modal="true" aria-label="Turn order results"><h1>Turn order is set!</h1><p>Everyone starts on the deck. Your first movement point reaches the first blue Mechanic space.</p><ol>{players.map((player,index)=><li key={player.id}><strong>{player.name}</strong><span>🎲 {turnOrderRolls[player.id]}</span><small>{index===0?'Goes first':'Turn order locked'}</small></li>)}</ol><p>Equal rolls use a random tiebreak. Only the player going first needs to continue.</p>{players[0]?.id===clientId?<button disabled={actionBusy} onClick={()=>runAction(()=>confirmPartyTurnOrder(roomCode,clientId))}>Continue to Board</button>:<p>Waiting for <strong>{players[0]?.name||'the first player'}</strong> to continue…</p>}{error&&<p role="alert">{error}</p>}</section></div>}
-      {!movementBusy&&(battle?.status==='active'||room.phase==='round-complete')&&<PartyChallenge room={room} roomCode={roomCode} clientId={clientId} onNextRound={handleNextRound}/>}
+      {orderResults&&<div className="bc-backdrop"><section className="bc-dialog party-order-results" role="dialog" aria-modal="true" aria-label="Turn order results"><button onClick={onLeave}>{isHost?'End game':'Leave game'}</button><h1>Turn order is set!</h1><p>Everyone starts on the deck. Your first movement point reaches the first blue Mechanic space.</p><ol>{players.map((player,index)=><li key={player.id}><strong>{player.name}</strong><span>🎲 {turnOrderRolls[player.id]}</span><small>{index===0?'Goes first':'Turn order locked'}</small></li>)}</ol><p>Equal rolls use a random tiebreak. Only the player going first needs to continue.</p>{players[0]?.id===clientId?<button disabled={actionBusy} onClick={()=>runAction(()=>confirmPartyTurnOrder(roomCode,clientId))}>Continue to Board</button>:<p>Waiting for <strong>{players[0]?.name||'the first player'}</strong> to continue…</p>}{error&&<p role="alert">{error}</p>}</section></div>}
+      {!movementBusy&&(battle?.status==='active'||room.phase==='round-complete')&&<PartyChallenge room={room} roomCode={roomCode} clientId={clientId} onLeave={onLeave} onNextRound={handleNextRound}/>}
       <div className="party-game-layout">
         <section className="party-game-board-card party-game-board-card--ruins">
           {true && (
@@ -951,7 +952,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                             <button
                               type="button"
                               className="party-inventory-use"
-                              onClick={() => setSelectedCardIndex(index)}
+                              onClick={() => { if(card.requiresTarget || ['precision-die','steal-card'].includes(card.effect)) setSelectedCardIndex(index); else runAction(()=>usePartyCard(roomCode,clientId,index,{})) }}
                               disabled={busy || !useState.canUse}
                               title={useState.reason || undefined}
                             >
@@ -1096,7 +1097,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                   </div>
                 ) : (
                   <button type="button" className="party-primary-action" onClick={() => handleUseCard()} disabled={busy}>
-                    Confirm Use
+                    Use Card
                   </button>
                 )}
 

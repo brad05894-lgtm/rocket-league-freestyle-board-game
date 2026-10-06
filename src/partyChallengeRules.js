@@ -22,7 +22,8 @@ const R = {
 20:['Play upside down in turtle position with unlimited boost. No aerials.','A tie goes to next goal under the same restriction.'],
 21:['Attackers privately receive a target. Report 2 points for a goal that hits it, 1 for another goal, or 0 for no goal.','After the shot, the defender locks a target prediction. Reveal both: a correct prediction earns the defender 1 point. Take 3 possessions per side; tied scores use paired extra possessions.'],
 22:['The display draws Easy, Medium and Hard mechanics worth 1, 2 and 3 mini-points. Take 3 attempts total.','Before each attempt, declare any combination. Complete EVERY declared part in that attempt to earn their sum; otherwise earn 0. Track totals and report the winner.'],
-23:['GREEN = normal gameplay. YELLOW = normal controls but no boost. RED = release throttle, steering, boost, jump, flip and powerslide; do not intentionally brake to stop faster. Existing momentum, sliding, falling and airborne travel are allowed.','Lights are random and the same color may appear again. A repeated color simply continues with a new random duration; the browser does not replay the voice/sound cue unless the color actually changes.','Keep obeying the lights through next-goal overtime. The host ends the light system only when the Rocket League game is actually finished.'],
+'22b':['The display draws Easy, Medium and Hard mechanics worth 1, 2 and 3 points. Use Rocket League’s own 1:00 clock for each run.','During the minute, attempt as many shots as possible. Before each shot, declare any 1 mechanic or combination; every declared part must be completed in the scored shot to earn their sum. Misses or incomplete combos earn 0.','You may repeat the same mechanic or combo as many times as you can score it before Rocket League time reaches 0:00. Keep totals manually and report the result.'],
+23:['GREEN = normal gameplay. YELLOW = normal controls but no boost. RED = release throttle, steering, boost, jump, flip and powerslide; do not intentionally brake to stop faster. Existing momentum, sliding, falling and airborne travel are allowed.','Lights are random. If the same color repeats, continue following that color until it changes.','Keep obeying the lights through next-goal overtime. The host ends the light system only when the Rocket League game is actually finished.'],
 24:['Take 3 alternating attacks. At most one ground bounce is allowed after the attack starts.','A no-bounce goal earns 2 points; a one-bounce goal earns 1. A second bounce ends the attack; a save alone does not.'],
 25:['Attack from midfield against a defender. Use 15 seconds, 10 seconds and 5 seconds once each per player.','Scoring earns 1, 2 or 3 points respectively. Start the timer when ready; after all possessions, compare totals. Ties use paired 5-second attacks.'],
 26:['Take 3 pinch attempts each. Enter successful goal KPH; a miss is 0.','Highest combined KPH wins; tied players take 1 extra attempt each.'],
@@ -57,7 +58,7 @@ const R = {
 54:['Everyone sets FOV to the minimum for the entire match.','Ties go to next goal while keeping minimum FOV.'],
 55:['Aim for the displayed target from 1–150 KPH. Take one valid goal each; retry a miss.','Closest goal speed wins. Tied players get a fresh target and repeat until separated.'],
 56:['Stand up while playing the match.','Keep standing through any next-goal overtime.'],
-57:['Both opponents simultaneously call one mechanic or shot requirement each. Combine those two requirements, then race to score that shot.','A valid completion must satisfy every requirement. Report the winner after players verify it.'],
+57:['Simultaneously call one mechanic or shot requirement each. Combine the requirements, then race to score that shot.','A valid completion must satisfy every requirement. Both players must agree before abandoning an unrealistic combination and making fresh calls.'],
 58:['Do not use free Air Roll or either Directional Air Roll. All other controls are allowed.','Keep the restriction through next-goal overtime.'],
 59:['Play Bullet Ball with 3 lives per player.','Report life losses; eliminated players stay out. Last surviving player or team wins.'],
 60:['Play Knockout with 3 lives per player.','Report life losses; assigned teammates cooperate even if the Rocket League lobby is FFA. Last surviving team or player wins.'],
@@ -87,14 +88,70 @@ const R = {
 84:['Solo sets a mechanic with one attempt. A miss automatically gives the team a survived round.','If solo succeeds, EVERY teammate gets one copy attempt. Any success survives the round; all failing gives solo the win. Team wins after 3 survived rounds (duo) or 4 (trio).'],
 85:['Play the four-player bracket. Each matchup independently draws a Sprint event.','Semifinals may run together. After both finish, choose simultaneous or sequential final/third-place matches. Each matchup must have one winner.'],
 86:['Play the four-player bracket. Each matchup independently draws a game from the approved roulette pool.','After both semifinals finish, play the final and third-place matches together or one at a time.'],
-87:['Play the four-player bracket, choosing/randomizing each matchup’s Rocket League mode yourselves.','Use the browser to record bracket winners. Each match needs one winner; then play final and third place.']
+87:['Play the four-player bracket, choosing/randomizing each matchup’s Rocket League mode yourselves.','Use the browser to record bracket winners. Each match needs one winner; then play final and third place.'],
+88:['Configure native Rumble before starting. Power-ups are fully allowed and remain active for the whole match.','Use Rumble’s normal scoring. Ties continue to the next valid goal.'],
+89:['Configure native Dropshot on a valid Dropshot arena before starting.','Use Dropshot’s normal goal / score result. The browser does not track floor tiles or damage.'],
+90:['Configure native Hoops on a valid Hoops arena before starting.','Use normal Hoops scoring. Ties continue to the next valid basket.'],
+91:['Configure native Snow Day before starting and play with the puck.','Use normal Snow Day scoring. Ties continue to the next valid goal.']
 }
-const timedMatches=new Set([1,17,18,19,20,23,27,36,45,46,53,54,56,58])
-export const needsBattleAudio = g => !!g && (['light','bomb','potato','names','reverseSpeed','gauntlet','timedGoals','hunt','endurance','pressure'].includes(g.engine) || Object.values(g.matches||{}).some(needsBattleAudio))
+const PLAY_DETAILS = {
+  3: ['A missed shot cannot be your scored freestyle. Compare each player’s best shot, rather than adding all attempts.'],
+  7: ['Letters are elimination marks, not Tokens. A setter must complete the shot before opponents are asked to copy it.'],
+  8: ['The upgrade must build on the existing chain. Agree what must be copied before the next attempt.'],
+  9: ['State the target before setting the shot so opponents know exactly what they must reproduce.'],
+  10: ['Use the goal speed shown by Rocket League, not the speed the ball reached earlier in the shot.'],
+  12: ['Completing a level moves you to the next reset count. Record your highest completed level, not the level where you ran out of attempts.'],
+  13: ['An eliminated player stops taking attempts. The reset count rises only after the current level has a successful survivor.'],
+  15: ['Everyone must use the same pack and shot order. Do not skip a difficult shot to finish sooner.'],
+  16: ['Only completed shots before the timer ends count. An unfinished shot at the buzzer adds nothing.'],
+  21: ['Keep the assigned target private until the prediction is locked. Attacking points and prediction points are separate, so both can score on the same possession.'],
+  22: ['The 1 / 2 / 3 values are points within this Challenge, not the normal board mechanic payouts. A partial combination earns nothing.'],
+  24: ['Track ground bounces throughout the same attack. A defender’s touch does not reset the bounce count.'],
+  25: ['Each time allowance is used once; the shorter attacks are worth more. A possession without a goal earns 0.'],
+  26: ['Count only goal speeds from valid pinches. Record all attempts, including misses, before comparing totals.'],
+  28: ['Choose an empty square to work toward. Completing a different mechanic does not let you claim that square.'],
+  29: ['Keep bids private until everyone has locked in. If the first bidder fails all their allotted attempts, the next bidder gets a chance.'],
+  30: ['Guessing error is the distance from the actual speed: guessing 90 for a 100 KPH shot gives 10 error. Lower is better.'],
+  31: ['Keep the same mechanic as its placement requirement becomes harder. Failing both attempts at a rung ends that player’s climb.'],
+  33: ['Do not work ahead: finish Easy before Medium, and Medium before Hard. Stop attempting when the timer ends.'],
+  34: ['A reroll can be lower than your original number. You cannot return to the old number or roll a third time.'],
+  35: ['Once eliminated, do not rejoin or interfere with survivors. Record eliminations as they happen so placement order stays clear.'],
+  37: ['The mechanic must match the current letter and be completed successfully. Calling its name alone does not score.'],
+  38: ['Touching a wall also ends your run, even if you could jump back into the air. Ceiling contact is the stated exception.'],
+  39: ['Lock predictions before revealing the measured speed. “Higher” and “Lower” are strict: matching the estimate scores neither.'],
+  41: ['Equal KPH is not a successful increase. Record the goal speed after every valid shot so the next player knows the number to beat.'],
+  42: ['A slower goal is valid; a faster one is not. Keep the measured goal speed visible when reporting your result.'],
+  43: ['A long air dribble without the required finishing goal is worth 0. Confirm the finish before accepting the recorded time.'],
+  47: ['Listen to earlier answers so you do not repeat a name. Settle a disputed answer while paused, before continuing.'],
+  48: ['Listen to earlier answers so you do not repeat a name. Settle a disputed answer while paused, before continuing.'],
+  49: ['Do not answer while the bomb is travelling away from your side. Reversing it does not send it back to the middle.'],
+  50: ['Do not answer while the bomb is travelling away from your side. Reversing it does not send it back to the middle.'],
+  51: ['Set up the required number of balls before starting. Keep track of goals by side and stop as soon as a side reaches 2.'],
+  52: ['Choose only an empty square on your turn. A horizontal, vertical or diagonal line of 3 counts.'],
+  55: ['Compare absolute error: 95 and 105 are equally close to a 100 KPH target. A missed goal must be retried, not entered as 0.'],
+  57: ['Attempt the combined shot simultaneously, with no alternating turns. Both players must agree before discarding an unrealistic combination and making fresh calls.'],
+  61: ['Record all three attempts, but only the fastest successful team goal decides the result.'],
+  62: ['Every attempt contributes to the total. One very fast goal does not replace the other two attempts.'],
+  65: ['Your temporary teammate’s goals do not add to your individual score. Final Challenge placements use each player’s own total.'],
+  70: ['One teammate succeeding is not enough for the duo’s point: both must make their own attempt.'],
+  71: ['Hunters wait out the head start before chasing. A successful demo ends the round immediately.'],
+  72: ['Eliminated runners cannot return to distract the hunter. Leaving either runner alive at the buzzer gives the runners the win.'],
+  73: ['The ball must touch the opposite back wall; simply reaching the opponents’ half is not enough.'],
+  74: ['Count success by side, not by the total number of completions. One success is enough to qualify that side.'],
+  75: ['Count success by side, not by the total number of completions. One success is enough to qualify that side.'],
+  78: ['The next relay player begins only after the previous mechanic is completed. The solo player works on their Kuxir throughout the relay.'],
+  79: ['Finish and regroup before beginning the next crossing. Eliminated runners cannot return for a later crossing.'],
+  82: ['Only the selected challenger attempts that round’s mechanic. Surviving means completing it within their two attempts.'],
+  83: ['The solo’s wall touch and the trio’s goal are different scoring conditions. Reset after either kind of point before resuming the clock.'],
+  84: ['Finish all required copy attempts before deciding that the team failed. One successful teammate is enough to survive that round.']
+};
+const timedMatches=new Set([1,17,18,19,20,23,27,36,45,46,53,54,56,58,88,89,90,91])
+export const needsBattleAudio = g => !!g && ((['light','bomb','potato','names','reverseSpeed','gauntlet','timedGoals','hunt','endurance','pressure'].includes(g.engine)||g.engine==='possession'&&g.challengeId==='challenge-25') || Object.values(g.matches||{}).some(needsBattleAudio))
 export function playerRules(g) {
- const key=g.challengeId.replace('challenge-',''),n=parseInt(key),asym=['1v2','1v3'].includes(g.format),team=g.format==='2v2',ffa=g.format.includes('1v1v1');
+ const key=g.challengeId.replace('challenge-',''),n=parseInt(key),draftRush=key.toLowerCase()==='22b',asym=['1v2','1v3'].includes(g.format),team=g.format==='2v2',ffa=g.format.includes('1v1v1');
  let lines=[...(R[key]||['Follow the displayed Challenge controls and report outcomes from Rocket League.'])];let setup=[],browser=[];
  if(timedMatches.has(n)) setup.push(g.engine==='series'?'Play each displayed head-to-head segment for 1 minute; add goals across segments.':team?'Set a 3-minute match.':'Set a 2-minute match.');
+ if([88,89,90,91].includes(n)){const mode={88:'Rumble',89:'Dropshot',90:'Hoops',91:'Snow Day'}[n];setup.unshift('Configure Rocket League for '+mode+' before starting.');if(g.format==='1v1v1')setup=['Configure Rocket League for '+mode+' before starting.','Play a 3-match round robin: every pair plays once for 1 minute. Each mini-match must produce a winner; rank by mini-match wins.'];}
  if(g.engine==='tournament'&&n!==85&&n!==86&&n!==87)setup.push('Play the semifinals, then the final and third-place match. Each matchup uses the 1v1 rules below.');
  if(asym&&timedMatches.has(n)&&g.engine!=='series')lines.push('Multiply the solo player’s goals by '+(g.format==='1v2'?2:3)+' before comparing scores.');
  if(n===1&&asym)lines.push('Do not chase demos.');
@@ -105,6 +162,7 @@ export function playerRules(g) {
  if(n===11)lines=g.format==='1v1'?['Take one Kuxir pinch attempt each. If only one scores, they win.','If both miss, repeat. If both score, compare goal speed; tied speed repeats.']:['Take 3 Kuxir pinch attempts each. Add successful goal KPH; misses are 0.','Highest total wins; tied placements take one extra attempt.'];
  if([10,26].includes(n)&&asym)lines.push('Multiply solo’s total by '+(g.format==='1v2'?2:3)+' and compare against the team’s combined total.');
  if([10,22,26].includes(n)&&team)lines.push('Add teammates’ scores for the team total.');
+ if(draftRush){setup.push('Use Rocket League’s own 1:00 clock for each player’s run. The browser does NOT run a timer.');if(asym)lines.push('Multiply the solo player’s total by '+(g.format==='1v2'?2:3)+' and compare it with the teammates’ combined total.');lines.push('If the required result is tied, draw a fresh Easy / Medium / Hard set and give only the tied players/sides another full 1-minute Rocket League-time run. Repeat if needed.');}
  if(n===14)lines=[g.format==='1v1'?'First to 2 kickoff wins.':g.format==='1v1v1'?'Play 3 kickoffs for every pairing. Add each player’s wins; tied places replay.':team?'Each player faces both opponents once. Add team wins; repeat the set if tied.':g.format==='1v2'?'Solo plays 2 kickoffs against each teammate. A 2–2 total is a draw.':g.format==='1v3'?'Solo plays one kickoff against each teammate. Most wins takes the Challenge.':'Each bracket matchup plays up to 3 kickoffs; first to 2 wins.','Report each kickoff winner using the displayed pairing.'];
  if(n===15)lines.push(asym?'Time each player separately. Compare solo time with the average teammate time; lower wins.':team?'The first individual to finish wins for their whole team.':'Finish order determines placements.');
  if(n===16)setup=[asym?'Solo gets '+(g.format==='1v2'?2:3)+' minutes; each teammate gets 1 minute. Compare solo completed shots against the team sum.':'Use a 2-minute browser timer.'];
@@ -128,7 +186,52 @@ export function playerRules(g) {
  if([47,48].includes(n))browser.push('The browser owns the 10-second turn timer. Only the active player gets the answer button; all other players and the host are locked out of that button until their own turn.');
  else if(g.engine==='tournament'||g.engine==='potatoTournament')browser.push('The browser tracks the bracket. Semifinals run together; after both finish, the host chooses whether Final and 3rd Place run together or sequentially.');
  else if(['names','reverseSpeed','gauntlet','timedGoals','hunt','endurance','pressure','airdribble','sprint'].includes(g.engine))browser.push('Use the shared browser timer and on-screen controls so every device stays on the same state.');
+ else if(draftRush)browser.push('The browser only displays/rerolls the draft and records the result. Use Rocket League’s own clock for the 1-minute run; there is no browser countdown.');
  else if(['manual','mechanic','draft','mode','arena','light','sprintJudge'].includes(g.engine))browser.push('Play the Rocket League portion using these rules, then use the on-screen result controls to confirm the outcome.');
+ if(PLAY_DETAILS[n]) lines.splice(1,0,...PLAY_DETAILS[n]);
+ if(n===11)lines=['Take one Kuxir pinch attempt per player. Compare the goal speeds yourselves; a miss does not beat a successful goal.','In 1v1, one success beats a miss. If both miss or both score at equal speed, repeat until there is a winner.','For multiple players, compare successful goal speeds for individual placements; for team formats, compare the combined speeds on each side. Repeat tied results before the host records the final result.'];
+ if(n===12)lines=['Start at one flip reset. You get three attempts at each reset count. A successful goal advances you to one more reset.','Three misses at a level ends your run. Keep track of your completed level yourselves.','Highest completed level wins; equal levels share a place. The host enters the final result.'];
+ if(n===13)lines=['Start at one reset, with one attempt per player at that level. Track resets and successes yourselves.','If everyone misses, repeat the same level. If anyone scores, players who missed are eliminated and survivors move up one reset.','Continue until the winner and placement order are decided, then tell the host the result.'];
+ if([7,8,9,63,74,75,84].includes(n))lines.push('Track letters, attempts and eliminations yourselves. Once the result is decided, the host records the winner or final placements.');
+ if(n===14){lines=lines.filter(x=>!x.includes('Report each kickoff'));lines.push('Keep track of the kickoff results yourselves. The host records the overall winner or placements after the set is finished.');}
+ if(n===16){lines=['Everyone uses the same long training pack in its normal shot order.','When your timer expires, submit the shot number you ended at. Only you submit your own result.','Higher ending shot number wins; equal results may tie.'];if(team)lines.push('Use each duo’s highest individual ending shot number.');if(asym)lines.push('Compare the solo ending shot number against the sum of the teammates’ ending shot numbers.');setup=setup.map(x=>x.replace('completed shots','ending shot number'));}
+ if(n===22){lines=['Everyone uses the same displayed Easy, Medium and Hard mechanics, worth 1, 2 and 3 points per completion.','Follow the displayed random player order. '+(draftRush?'Each player has one 60-second run using Rocket League’s clock.':'Each player takes all three attempts before the next player begins.'),'Declare your mechanic or combination before the shot. Multiple different mechanics and repeated copies of the same mechanic can be combined: three qualifying flip resets earn three times the reset value.','All declared parts must be completed in the scored shot; a miss or incomplete combination earns 0. '+(draftRush?'Enter the total successful counts from your run.':'Enter each successful count after the attempt, or select Missed for 0.'),'Compare '+(team?'combined teammate totals':asym?'the solo total multiplied by '+(g.format==='1v2'?2:3)+' against the team sum':'point totals')+'. Tied players or sides receive a fresh shared draft and repeat the full '+(draftRush?'minute':'three attempts')+'; settled FFA placements remain fixed.'];}
+ if(n===24)lines=['Begin near your own side of midfield against the defending opponent'+(team?'s':'')+'. Each attacking '+(team?'team':'player')+' takes three possessions, then switch attackers.','After the attack begins, the ball may touch the ground at most once. A save or clear alone does not end a playable attack or reset the bounce count.','A goal with no ground bounce is worth 2 points. A goal with one bounce is worth 1. A second bounce or no goal is worth 0.','The attacker reports each result after the possession. '+(team?'Combine teammates’ points.':'Compare points after both players finish.')+' If tied, each attacker gets one extra possession; repeat paired extra possessions until separated.'];
+ if(n===25)lines=['Attack from midfield against the defender. Each attacking side uses 30 seconds, then 20 seconds, then 10 seconds once each.','Start your possession timer when ready. A goal within 30 / 20 / 10 seconds earns 1 / 2 / 3 points respectively. No goal within the time limit earns 0.','After each possession, the attacker reports Goal or No goal. '+(team?'Add teammates’ points.':'Compare each player’s points.')+' Finish every scheduled possession before comparing.','If tied, each attacker gets one extra 10-second possession, worth 3 points for a goal. Repeat until the totals separate.'];
+ if(n===30){lines=lines.map(x=>x.replace('before the host reveals','before the shooter reveals').replace('Misses count as 0 KPH.','Use the first successful shot; retry misses.'));}
+ if(n===36)lines=['Use the displayed official Rocket League arena for the whole match. The arena is locked once selected.','Play normal scoring. If tied at the time limit, continue until the next goal.'];
+ if(n===37)lines=['The host selects Choose letter when everyone is ready. Complete a valid mechanic beginning with the displayed letter.','First to three successful mechanics wins. After a success, wait for the host to choose the next letter.','A mechanic already scored during this Challenge cannot be reused, even if its letter repeats.'];
+ if([47,48].includes(n))lines=['On your turn, say one valid, unused Rocket League '+(n===47?'car name.':'pro, player, freestyler or established creator name.'),'You have 10 seconds. After a valid answer, press your answer button to pass immediately to the next player.','A repeated or invalid answer does not eliminate you immediately. Keep trying with a different answer before your timer expires.','Running out of time eliminates you. '+(team||asym?'The last surviving side wins.':'The last remaining player wins; elimination order determines other placements.')+' Only the current player sees their countdown.'];
+ if([49,50].includes(n))lines.push('Wait for Start before beginning. Repeated or invalid names do not reverse the bomb; give a different valid answer before it reaches your endpoint.');
+ if(n===55&&g.format==='1v1')lines=['A target speed from 1–150 KPH is revealed. Each player scores one valid goal; retry misses.','Submit your own measured goal speed. Lower absolute distance from the target wins the round: 95 and 105 are equally close to 100.','Best of three: first to two round wins takes the Battle. Each new round receives a fresh target.','If the errors tie, show the tie notice and repeat with a fresh target. A tied attempt does not award either player a round win.'];
+ if([59,60].includes(n))lines=['Play '+(n===59?'Bullet Ball':'Knockout')+' using its normal in-game elimination system.','Only press “I am eliminated” once you are fully out of the Rocket League game. Do not report individual life losses.','Remaining players keep playing. '+(team||asym?'Assigned teammates cooperate; the last surviving side wins.':'Last survivor places first; earlier eliminations determine the other placements.')];
+ if(n===57&&g.format==='1v1v1')lines=['All three players simultaneously call one mechanic or requirement each. Combine all three and race to score that shot.','A valid completion meets every requirement. The first scorer takes first place; the remaining two make a fresh two-part combination to decide second and third.','Only abandon an unrealistic combination if everyone involved agrees.'];
+ if(n===44) lines=[
+  'Everyone attempts their own displayed mechanic at the same time. Teammates do not have to complete the same shot.',
+  asym?'Each solo completion pulls '+(g.format==='1v2'?2:3)+' spaces; each teammate completion pulls 1.':'Each completed mechanic pulls the shared marker 1 space toward your side.',
+  'After a completion, only that player receives a new mechanic. Everyone else continues their current one.',
+  'You may reroll your own mechanic, but the opposing side immediately gains 1 space. This penalty is always 1, including for the solo player.',
+  'Reach or pass your endpoint to win: '+(g.format==='1v1'?3:g.format==='1v2'?4:5)+' spaces from the middle. An opponent’s pulls move the same marker back toward their end.'
+ ];
+ if(n===80||n===81) lines=[
+  'Privately check your role. One player is the imposter; everyone else shares the same secret '+(n===80?'shot prompt.':'word or phrase.')+' Keep your role and answer hidden.',
+  n===80?'Follow the displayed order for two rounds, taking one shot per turn as your clue. Try to demonstrate the prompt without making it obvious; the imposter tries to blend in.':'Follow the displayed order and give one verbal clue each. Relate it to the secret without saying the answer; the imposter improvises from the clues.',
+  'Discuss after the clues, then secretly vote for another player. The player with the unique highest vote count is accused.',
+  'A tied highest vote is not a draw: everyone gives one more clue and votes again. You may vote for any other player, not just the tied suspects.',
+  'If the accused player is innocent, the imposter wins immediately. There is no second accusation.',
+  'If caught, the imposter gets one exact '+(n===80?'prompt':'word or phrase')+' guess. A correct guess steals the win; an incorrect guess means the non-imposters win.'
+ ];
+ if([85,86,87].includes(n)) lines=[
+  'Start with the two displayed semifinal pairings. Each matchup is a separate 1v1, and the semifinals can run at the same time.',
+  n===85?'Each matchup independently draws a Sprint event. Read that matchup’s attempts, scoring and tiebreak rules before starting.':n===86?'Each matchup independently draws a game from the approved pool. Read its own rules before starting.':'Choose or randomize the Rocket League mode for each matchup yourselves, and agree its settings before starting.',
+  'Report one winner for each semifinal. The winners advance to the final; the other two players contest third place.',
+  'Once both semifinals are complete, play the final and third-place match together or one at a time.',
+  'Every matchup must settle on one winner using its game’s tiebreak rules. The final determines first and second; the other match determines third and fourth.'
+ ];
+ if(g.engine==='tournament'&&![85,86,87].includes(n)) setup.push('Semifinal winners play for first and second; the others play for third and fourth. Settle every matchup before reporting its winner.');
+ if([24,25].includes(n)&&team)lines.push('Both teammates attack together against both defenders. The first named teammate reports the team possession result.');
+ if([24,25].includes(n)&&g.format==='1v1v1')lines.push('Each player attacks against the next player in the displayed order, wrapping back to the first. Complete the same number of possessions each.');
+ if(g.format==='1v1')lines=lines.map(x=>x.replace('player or team','player').replace('players or teams','players').replace('teammates’','players’').replace('team totals','player totals'));
  if(g.playerChosen)return {setup:['Choose the Rocket League mode yourselves.'],lines:['Agree the settings before starting. Play to one winner and report the result here.'],browser:['The browser only tracks the bracket/result; it does not choose or validate your Rocket League mode.']};
- return {setup,lines,browser};
+ return {setup,lines,browser:[]};
 }

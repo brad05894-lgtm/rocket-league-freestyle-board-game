@@ -1,3 +1,6 @@
+import './partyImmersive.css'
+import { initializeOnlineIdentity } from './onlineIdentity'
+import { readPartySession, savePartySession, clearPartySession } from './partySession'
 import PartyBoardSelection from './PartyBoardSelection'
 import { useEffect, useMemo, useState } from 'react'
 import PartyGame from './PartyGame'
@@ -35,7 +38,20 @@ function PartyMode({ onBack }) {
   const [loading, setLoading] = useState(false)
   const [carLoadingId, setCarLoadingId] = useState('')
 
-  const clientId = getClientId()
+  const [clientId, setClientId] = useState('')
+  const [restoring, setRestoring] = useState(true)
+  useEffect(() => {
+    let active=true
+    initializeOnlineIdentity().then(uid=>{
+      if(!active)return
+      setClientId(uid)
+      const saved=readPartySession()
+      if(saved?.uid===uid){setRoomCode(saved.roomCode);setScreen('lobby')}
+      else if(saved){clearPartySession();setNotice('Your browser identity changed. Rejoin with your room code.')}
+    }).catch(e=>active&&setError(e.message)).finally(()=>active&&setRestoring(false))
+    return()=>{active=false}
+  }, [])
+  useEffect(()=>{if(roomCode&&clientId)savePartySession(roomCode,clientId)},[roomCode,clientId])
 
   const roomPlayers = useMemo(() => {
     if (!room?.players) return []
@@ -69,10 +85,11 @@ function PartyMode({ onBack }) {
   )
 
   useEffect(() => {
-    if (!roomCode) return undefined
+    if (!roomCode || !clientId) return undefined
 
     const unsubscribe = listenToPartyRoom(roomCode, (nextRoom) => {
-      if (!nextRoom) {
+      if (!nextRoom || nextRoom.departedPlayers?.[clientId] || nextRoom.kickedPlayers?.[clientId]) {
+        clearPartySession()
         setRoom(null)
         setRoomCode('')
         setScreen('home')
@@ -81,6 +98,7 @@ function PartyMode({ onBack }) {
       }
 
       if (nextRoom.status === 'ended') {
+        clearPartySession()
         setRoom(null)
         setRoomCode('')
         setScreen('home')
@@ -89,10 +107,11 @@ function PartyMode({ onBack }) {
       }
 
       setRoom(nextRoom)
-    })
+      setError('')
+    }, e=>setError(e.message || 'Connection interrupted. Your progress is saved; reconnect and retry.'))
 
     return () => unsubscribe()
-  }, [roomCode])
+  }, [roomCode, clientId])
 
   async function handleCreate(event) {
     event.preventDefault()
@@ -219,23 +238,16 @@ function PartyMode({ onBack }) {
   }
 
   async function handleLeaveParty() {
-    if (!roomCode) {
-      setScreen('home')
-      return
-    }
-
+    if (!roomCode) {setScreen('home');return}
+    if(!window.confirm(isHost?'End this Party game for everyone?':'Leave this Party game? Closing the tab instead lets you return later.'))return
+    setLoading(true)
     try {
-      setLoading(true)
       await leavePartyRoom(roomCode, clientId)
-    } catch (leaveError) {
-      setError(leaveError.message || 'Could not leave the Party room.')
-    } finally {
-      setRoom(null)
-      setRoomCode('')
-      setLoading(false)
-      setScreen('home')
-    }
+      clearPartySession();setRoom(null);setRoomCode('');setScreen('home')
+    } catch(e){setError(e.message||'Could not leave. Your game is still saved.')}
+    finally{setLoading(false)}
   }
+  if(restoring || roomCode&&!room)return <div className="game"><h2>Reconnecting to your Party…</h2><p>Your saved progress will appear here.</p>{error&&<p role="alert">{error}</p>}<button onClick={()=>window.location.reload()}>Retry connection</button><button onClick={()=>{clearPartySession();setRoomCode('');setScreen('home');setRestoring(false)}}>Back to Party menu</button></div>
 
   if(roomCode && room?.status==='playing' && room.phase==='board-select')return <PartyBoardSelection room={room} roomCode={roomCode} clientId={clientId} isHost={isHost} onLeave={handleLeaveParty}/>
 

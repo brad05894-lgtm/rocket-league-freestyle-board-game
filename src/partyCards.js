@@ -249,10 +249,10 @@ export const PARTY_CARDS = [
   {
     id: 'challenge-glove',
     name: 'Challenge Glove',
-    description: 'Use before rolling. Choose an opponent first; only after they are locked in does the app randomly reveal a 1v1 Battle. Resolve it, then continue your normal turn.',
+    description: 'Before rolling, choose a battle format, participants and teams. Lock them in before the random game is revealed, then continue your normal turn.',
     enabled: true,
     effect: 'challenge-glove',
-    requiresTarget: true,
+    requiresTarget: false,
     timing: 'before-roll',
   },
   {

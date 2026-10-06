@@ -122,7 +122,7 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], showNumb
       model.trophy.scale.copy(model.trophyScale).multiplyScalar(0.01)
       trophyReveal.current = performance.now()
     }
-    Object.entries(model.spaces).forEach(([nodeId, object]) => { object.visible = nodeId !== id })
+    Object.entries(model.spaces).forEach(([nodeId, object]) => { object.visible = nodeId !== id && !['Lucky','Bad Luck','Battle'].includes(board.nodes.find(n=>n.id===nodeId)?.type) })
   }, [model, room.activeTrophyNodeId])
   useEffect(() => {
     model.originals.forEach(({ material, color }) => {
@@ -238,7 +238,7 @@ function CameraControls({ resetKey, overview, followPoint, topDown }) {
     camera.updateProjectionMatrix()
     previous.current = null
     invalidate()
-  }, [resetKey, topDown, camera, invalidate])
+  }, [resetKey, topDown, overview, camera, invalidate])
   useFrame((_, dt) => {
     if (!ref.current) return
     if (overview && previous.current === overview) return
@@ -341,6 +341,7 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
         <Suspense fallback={<Html center><div style={{ color: '#fff', whiteSpace: 'nowrap' }}>Loading your board…</div></Html>}>
           <BoardModel board={board} room={room} finalFive={finalFive} closedGarageGateIds={effectiveClosedGarageGateIds}
             showNumbers={showNumbers} ballRun={ballRun} clockOffset={clockOffset} />
+          <SpaceMarkers board={board} room={room} finalStretch={finalFive}/>
           <PlayerTokens board={board} room={room} players={players} activePlayer={activePlayer}
             turnOrderPhase={turnOrderPhase} turnOrderRolls={turnOrderRolls} ballRun={ballRun} clockOffset={clockOffset} followPoint={followPoint} />
         </Suspense>
@@ -348,4 +349,11 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
       </Canvas>
     </ModelErrorBoundary>
   </div>
+}
+
+function SpaceMarkers({board,room,finalStretch}) {
+ const spike=useMemo(()=>{const s=new THREE.Shape();for(let i=0;i<24;i++){const a=i*Math.PI/12,r=i%2?.22:.34,x=Math.cos(a)*r,y=Math.sin(a)*r;if(i===0)s.moveTo(x,y);else s.lineTo(x,y)}s.closePath();return s},[]);
+ return <group>{board.nodes.filter(n=>['Lucky','Bad Luck','Battle'].includes(n.type)&&n.id!==room.activeTrophyNodeId&&layout.nodes[n.id]).map(n=>{const p=layout.nodes[n.id];return <group key={n.id} position={[p[0],p[1]+.035,p[2]]}>
+ {n.type==='Bad Luck'?<mesh rotation={[-Math.PI/2,0,0]}><shapeGeometry args={[spike]}/><meshStandardMaterial color={finalStretch?'#741525':'#df283e'} side={THREE.DoubleSide}/></mesh>:n.type==='Battle'?<mesh rotation={[-Math.PI/2,0,0]}><circleGeometry args={[.34,3]}/><meshStandardMaterial color="#fb923c" side={THREE.DoubleSide}/></mesh>:<><mesh rotation={[-Math.PI/2,0,0]}><circleGeometry args={[.31,32]}/><meshStandardMaterial color="#12652f"/></mesh>{[[-.09,.035],[.09,.035],[0,-.1]].map(([x,z],i)=><mesh key={i} position={[x,.006,z]} rotation={[-Math.PI/2,0,0]}><circleGeometry args={[.105,20]}/><meshBasicMaterial color="#b6f477"/></mesh>)}<mesh position={[.015,.006,.15]} rotation={[-Math.PI/2,0,.2]}><planeGeometry args={[.045,.18]}/><meshBasicMaterial color="#b6f477"/></mesh></>}
+ </group>})}</group>
 }

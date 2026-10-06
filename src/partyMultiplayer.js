@@ -1335,12 +1335,12 @@ export async function joinPartyRoom(roomCode, playerName) {
   return joinProtectedRoom('securePartyRooms', normalizeRoomCode(roomCode), playerName)
 }
 
-export function listenToPartyRoom(roomCode, callback) {
+export function listenToPartyRoom(roomCode, callback, onError = () => {}) {
   const code = normalizeCode(roomCode)
 
   return onValue(ref(db, `securePartyRooms/${code}`), (snapshot) => {
     callback(snapshot.exists() ? snapshot.val() : null)
-  }, () => callback(null))
+  }, onError)
 }
 
 export async function updatePartyRounds(roomCode, requesterId, rounds) {
@@ -1886,11 +1886,14 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
 
     let currentNodeId = setup.boardNodeId || BOOSTSTONE_RUINS.startId
     let remaining = turn.movementRemaining || 0
+    if (!['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[currentNodeId]?.type)) turn.lastLandableNodeId = currentNodeId
     let choiceUsed = false
     const path = [setup.onStartDeck ? 'start-deck' : currentNodeId]
     let openGateId = ''
 
+    let hops = 0
     while (remaining > 0) {
+      if (++hops > 256) { failureReason = 'This route could not be completed. Choose another route.'; return }
       const currentNode = BOARD_NODE_BY_ID[currentNodeId]
       const options = setup.onStartDeck ? [BOOSTSTONE_RUINS.startId] : currentNode?.next || []
 
@@ -1938,7 +1941,7 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
       setup.onStartDeck = false
       currentNodeId = nextId
       path.push(nextId)
-      remaining -= 1
+      if (!['Junction', 'Shop', 'Paratroopa', 'Lakitu'].includes(BOARD_NODE_BY_ID[nextId]?.type)) { remaining -= 1; turn.lastLandableNodeId = nextId }
       const serviceType = BOARD_NODE_BY_ID[nextId]?.type
       if (['Shop', 'Paratroopa', 'Lakitu'].includes(serviceType)) {
         turn.awaitingService = makePartyServiceStop(room, nextId, serviceType)
@@ -2108,7 +2111,9 @@ export async function resolvePartyGarageGate(roomCode, playerId, payToll) {
       delete turn.gateToll
       addPartyActivity(room, playerId, `${playerName} paid ${toll} Tokens to pass the closed Garage Gate.`, 'event')
     } else {
-      const stopNodeId = setup.boardNodeId || turn.gateFromNodeId
+      let stopNodeId = setup.boardNodeId || turn.gateFromNodeId
+      if (['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[stopNodeId]?.type)) stopNodeId = turn.lastLandableNodeId || BOARD_NODE_BY_ID[stopNodeId]?.previous?.find(id=>!['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[id]?.type)) || BOOSTSTONE_RUINS.startId
+      setup.boardNodeId = stopNodeId
       turn.movementRemaining = 0
       delete turn.awaitingGate
       delete turn.gateId
@@ -2757,8 +2762,8 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
         return
       }
 
-      privateMessage = `Challenge Glove locked in ${targetName}. Random Battle: ${battle.name}. Resolve it, then you still get your normal roll.`
-      publicMessage = `${playerName} challenged ${targetName} to ${battle.name} with a Card.`
+      privateMessage = 'Choose your Battle format, participants and teams before the game is revealed. You still get your normal roll afterward.'
+      publicMessage = `${playerName} used Challenge Glove and is choosing the Battle participants.`
       publicType = 'battle'
     } else if (card.effect === 'precision-die') {
       const value = Number(options.value)
@@ -4432,6 +4437,7 @@ export async function leavePartyRoom(roomCode, playerId) {
           battle.status = 'resolved'
           battle.resultMessage = 'Battle cancelled because a participant left. No Tokens changed.'
           battle.resolvedAt = Date.now()
+          if (battle.source !== 'challenge-glove') room.turnState.readyToEnd = true
         }
       }
     }

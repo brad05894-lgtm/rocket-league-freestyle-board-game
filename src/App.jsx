@@ -5,6 +5,7 @@ import { endRoom, getClientId, kickPlayer, leaveRoom, listenToGame, listenToRoom
 import { generateBoard } from './boardGenerator'
 import GameBoard from './GameBoard'
 import PartyMode from './PartyMode'
+import { readPartySession } from './partySession'
 import RouletteReel from './RouletteReel'
 import { PARTY_MECHANICS } from './partyMechanics'
 import { PARTY_CARS, formatPartyDieFace, getPartyCar, getPartyCarImageFallback, getPartyCarImageUrl } from './partyCars'
@@ -770,7 +771,7 @@ function movePlayerAndHandleFinish(player, newPosition, actionCardsAtFinish = nu
 }
 
 function App() {
-  const [screen, setScreen] = useState('home')
+  const [screen, setScreen] = useState(() => readPartySession() ? 'party-mode' : 'home')
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false)
   const [leaveGameError, setLeaveGameError] = useState('')
   const [gameEndedNotice, setGameEndedNotice] = useState('')
@@ -858,6 +859,7 @@ function App() {
   // Online multiplayer session. The actual game logic stays in this component;
   // Firebase simply mirrors the complete turn state between browsers.
   const [onlineSession, setOnlineSession] = useState(() => {
+    if (readPartySession()) return null
     try {
       const saved = window.localStorage.getItem(ONLINE_SESSION_STORAGE_KEY)
       const session = saved ? JSON.parse(saved) : null
@@ -1270,7 +1272,7 @@ function App() {
 
   // Restore a local/pass-and-play match after an accidental refresh.
   useEffect(() => {
-    if (onlineSession?.roomCode) return
+    if (readPartySession() || onlineSession?.roomCode) return
 
     try {
       const saved = JSON.parse(

@@ -49,3 +49,21 @@
 .party-junction-arrow strong{font-size:18px;letter-spacing:.06em}.party-junction-arrow small{display:block;color:#fee2e2!important;line-height:1.25}
 .party-junction-gate{margin-top:5px;padding:4px 8px;border-radius:999px;font-weight:800}.party-junction-gate.is-open{background:#14532d;color:#dcfce7!important}.party-junction-gate.is-closed{background:#451a03;color:#fde68a!important}
 @media(max-width:600px){.party-junction-overlay{padding:10px 8px max(16px,env(safe-area-inset-bottom))}.party-junction-card{padding:12px}.party-junction-arrows{gap:8px}.party-junction-arrow{width:calc(50% - 6px);min-height:112px!important}.party-junction-arrow__symbol{font-size:38px}}
+
+/* Portrait is the primary phone layout. Browser chrome is included in dvh. */
+@media(max-width:700px) and (orientation:portrait){
+ .party-rotate-hint{display:none!important}
+ .party-hud-top{top:max(8px,env(safe-area-inset-top));left:8px;right:8px;gap:5px}
+ .party-hud-round{font-size:12px;padding:6px 9px;display:flex;gap:10px;align-items:center;width:100%;box-sizing:border-box}
+ .party-hud-round small{font-size:10px}
+ .party-hud-standings{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));width:100%;max-width:none}
+ .party-hud-standings button{padding:6px 4px;min-width:0;min-height:48px;font-size:11px;justify-content:center}
+ .party-hud-standings strong{max-width:19vw}.party-hud-standings small{font-size:10px}
+ .party-hud-menu{top:auto;bottom:max(8px,env(safe-area-inset-bottom));left:8px;right:8px;display:flex;flex-direction:row;flex-wrap:wrap;gap:4px;justify-content:center}
+ .party-hud-menu button{flex:1 1 20%;padding:8px 5px;text-align:center;font-size:12px;min-height:44px}.party-hud-menu small{display:none}
+ .party-hud-footer{bottom:112px;white-space:normal;width:90%;max-width:90%;font-size:11px;padding:5px 8px}
+ .party-immersive .party-turn-panel{left:8px!important;right:8px!important;top:auto!important;bottom:112px!important;width:auto!important;max-height:calc(100dvh - 225px)!important;padding:12px!important;border-radius:16px!important}
+ .party-immersive .party-turn-panel h2{font-size:21px}.party-immersive .party-turn-panel button{white-space:normal}
+}
+.party-car-option__image-wrap{display:flex!important;align-items:center;justify-content:center;height:auto!important;aspect-ratio:16/10;min-height:130px;overflow:hidden}
+.party-car-option__image{display:block!important;width:100%!important;height:100%!important;max-height:100%!important;object-fit:contain!important;object-position:center!important;position:static!important;transform:none!important}
