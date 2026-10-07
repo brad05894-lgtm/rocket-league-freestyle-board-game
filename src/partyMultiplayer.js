@@ -12,56 +12,50 @@ import { getEnabledPartyCards, getPartyCard, normalizePartyCards, pickPartyCard,
 
 const PARTY_ROUNDS = [10, 15, 20]
 const PARTY_MAP_ID = 'booststone-ruins'
-const PARTY_BATTLE_WIN_REWARD = 5
-const PARTY_BATTLE_LOSS_PENALTY = 1
+const PARTY_BATTLE_WIN_REWARD = 8
+const PARTY_BATTLE_LOSS_PENALTY = 0
 
-// Core Party economy. Mechanic payouts scale with challenge difficulty so
-// mechanics stay a major source of Tokens without being the only path to win.
-const PARTY_MECHANIC_REWARDS = {
-  Easy: 2,
-  Medium: 3,
-  Hard: 4,
-  Insane: 6,
-}
-const PARTY_FINAL_FIVE_MECHANIC_BONUS = 1
-const PARTY_DANGER_PENALTY = 2
-const PARTY_FINAL_FIVE_DANGER_PENALTY = 3
+// Core Party economy. The final stretch is the LAST 3 rounds. Very Bad Luck
+// remains a separate LAST 5 rounds rule.
+const PARTY_MECHANIC_REWARDS = Object.freeze({ Easy: 3, Medium: 6, Hard: 9, Insane: 12 })
+const PARTY_FINAL_STRETCH_MECHANIC_REWARDS = Object.freeze({ Easy: 4, Medium: 8, Hard: 12, Insane: 16 })
+const PARTY_DANGER_PENALTIES = Object.freeze({ Easy: 9, Medium: 6, Hard: 3, Insane: 1 })
+const PARTY_FINAL_STRETCH_DANGER_PENALTIES = Object.freeze({ Easy: 12, Medium: 8, Hard: 4, Insane: 2 })
 
-// Lucky / Bad Luck Space roulette. Lucky effects provide meaningful catch-up
-// options without replacing Mechanics as the main Token source. During the
-// final five rounds, every Bad Luck Space becomes a Very Bad Luck Space.
-const PARTY_LUCKY_OUTCOMES = [
+// Lucky / Bad Luck roulette pools. During the LAST FIVE rounds, every Bad
+// Luck Space upgrades to the Very Bad Luck pool.
+export const PARTY_LUCKY_OUTCOMES = [
   { id: 'small-cache', name: 'Small Token Cache', kind: 'tokens', amount: 2 },
-  { id: 'token-cache', name: 'Token Cache', kind: 'tokens', amount: 3 },
-  { id: 'big-cache', name: 'Big Token Cache', kind: 'tokens', amount: 4 },
-  { id: 'jackpot-cache', name: 'Jackpot Cache', kind: 'tokens', amount: 5 },
+  { id: 'token-cache', name: 'Token Cache', kind: 'tokens', amount: 4 },
+  { id: 'big-cache', name: 'Big Token Cache', kind: 'tokens', amount: 6 },
+  { id: 'jackpot-cache', name: 'Jackpot Cache', kind: 'tokens', amount: 8 },
   { id: 'free-card', name: 'Free Action Card', kind: 'draw-card' },
   { id: 'underdog-boost', name: 'Underdog Boost', kind: 'underdog' },
-  { id: 'token-swipe', name: 'Token Swipe', kind: 'steal-tokens', amount: 4 },
+  { id: 'token-swipe', name: 'Token Swipe', kind: 'steal-tokens', minAmount: 4, maxAmount: 8 },
 ]
 
-const PARTY_BAD_LUCK_OUTCOMES = [
+export const PARTY_BAD_LUCK_OUTCOMES = [
   { id: 'flat-tire', name: 'Flat Tire', kind: 'tokens', amount: -1 },
-  { id: 'boost-leak', name: 'Boost Leak', kind: 'tokens', amount: -1 },
-  { id: 'repair-bill', name: 'Repair Bill', kind: 'tokens', amount: -2 },
-  { id: 'missed-toll', name: 'Missed Toll', kind: 'tokens', amount: -2 },
-  { id: 'cracked-wheel', name: 'Cracked Wheel', kind: 'tokens', amount: -3 },
-  { id: 'card-spill', name: 'Card Spill', kind: 'discard-card', count: 1 },
-  { id: 'pay-everyone', name: 'Everyone Gets Paid', kind: 'give-tokens-all', amount: 1 },
-  { id: 'pay-random-rival', name: 'Random Rival Payday', kind: 'give-tokens-random', amount: 3 },
-  { id: 'pay-last-place', name: 'Last Place Payday', kind: 'give-tokens-last', amount: 4 },
+  { id: 'boost-leak', name: 'Boost Leak', kind: 'tokens', amount: -2 },
+  { id: 'repair-bill', name: 'Repair Bill', kind: 'tokens', amount: -4 },
+  { id: 'missed-toll', name: 'Missed Toll', kind: 'tokens', amount: -6 },
+  { id: 'cracked-wheel', name: 'Cracked Wheel', kind: 'tokens', amount: -8 },
+  { id: 'card-spill', name: 'Card Spill', kind: 'discard-card', count: 1, missingCardPenalty: 4 },
+  { id: 'pay-everyone', name: 'Everyone Gets Paid', kind: 'give-tokens-all', amount: 4 },
+  { id: 'pay-random-rival', name: 'Random Rival Payday', kind: 'give-tokens-random', minAmount: 4, maxAmount: 8 },
+  { id: 'pay-last-place', name: 'Last Place Payday', kind: 'give-tokens-last', amount: 6 },
   { id: 'move-trophy', name: 'Trophy Relocation', kind: 'move-trophy' },
   { id: 'double-trophy-price', name: 'Double Trophy Price', kind: 'double-trophy-price' },
 ]
 
-const PARTY_VERY_BAD_LUCK_OUTCOMES = [
-  { id: 'severe-flat-tire', name: 'Severe Flat Tire', kind: 'tokens', amount: -2 },
-  { id: 'major-repair-bill', name: 'Major Repair Bill', kind: 'tokens', amount: -3 },
-  { id: 'wrecked-wheel', name: 'Wrecked Wheel', kind: 'tokens', amount: -5 },
-  { id: 'major-card-spill', name: 'Major Card Spill', kind: 'discard-card', count: 2 },
-  { id: 'pay-everyone-big', name: 'Everyone Gets a Bigger Payday', kind: 'give-tokens-all', amount: 2 },
-  { id: 'pay-random-rival-big', name: 'Random Rival Jackpot', kind: 'give-tokens-random', amount: 5 },
-  { id: 'pay-last-place-big', name: 'Last Place Mega Payday', kind: 'give-tokens-last', amount: 6 },
+export const PARTY_VERY_BAD_LUCK_OUTCOMES = [
+  { id: 'severe-flat-tire', name: 'Severe Flat Tire', kind: 'tokens', amount: -4 },
+  { id: 'major-repair-bill', name: 'Major Repair Bill', kind: 'tokens', amount: -8 },
+  { id: 'wrecked-wheel', name: 'Wrecked Wheel', kind: 'tokens', amount: -12 },
+  { id: 'major-card-spill', name: 'Major Card Spill', kind: 'discard-card', count: 2, missingCardPenalty: 4 },
+  { id: 'pay-everyone-big', name: 'Everyone Gets a Bigger Payday', kind: 'give-tokens-all', amount: 6 },
+  { id: 'pay-random-rival-big', name: 'Random Rival Jackpot', kind: 'give-tokens-random', minAmount: 8, maxAmount: 12 },
+  { id: 'pay-last-place-big', name: 'Last Place Mega Payday', kind: 'give-tokens-last', amount: 10 },
   { id: 'move-trophy-very-bad', name: 'Trophy Relocation', kind: 'move-trophy' },
   { id: 'double-trophy-price-very-bad', name: 'Double Trophy Price', kind: 'double-trophy-price' },
   { id: 'half-tokens', name: 'Token Wipeout', kind: 'half-tokens' },
@@ -69,15 +63,13 @@ const PARTY_VERY_BAD_LUCK_OUTCOMES = [
   { id: 'give-trophy-random', name: 'Give Away a Trophy', kind: 'give-trophy-random' },
 ]
 
-// These two Trophy-specific roulette outcomes are intentionally omitted from
-// the future Kamek's Tantalizing Tower remake because that board has its own
+// Trophy-specific roulette outcomes can be omitted by maps with their own
 // Trophy-location / Trophy-price rules.
 const PARTY_TROPHY_CHAOS_OMIT_MAP_IDS = new Set([
   'kameks-tantalizing-tower',
   'kameks-tantalizing-tower-remake',
 ])
-
-const PARTY_VERY_BAD_TROPHY_FALLBACK_TOKENS = 5
+const PARTY_VERY_BAD_TROPHY_FALLBACK_TOKENS = 15
 
 const PARTY_SUPPLY_CRATE_REWARDS = [
   { id: 'crate-3-tokens', name: '3 Tokens', kind: 'tokens', amount: 3 },
@@ -212,50 +204,45 @@ function mechanicDeadline(room){
 function makeLandingEffect(room, nodeId, mechanic) {
   const node = BOARD_NODE_BY_ID[nodeId]
   if (!node || !mechanic) return null
-
-  const totalRounds = room.settings?.rounds || 10
-  const currentRound = room.currentRound || 1
-  const finalFive = currentRound > Math.max(0, totalRounds - 5)
+  const finalStretch = isPartyFinalThree(room)
   const difficulty = getPartyMechanicDifficulty(mechanic)
-  const baseReward = PARTY_MECHANIC_REWARDS[difficulty] ?? PARTY_MECHANIC_REWARDS.Medium
-  const mechanicReward = baseReward + (finalFive ? PARTY_FINAL_FIVE_MECHANIC_BONUS : 0)
-  const dangerPenalty = finalFive
-    ? PARTY_FINAL_FIVE_DANGER_PENALTY
-    : PARTY_DANGER_PENALTY
+  const rewardTable = finalStretch ? PARTY_FINAL_STRETCH_MECHANIC_REWARDS : PARTY_MECHANIC_REWARDS
+  const dangerTable = finalStretch ? PARTY_FINAL_STRETCH_DANGER_PENALTIES : PARTY_DANGER_PENALTIES
 
   if (node.type === 'Mechanic') {
     return {
-      type: 'mechanic',
-      challengeId: mechanic.id,
-      challengeName: mechanic.name,
-      difficulty,
-      resolved: false,
-      attemptLimit: 2,
-      attemptsUsed: 0,
-      deadlineAt: mechanicDeadline(room),
-      reward: mechanicReward,
-      baseReward,
-      finalFiveBonus: finalFive ? PARTY_FINAL_FIVE_MECHANIC_BONUS : 0,
-      finalFive,
+      type: 'mechanic', challengeId: mechanic.id, challengeName: mechanic.name, difficulty,
+      resolved: false, attemptLimit: 2, attemptsUsed: 0, deadlineAt: mechanicDeadline(room),
+      reward: rewardTable[difficulty] ?? rewardTable.Medium,
+      baseReward: PARTY_MECHANIC_REWARDS[difficulty] ?? PARTY_MECHANIC_REWARDS.Medium,
+      finalStretch,
     }
   }
-
   if (node.type === 'Danger Mechanic') {
     return {
-      type: 'danger-mechanic',
-      challengeId: mechanic.id,
-      challengeName: mechanic.name,
-      difficulty,
-      resolved: false,
-      attemptLimit: 2,
-      attemptsUsed: 0,
-      deadlineAt: mechanicDeadline(room),
-      penalty: dangerPenalty,
-      finalFive,
+      type: 'danger-mechanic', challengeId: mechanic.id, challengeName: mechanic.name, difficulty,
+      resolved: false, attemptLimit: 2, attemptsUsed: 0, deadlineAt: mechanicDeadline(room),
+      penalty: dangerTable[difficulty] ?? dangerTable.Medium,
+      finalStretch,
     }
   }
-
   return null
+}
+
+function refreshPartyLandingEconomy(room, effect) {
+  if (!effect) return effect
+  const finalStretch = isPartyFinalThree(room)
+  const difficulty = effect.difficulty || 'Medium'
+  effect.finalStretch = finalStretch
+  if (effect.type === 'mechanic') {
+    const table = finalStretch ? PARTY_FINAL_STRETCH_MECHANIC_REWARDS : PARTY_MECHANIC_REWARDS
+    effect.reward = table[difficulty] ?? table.Medium
+    effect.baseReward = PARTY_MECHANIC_REWARDS[difficulty] ?? PARTY_MECHANIC_REWARDS.Medium
+  } else if (effect.type === 'danger-mechanic') {
+    const table = finalStretch ? PARTY_FINAL_STRETCH_DANGER_PENALTIES : PARTY_DANGER_PENALTIES
+    effect.penalty = table[difficulty] ?? table.Medium
+  }
+  return effect
 }
 
 function setNegativeCardResultNotice(room, playerId, message) {
@@ -325,7 +312,7 @@ function attachLandingEffect(room, turn, playerId, nodeId, mechanic) {
       delete setup.topCornerSourcePlayerId
     }
 
-    if (setup.hotStreakActive) {
+    if (setup.hotStreakActive && effect.type === 'mechanic') {
       effect.hotStreakTriggered = true
       effect.attemptLimit = 1
       setup.hotStreakActive = false
@@ -370,11 +357,10 @@ function addLandingActivity(room, playerId, nodeId) {
   if (node.type === 'Card') return
 
   const playerName = room.players?.[playerId]?.name || 'Player'
-  const spaceNumber = Number(String(nodeId).replace('n', '')) || nodeId
   addPartyActivity(
     room,
     playerId,
-    `${playerName} landed on Space ${spaceNumber} • ${node.type}.`,
+    `${playerName} landed on a ${node.type} Space.`,
     'landing'
   )
 }
@@ -394,12 +380,9 @@ function applyCardLanding(room, turn, playerId, card) {
 
   if (cards.length >= 3) {
     turn.cardDrawStatus = 'full'
-    addPartyActivity(
-      room,
-      playerId,
-      `${playerName} landed on a Card Space, but their 3-card inventory was full.`,
-      'card'
-    )
+    setup.tokens = Math.max(0, Number(setup.tokens) || 0) + 2
+    addPartyStat(room, playerId, 'tokensCollected', 2)
+    addPartyActivity(room, playerId, `${playerName} landed on a Card Space with a full inventory and received +2 Tokens instead.`, 'card')
     return
   }
 
@@ -425,6 +408,12 @@ function isPartyFinalFive(room) {
   return currentRound > Math.max(0, totalRounds - 5)
 }
 
+function isPartyFinalThree(room) {
+  const totalRounds = room?.settings?.rounds || 10
+  const currentRound = room?.currentRound || 1
+  return currentRound > Math.max(0, totalRounds - 3)
+}
+
 function getPartyBaseTrophyPrice(room) {
   return room?.settings?.trophyPrice ?? BOOSTSTONE_RUINS.defaultTrophyPrice
 }
@@ -447,6 +436,13 @@ function choosePartySeeded(items, seed = 0, shift = 0) {
   if (!items?.length) return null
   const value = shiftedPartySeed(seed, shift)
   return items[Math.min(items.length - 1, Math.floor(value * items.length))]
+}
+
+function randomPartyInt(seed = 0, min = 0, max = 0, shift = 0) {
+  const low = Math.ceil(Math.min(Number(min) || 0, Number(max) || 0))
+  const high = Math.floor(Math.max(Number(min) || 0, Number(max) || 0))
+  if (high <= low) return low
+  return low + Math.floor(shiftedPartySeed(seed, shift) * (high - low + 1))
 }
 
 function getPartySpaceOutcome(room, playerId, spaceType, seed = 0) {
@@ -510,27 +506,28 @@ function transferPartyTokens(room, fromPlayerId, toPlayerId, requestedAmount) {
   const amount = Math.max(0, Math.min(available, Number(requestedAmount) || 0))
   fromSetup.tokens = available - amount
   toSetup.tokens = Math.max(0, Number(toSetup.tokens) || 0) + amount
+  if (amount > 0) addPartyStat(room, toPlayerId, 'tokensCollected', amount)
   return amount
 }
 
 function transferPartyTokensToAll(room, fromPlayerId, requestedEach, seed = 0) {
   const recipients = getPartyOpponentIds(room, fromPlayerId)
   const changes = {}
-  if (!recipients.length) return changes
-
-  const startIndex = Math.floor(shiftedPartySeed(seed, 11) * recipients.length)
-  const ordered = recipients.map((_, index) => recipients[(startIndex + index) % recipients.length])
-  const cycles = Math.max(0, Number(requestedEach) || 0)
-
-  for (let cycle = 0; cycle < cycles; cycle += 1) {
-    for (const recipientId of ordered) {
-      const amount = transferPartyTokens(room, fromPlayerId, recipientId, 1)
-      if (!amount) return changes
-      changes[recipientId] = (changes[recipientId] || 0) + amount
-    }
+  const fromSetup = room.playerSetup?.[fromPlayerId]
+  if (!recipients.length || !fromSetup) return { changes, payerLoss: 0 }
+  const each = Math.max(0, Number(requestedEach) || 0)
+  const totalRequired = each * recipients.length
+  const available = Math.max(0, Number(fromSetup.tokens) || 0)
+  const payerLoss = Math.min(available, totalRequired)
+  fromSetup.tokens = available - payerLoss
+  for (const recipientId of recipients) {
+    const target = room.playerSetup?.[recipientId]
+    if (!target) continue
+    target.tokens = Math.max(0, Number(target.tokens) || 0) + each
+    if (each > 0) addPartyStat(room, recipientId, 'tokensCollected', each)
+    changes[recipientId] = each
   }
-
-  return changes
+  return { changes, payerLoss }
 }
 
 function relocatePartyTrophy(room, seed = 0) {
@@ -539,10 +536,6 @@ function relocatePartyTrophy(room, seed = 0) {
   const to = choosePartySeeded(candidates, seed, 19) || ''
   room.activeTrophyNodeId = to
   return { from, to }
-}
-
-function partyNodeNumber(nodeId) {
-  return Number(String(nodeId || '').replace('n', '')) || 0
 }
 
 function applyPartyLuckLanding(room, turn, playerId, spaceType, seed = 0, card = null) {
@@ -598,27 +591,22 @@ function applyPartyLuckLanding(room, turn, playerId, spaceType, seed = 0, card =
       .map((id) => Number(room.playerSetup?.[id]?.trophies) || 0)
     const fewestTrophies = trophyCounts.length ? Math.min(...trophyCounts) : 0
     const playerTrophies = Number(setup.trophies) || 0
-    const amount = playerTrophies === fewestTrophies ? 4 : 2
+    const amount = playerTrophies === fewestTrophies ? 6 : 3
     setup.tokens = Math.max(0, (Number(setup.tokens) || 0) + amount)
     tokenChange = amount
     publicMessage = playerTrophies === fewestTrophies
-      ? `${playerName}'s Lucky Roulette landed on Underdog Boost: +4 Tokens for being tied for the fewest Trophies.`
-      : `${playerName}'s Lucky Roulette landed on Underdog Boost: +2 Tokens.`
+      ? `${playerName}'s Lucky Roulette landed on Underdog Boost: +6 Tokens for being tied for the fewest Trophies.`
+      : `${playerName}'s Lucky Roulette landed on Underdog Boost: +3 Tokens.`
     privateMessage = publicMessage
   } else if (outcome.kind === 'steal-tokens') {
     targetPlayerIds = getPartyOpponentIds(room, playerId)
-    publicMessage = `${playerName}'s Lucky Roulette landed on Token Swipe. ${playerName} must choose a player to steal up to ${outcome.amount} Tokens from.`
+    const swipeAmount = randomPartyInt(seed, outcome.minAmount ?? 4, outcome.maxAmount ?? 8, 17)
+    publicMessage = `${playerName}'s Lucky Roulette landed on Token Swipe. ${playerName} must choose a player to steal up to ${swipeAmount} Tokens from.`
     privateMessage = publicMessage
 
     turn.spaceEffect = {
-      type: 'lucky',
-      spaceType: effectiveSpaceType,
-      id: outcome.id,
-      kind: outcome.kind,
-      name: outcome.name,
-      resolved: false,
-      awaitingTarget: true,
-      amount: outcome.amount,
+      type: 'lucky', spaceType: effectiveSpaceType, id: outcome.id, kind: outcome.kind, name: outcome.name,
+      resolved: false, awaitingTarget: true, amount: swipeAmount,
       targetPlayerIds,
       tokenChange: 0,
       trophyChange: 0,
@@ -631,46 +619,43 @@ function applyPartyLuckLanding(room, turn, playerId, spaceType, seed = 0, card =
     return turn.spaceEffect
   } else if (outcome.kind === 'discard-card') {
     const cards = normalizePartyCards(setup.cards)
-    const discardCount = Math.min(cards.length, Math.max(1, Number(outcome.count) || 1))
-
+    const requestedCount = Math.max(1, Number(outcome.count) || 1)
+    const discardCount = Math.min(cards.length, requestedCount)
     for (let index = 0; index < discardCount; index += 1) {
-      if (!cards.length) break
       const scaled = shiftedPartySeed(seed, 23 + index)
       const discardIndex = Math.min(cards.length - 1, Math.floor(scaled * cards.length))
       const [discardedId] = cards.splice(discardIndex, 1)
       if (discardedId) cardIds.push(discardedId)
     }
-
-    if (cardIds.length) {
-      setup.cards = cards
-      cardId = cardIds[0]
-      const discardedNames = cardIds.map((id) => getPartyCard(id)?.name || 'a Card')
-      publicMessage = openHands
-        ? `${playerName}'s ${rouletteLabel} landed on ${outcome.name} and discarded ${discardedNames.join(' and ')}.`
-        : `${playerName}'s ${rouletteLabel} landed on ${outcome.name} and discarded ${cardIds.length} random Action Card${cardIds.length === 1 ? '' : 's'}.`
-      privateMessage = `${playerName}'s ${rouletteLabel} landed on ${outcome.name} and discarded ${discardedNames.join(' and ')}.`
-    } else {
-      const fallbackLoss = veryBad ? 2 : 1
+    setup.cards = cards
+    cardId = cardIds[0] || ''
+    const missingCards = Math.max(0, requestedCount - cardIds.length)
+    const requestedTokenPenalty = missingCards * Math.max(0, Number(outcome.missingCardPenalty) || 0)
+    if (requestedTokenPenalty > 0) {
       const before = Math.max(0, Number(setup.tokens) || 0)
-      const after = Math.max(0, before - fallbackLoss)
-      setup.tokens = after
-      tokenChange = after - before
-      publicMessage = `${playerName} had no Action Cards to spill, so ${outcome.name} cost ${Math.abs(tokenChange)} Token${Math.abs(tokenChange) === 1 ? '' : 's'} instead.`
-      privateMessage = publicMessage
+      setup.tokens = Math.max(0, before - requestedTokenPenalty)
+      tokenChange = setup.tokens - before
     }
+    const discardedNames = cardIds.map((id) => getPartyCard(id)?.name || 'a Card')
+    const cardText = cardIds.length
+      ? (openHands ? `discarded ${discardedNames.join(' and ')}` : `discarded ${cardIds.length} random Action Card${cardIds.length === 1 ? '' : 's'}`)
+      : 'had no Action Cards to discard'
+    const tokenText = tokenChange < 0 ? ` and lost ${Math.abs(tokenChange)} Token${Math.abs(tokenChange) === 1 ? '' : 's'}` : ''
+    publicMessage = `${playerName}'s ${rouletteLabel} landed on ${outcome.name}, ${cardText}${tokenText}.`
+    privateMessage = `${playerName}'s ${rouletteLabel} landed on ${outcome.name}, ${cardIds.length ? `discarded ${discardedNames.join(' and ')}` : 'had no Action Cards to discard'}${tokenText}.`
   } else if (outcome.kind === 'give-tokens-all') {
-    recipientTokenChanges = transferPartyTokensToAll(room, playerId, outcome.amount, seed)
-    const totalGiven = Object.values(recipientTokenChanges).reduce((sum, amount) => sum + amount, 0)
-    tokenChange = -totalGiven
+    const payday = transferPartyTokensToAll(room, playerId, outcome.amount, seed)
+    recipientTokenChanges = payday.changes
+    const totalAwarded = Object.values(recipientTokenChanges).reduce((sum, amount) => sum + amount, 0)
+    tokenChange = -payday.payerLoss
     targetPlayerIds = Object.keys(recipientTokenChanges)
-    publicMessage = totalGiven > 0
-      ? `${playerName}'s ${rouletteLabel} landed on ${outcome.name} and gave ${totalGiven} Token${totalGiven === 1 ? '' : 's'} across the other players.`
-      : `${playerName}'s ${rouletteLabel} landed on ${outcome.name}, but had no Tokens to give.`
+    publicMessage = `${playerName}'s ${rouletteLabel} landed on ${outcome.name}. Every opponent received ${outcome.amount} Tokens; ${playerName} paid ${payday.payerLoss} of the ${totalAwarded}-Token total from their available balance.`
     privateMessage = publicMessage
   } else if (outcome.kind === 'give-tokens-random') {
     const opponents = getPartyOpponentIds(room, playerId)
     targetPlayerId = choosePartySeeded(opponents, seed, 29) || ''
-    const amount = targetPlayerId ? transferPartyTokens(room, playerId, targetPlayerId, outcome.amount) : 0
+    const requestedAmount = randomPartyInt(seed, outcome.minAmount ?? outcome.amount, outcome.maxAmount ?? outcome.amount, 31)
+    const amount = targetPlayerId ? transferPartyTokens(room, playerId, targetPlayerId, requestedAmount) : 0
     tokenChange = -amount
     const targetName = room.players?.[targetPlayerId]?.name || 'another player'
     publicMessage = amount > 0
@@ -689,7 +674,7 @@ function applyPartyLuckLanding(room, turn, playerId, spaceType, seed = 0, card =
   } else if (outcome.kind === 'move-trophy') {
     const moved = relocatePartyTrophy(room, seed)
     publicMessage = moved.to && moved.to !== moved.from
-      ? `${playerName}'s ${rouletteLabel} moved the active Trophy from Space ${partyNodeNumber(moved.from)} to Space ${partyNodeNumber(moved.to)}.`
+      ? `${playerName}'s ${rouletteLabel} relocated the active Trophy to a new spot on the board.`
       : `${playerName}'s ${rouletteLabel} tried to relocate the Trophy, but no alternate Trophy spot was available.`
     privateMessage = publicMessage
   } else if (outcome.kind === 'double-trophy-price') {
@@ -744,6 +729,8 @@ function applyPartyLuckLanding(room, turn, playerId, spaceType, seed = 0, card =
     }
     privateMessage = publicMessage
   }
+
+  if (tokenChange > 0) addPartyStat(room, playerId, 'tokensCollected', tokenChange)
 
   turn.spaceEffect = {
     type: veryBad ? 'very-bad-luck' : isBadLuck ? 'bad-luck' : 'lucky',
@@ -896,12 +883,17 @@ function ensurePartyActionShopState(room, boardState) {
     boardState.pendingActionShopRefills = {}
   }
 
+  const validIds = new Set(getPartyShopCards().map((card) => card.id))
   for (const node of BOOSTSTONE_RUINS.nodes.filter((entry) => entry.type === 'Shop')) {
-    boardState.actionShopStocks[node.id] = pickPartyActionShopStock(
-      boardState.actionShopStocks[node.id],
-      3,
-      partyShopSeed(`${room.createdAt || room.startedAt || 0}:${node.id}:initial-shop-stock`)
-    )
+    const existing = [...new Set(partyShopArray(boardState.actionShopStocks[node.id]).filter((id) => validIds.has(id)))].slice(0, 3)
+    // Once somebody buys a Card, that slot intentionally stays empty until the turn ends.
+    boardState.actionShopStocks[node.id] = boardState.pendingActionShopRefills[node.id]
+      ? existing
+      : pickPartyActionShopStock(
+          existing,
+          3,
+          partyShopSeed(`${room.createdAt || room.startedAt || 0}:${node.id}:initial-shop-stock`)
+        )
   }
 }
 
@@ -1033,12 +1025,14 @@ function applyPartyEventLanding(room, turn, playerId, nodeId, seed = 0) {
     const choices = getPartySupplyCrateChoices(seed)
     effect = {
       ...effect,
+      name: 'Choose a Treasure Chest!',
       resolved: false,
       awaitingCrateChoice: true,
       crateCount: choices.length,
       crateRewardIds: choices.map((choice) => choice.id),
-      publicMessage: `${playerName} found 3 Supply Crates and must choose one mystery crate.`,
-      privateMessage: 'Choose Crate 1, 2, or 3. The reward stays hidden until you open it.',
+      animationStartedAt: serverTimestamp(),
+      publicMessage: `${playerName} climbed up to the 3 Treasure Chests and must choose one without seeing the rewards.`,
+      privateMessage: 'Choose Chest 1, 2, or 3. Every chest is helpful, and the reward stays hidden until it opens.',
     }
     turn.eventEffect = effect
     addPartyActivity(room, playerId, effect.publicMessage, 'event')
@@ -1066,14 +1060,28 @@ function applyPartyEventLanding(room, turn, playerId, nodeId, seed = 0) {
       }
       effect.affectedPlayerIds = affectedIds
       effect.resetTo = resetTo
+      effect.tokenChanges = {}
+      for (const id of affectedIds) {
+        const affectedSetup = room.playerSetup?.[id]
+        const before = Math.max(0, Number(affectedSetup?.tokens) || 0)
+        const loss = Math.min(5, before)
+        if (affectedSetup) affectedSetup.tokens = before - loss
+        effect.tokenChanges[id] = -loss
+      }
       const names = affectedIds.map((id) => room.players?.[id]?.name || 'Player')
       effect.publicMessage = names.length
-        ? `${event.name} fired! ${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} knocked back to Space ${partyNodeNumber(resetTo)}.`
+        ? `${event.name} fired! ${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} hit by the Boost Boulder, lost up to 5 Tokens, and got knocked back to the safe space before the back lane.`
         : `${event.name} fired, but nobody was caught in that reactor lane.`
       effect.privateMessage = effect.publicMessage
     }
   } else if (eventId.startsWith('gate-switch-')) {
+    // Keep the pre-switch state with the event so every client can animate the
+    // two gate pairs one after the other instead of both changing at once.
+    const previousClosedGarageGateIds = { ...boardState.closedGarageGateIds }
     const switchedPairs = togglePartyGarageGatePairs(room)
+    effect.animationStartedAt = serverTimestamp()
+    effect.cameraSequence = ['right', 'left']
+    effect.previousClosedGarageGateIds = previousClosedGarageGateIds
     effect.closedGarageGateIds = { ...boardState.closedGarageGateIds }
     const closed = switchedPairs
       .filter((entry) => entry.gate)
@@ -1082,13 +1090,9 @@ function applyPartyEventLanding(room, turn, playerId, nodeId, seed = 0) {
       ? `${playerName} hit a Garage Gate Event Space. Both gate pairs switched positions — ${closed.join(' • ')} now closed. Each pair still has exactly one open route and one closed route.`
       : `${playerName} hit the Garage Gate Event Space, but no Garage Gates were available.`
     effect.privateMessage = effect.publicMessage
-  } else if (eventId === 'ancient-boost-cache') {
-    setup.tokens = Math.max(0, Number(setup.tokens) || 0) + 3
-    effect.tokenChange = 3
-    effect.publicMessage = `${playerName} opened the Ancient Boost Cache and gained +3 Tokens.`
-    effect.privateMessage = effect.publicMessage
   } else {
     setup.tokens = Math.max(0, Number(setup.tokens) || 0) + 2
+    addPartyStat(room, playerId, 'tokensCollected', 2)
     effect.tokenChange = 2
     effect.publicMessage = `${playerName} triggered a Ruins Event and gained +2 Tokens.`
     effect.privateMessage = effect.publicMessage
@@ -1117,11 +1121,11 @@ export async function resolvePartySupplyCrate(roomCode, playerId, crateIndex) {
     const effect = turn?.eventEffect
 
     if (room.status !== 'playing' || room.phase !== 'board' || activePlayerId !== playerId || turn?.playerId !== playerId) {
-      failureReason = 'The Supply Crate cannot be opened right now.'
+      failureReason = 'The Treasure Chest cannot be opened right now.'
       return
     }
     if (!effect || effect.id !== 'supply-crates' || effect.resolved || !effect.awaitingCrateChoice) {
-      failureReason = 'There is no Supply Crate choice waiting.'
+      failureReason = 'There is no Treasure Chest choice waiting.'
       return
     }
 
@@ -1129,7 +1133,7 @@ export async function resolvePartySupplyCrate(roomCode, playerId, crateIndex) {
     const rewardId = effect.crateRewardIds?.[index]
     const reward = PARTY_SUPPLY_CRATE_REWARDS.find((item) => item.id === rewardId)
     if (!reward) {
-      failureReason = 'Choose one of the three Supply Crates.'
+      failureReason = 'Choose one of the three Treasure Chests.'
       return
     }
 
@@ -1141,8 +1145,9 @@ export async function resolvePartySupplyCrate(roomCode, playerId, crateIndex) {
 
     if (reward.kind === 'tokens') {
       setup.tokens = Math.max(0, Number(setup.tokens) || 0) + reward.amount
+      addPartyStat(room, playerId, 'tokensCollected', reward.amount)
       effect.tokenChange = reward.amount
-      message = `${playerName} opened Crate ${index + 1} and found +${reward.amount} Tokens.`
+      message = `${playerName} opened Chest ${index + 1} and found +${reward.amount} Tokens.`
       privateMessage = message
     } else if (reward.kind === 'card') {
       const card = getPartyCard(reward.cardId)
@@ -1152,13 +1157,14 @@ export async function resolvePartySupplyCrate(roomCode, playerId, crateIndex) {
         setup.cards = cards
         effect.cardId = card.id
         message = openHands
-          ? `${playerName} opened Crate ${index + 1} and found ${card.name}.`
-          : `${playerName} opened Crate ${index + 1} and found an Action Card.`
-        privateMessage = `${playerName} opened Crate ${index + 1} and found ${card.name}.`
+          ? `${playerName} opened Chest ${index + 1} and found ${card.name}.`
+          : `${playerName} opened Chest ${index + 1} and found an Action Card.`
+        privateMessage = `${playerName} opened Chest ${index + 1} and found ${card.name}.`
       } else {
         setup.tokens = Math.max(0, Number(setup.tokens) || 0) + 2
+        addPartyStat(room, playerId, 'tokensCollected', 2)
         effect.tokenChange = 2
-        message = `${playerName}'s Card inventory was full, so Crate ${index + 1} converted into +2 Tokens.`
+        message = `${playerName}'s Card inventory was full, so Chest ${index + 1} converted into +2 Tokens.`
         privateMessage = card
           ? `${card.name} could not fit in your inventory, so it converted into +2 Tokens.`
           : message
@@ -1167,6 +1173,7 @@ export async function resolvePartySupplyCrate(roomCode, playerId, crateIndex) {
 
     effect.resolved = true
     effect.awaitingCrateChoice = false
+    effect.openedAt = serverTimestamp()
     effect.selectedCrateIndex = index
     effect.rewardId = reward.id
     effect.rewardName = reward.name
@@ -1192,8 +1199,10 @@ function finishLanding(room, turn, playerId, nodeId, mechanic, card, battleOptio
   const landedNode = BOARD_NODE_BY_ID[nodeId]
   const setup = room.playerSetup?.[playerId]
   const hasJackpot = normalizePartyCards(setup?.cards).includes('jackpot')
+  if (landedNode?.type === 'Danger Mechanic') addPartyStat(room, playerId, 'unluckySpaces')
 
   if (landedNode?.type === 'Event') {
+    addPartyStat(room, playerId, 'eventSpaces')
     delete turn.awaitingJackpotDecision
     delete turn.landingEffect
     addLandingActivity(room, playerId, nodeId)
@@ -1202,6 +1211,7 @@ function finishLanding(room, turn, playerId, nodeId, mechanic, card, battleOptio
   }
 
   if (landedNode?.type === 'Lucky' || landedNode?.type === 'Bad Luck') {
+    if (landedNode.type === 'Bad Luck') addPartyStat(room, playerId, 'unluckySpaces')
     delete turn.awaitingJackpotDecision
     delete turn.landingEffect
     addLandingActivity(room, playerId, nodeId)
@@ -1252,14 +1262,14 @@ function finishLanding(room, turn, playerId, nodeId, mechanic, card, battleOptio
       if (effect.noBounceRequired) modifiers.push('Zero Bounce: no bounce')
       if (effect.kph100Required) modifiers.push('100+ KPH: 100+ KPH required')
       if (effect.topCornerRequired) modifiers.push('Top Corner: top corner required')
-      if (effect.hotStreakTriggered) modifiers.push('Hot Streak: 1 attempt, +2 Tokens on success')
+      if (effect.hotStreakTriggered) modifiers.push('Hot Streak: 1 attempt, 2× Token payout on success')
       if (effect.jackpotTriggered) modifiers.push('Jackpot: 2× payout on success / lose the normal payout on failure')
     } else {
       if (effect.pressureTriggered) modifiers.push('1 attempt only')
       if (effect.noBounceRequired) modifiers.push('no bounce')
       if (effect.kph100Required) modifiers.push('100+ KPH')
       if (effect.topCornerRequired) modifiers.push('top corner')
-      if (effect.hotStreakTriggered) modifiers.push('1 attempt, +2 bonus Tokens on success')
+      if (effect.hotStreakTriggered) modifiers.push('1 attempt, 2× Token payout on success')
       if (effect.jackpotTriggered) modifiers.push('2× payout on success / lose the normal payout on failure')
     }
 
@@ -1720,6 +1730,7 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
 
     if (tokenChange !== 0) {
       setup.tokens = Math.max(0, (setup.tokens || 0) + tokenChange)
+      if (tokenChange > 0) addPartyStat(room, playerId, 'tokensCollected', tokenChange)
     }
 
     const previousTurn = room.turnState || makeTurnState(playerId)
@@ -1919,6 +1930,9 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
 
         nextId = chosenNextId
         choiceUsed = true
+        turn.awaitingChoice = false
+        delete turn.choiceNodeId
+        delete turn.choices
       } else {
         nextId = options[0]
       }
@@ -1941,7 +1955,11 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
       setup.onStartDeck = false
       currentNodeId = nextId
       path.push(nextId)
-      if (!['Junction', 'Shop', 'Paratroopa', 'Lakitu'].includes(BOARD_NODE_BY_ID[nextId]?.type)) { remaining -= 1; turn.lastLandableNodeId = nextId }
+      if (!['Junction', 'Shop', 'Paratroopa', 'Lakitu'].includes(BOARD_NODE_BY_ID[nextId]?.type)) {
+        remaining -= 1
+        turn.lastLandableNodeId = nextId
+        addPartyStat(room, playerId, 'spacesTraveled')
+      }
       const serviceType = BOARD_NODE_BY_ID[nextId]?.type
       if (['Shop', 'Paratroopa', 'Lakitu'].includes(serviceType)) {
         turn.awaitingService = makePartyServiceStop(room, nextId, serviceType)
@@ -2094,7 +2112,7 @@ export async function resolvePartyGarageGate(roomCode, playerId, payToll) {
       return
     }
 
-    const toll = Math.max(0, Number(turn.gateToll) || 3)
+    const toll = Math.max(0, Number(turn.gateToll) || 5)
     const playerName = room.players?.[playerId]?.name || 'Player'
 
     if (payToll) {
@@ -2121,7 +2139,7 @@ export async function resolvePartyGarageGate(roomCode, playerId, payToll) {
       delete turn.gateToNodeId
       delete turn.gateToll
       delete turn.gatePassApproved
-      addPartyActivity(room, playerId, `${playerName} did not pay the Garage Gate toll and stopped at Space ${partyNodeNumber(stopNodeId)}.`, 'event')
+      addPartyActivity(room, playerId, `${playerName} did not pay the Garage Gate toll and stopped at the safe space before the gate.`, 'event')
       finishLanding(room, turn, playerId, stopNodeId, landingMechanic, landingCard, {
         battleSeed: landingBattleSeed,
         opponentSeed: landingOpponentSeed,
@@ -2200,9 +2218,10 @@ export async function resolvePartyTrophyPass(roomCode, playerId, buyTrophy) {
 
       // Select inside the transaction against the latest player positions.
       // The seed is captured outside, so retries make a consistent choice.
-      relocatePartyTrophy(room, nextTrophySeed)
+      const movedTrophy = relocatePartyTrophy(room, nextTrophySeed)
       turn.trophyResult = 'bought'
       turn.trophyMessage = `Bought a Trophy for ${trophyPrice} Tokens.`
+      turn.trophyCinematic = { playerId, fromNodeId: movedTrophy.from, toNodeId: movedTrophy.to, startedAt: serverTimestamp() }
     } else {
       turn.trophyResult = 'skipped'
       turn.trophyMessage = 'Passed the Trophy without buying it.'
@@ -2354,7 +2373,7 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
     // Prepare any extra inventory/resources the specific Card requires.
     if (card.effect === 'token-steal' && targetSetup) {
       targetSetup.tokens = 12
-      instructions = `Use Token Tornado on ${targetName}. They start with 12 Tokens, so exactly 4 should move to you.`
+      instructions = `Use Token Tornado on ${targetName}. They start with 12 Tokens; the Card should roll a 4–8 Token steal and transfer that amount.`
     } else if (card.effect === 'teleport-swap' && targetSetup) {
       testerSetup.boardNodeId = testerNodeId
       targetSetup.boardNodeId = targetNodeId
@@ -2369,6 +2388,9 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
       instructions = `Arm Shield. ${targetName} already has Token Tornado for the follow-up: finish your turn, then use their Tornado on you and confirm Shield blocks it once.`
     } else if (card.effect === 'double-payout') {
       instructions = 'Arm Double Payout before rolling. It should wait for your next normal Mechanic. Make it to double the payout; miss it and the effect should disappear with no payout boost.'
+    } else if (card.effect === 'hot-streak') {
+      testerSetup.lastMechanicSuccess = true
+      instructions = 'DEV setup marks your most recent real Mechanic as successful. Use Hot Streak before rolling. Your next normal Mechanic should have exactly 1 attempt and pay 2× on success; a miss adds no extra penalty.'
     } else if (card.effect === 'steal-card' && targetSetup) {
       targetSetup.cards = ['boost-canister', 'golden-boost']
       const visibility = room.settings?.cardVisibility === 'open' ? 'open' : 'hidden'
@@ -2396,10 +2418,8 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
       instructions = `Use 100+ KPH on ${targetName}. It should stay secret until their next Mechanic, which should require 100+ KPH.`
     } else if (card.effect === 'top-corner' && targetSetup) {
       instructions = `Use Top Corner on ${targetName}. It should stay secret until their next Mechanic, which should require a top-corner finish.`
-    } else if (card.effect === 'challenge-glove' && targetSetup) {
-      instructions = `Use Challenge Glove on ${targetName}. A random 1v1 Battle should be revealed only after the opponent is locked in. Resolve the Battle, then confirm you can still roll normally afterward.`
-    } else if (card.effect === 'reverse-turn-order') {
-      instructions = 'Use Reverse before rolling. Turn direction should change from Normal to Reversed and stay that way until another Reverse is used.'
+    } else if (card.effect === 'challenge-glove') {
+      instructions = 'Use Challenge Glove, choose the Battle format, then confirm the browser privately/randomly locks the other participants and team/solo assignment before revealing the random game. Resolve it, then confirm you can still roll normally afterward.'
     } else if (card.effect === 'movement-boost') {
       instructions = `Use ${card.name}, then roll. The final movement should be the die movement plus ${card.amount || 0}.`
     } else if (card.effect === 'precision-die') {
@@ -2463,7 +2483,7 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
         }
         instructions = `A normal Mechanic is waiting, and ${targetName} already has the latest completed Mechanic. Use Copycat and confirm your challenge changes to theirs.`
       } else if (card.effect === 'insurance') {
-        instructions = 'A normal Mechanic is waiting before any attempt. Use Insurance, then miss both normal attempts; only after the second miss should Insurance award +1 Token.'
+        instructions = 'A normal Mechanic is waiting before any attempt. Use Insurance: the Mechanic should immediately guarantee +3 Tokens whether you later make or miss it.'
       } else if (card.effect === 'mechanic-reroll') {
         instructions = 'A Mechanic is waiting before any attempt. Use Reroll and confirm it changes to a different random Mechanic.'
       } else if (card.effect === 'pick-your-poison') {
@@ -2476,21 +2496,21 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
         const expectedReward = effect.reward || PARTY_MECHANIC_REWARDS.Medium
         instructions = `A normal Mechanic is already revealed before Attempt 1. Use Free Pass: it should automatically complete the Mechanic without an attempt and award +${expectedReward} Tokens. Then confirm the Mechanic is recorded as completed.`
       }
-    } else if (card.timing === 'after-failed-mechanic') {
+    } else if (card.timing === 'after-first-miss') {
       const mechanic = pickDevMechanic('Medium')
       if (!mechanic) {
-        failureReason = 'Could not prepare a failed DEV Mechanic.'
+        failureReason = 'Could not prepare a DEV Mechanic first-miss state.'
         return
       }
 
       testerSetup.boardNodeId = dangerNodeId
       const effect = makeLandingEffect(room, dangerNodeId, mechanic)
-      const devDangerPenalty = Number(effect?.penalty) || PARTY_DANGER_PENALTY
-      testerSetup.tokens = Math.max(0, 20 - devDangerPenalty)
-      effect.resolved = true
+      effect.resolved = false
       effect.success = false
-      effect.tokenChange = -devDangerPenalty
-      effect.resultMessage = `DEV setup: failed Danger Mechanic and lost ${devDangerPenalty} Tokens.`
+      effect.attemptLimit = Math.max(2, Number(effect.attemptLimit) || 2)
+      effect.attemptsUsed = 1
+      effect.lastAttemptSuccess = false
+      effect.resultMessage = 'DEV setup: Attempt 1 missed; Attempt 2 has not happened yet.'
 
       turn = {
         ...makeTurnState(requesterId),
@@ -2505,43 +2525,7 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
         landedType: 'Danger Mechanic',
         landingEffect: effect,
       }
-      instructions = `A Danger Mechanic is already failed and ${devDangerPenalty} Tokens were removed. Use Mulligan: those ${devDangerPenalty} Tokens should be restored and the same challenge should reopen for one retry.`
-    } else if (card.timing === 'after-successful-mechanic') {
-      const mechanic = pickDevMechanic('Medium')
-      if (!mechanic) {
-        failureReason = 'Could not prepare a successful DEV Mechanic.'
-        return
-      }
-
-      testerSetup.boardNodeId = mechanicNodeId
-      const effect = makeLandingEffect(room, mechanicNodeId, mechanic)
-      const devMechanicReward = Number(effect?.reward) || PARTY_MECHANIC_REWARDS.Medium
-      testerSetup.tokens = 20 + devMechanicReward
-      effect.resolved = true
-      effect.success = true
-      effect.tokenChange = devMechanicReward
-      effect.resultMessage = `DEV setup: Mechanic completed for +${devMechanicReward} Tokens.`
-      room.lastScoredMechanic = {
-        playerId: requesterId,
-        challengeId: mechanic.id,
-        challengeName: mechanic.name,
-        difficulty: getPartyMechanicDifficulty(mechanic),
-      }
-
-      turn = {
-        ...makeTurnState(requesterId),
-        rolled: true,
-        dieType: 'dev',
-        faceLabel: 'DEV',
-        baseMovement: 0,
-        movementRemaining: 0,
-        movementStarted: true,
-        readyToEnd: true,
-        landedNodeId: mechanicNodeId,
-        landedType: 'Mechanic',
-        landingEffect: effect,
-      }
-      instructions = 'A normal Mechanic is already marked successful. Use Hot Streak now; it should arm the next Mechanic for 1 attempt and a +2 Token success bonus.'
+      instructions = 'A Danger Mechanic has missed Attempt 1. Use Mulligan before Attempt 2: the same Danger Mechanic must stay active and the total attempt limit should increase from 2 to 3. No Danger penalty should be skipped or refunded.'
     }
 
     room.turnState = turn
@@ -2697,21 +2681,10 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       }
     }
 
-    if (card.timing === 'after-failed-mechanic') {
-      if (
-        !turn.rolled ||
-        !turn.readyToEnd ||
-        !turn.landingEffect?.resolved ||
-        turn.landingEffect.success !== false
-      ) {
-        failureReason = `${card.name} can only be used after you miss that Mechanic and before you end the turn.`
-        return
-      }
-    }
-
-    if (card.timing === 'after-successful-mechanic') {
-      if (!turn.landingEffect?.resolved || turn.landingEffect.success !== true) {
-        failureReason = `${card.name} can only be used immediately after completing a Mechanic challenge.`
+    if (card.timing === 'after-first-miss') {
+      const effect = turn.landingEffect
+      if (!turn.rolled || !turn.readyToEnd || !effect || effect.resolved || Number(effect.attemptsUsed) !== 1 || effect.lastAttemptSuccess !== false || Number(effect.attemptLimit || 2) < 2) {
+        failureReason = `${card.name} can only be used after missing Attempt 1 and before Attempt 2.`
         return
       }
     }
@@ -2762,8 +2735,8 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
         return
       }
 
-      privateMessage = 'Choose your Battle format, participants and teams before the game is revealed. You still get your normal roll afterward.'
-      publicMessage = `${playerName} used Challenge Glove and is choosing the Battle participants.`
+      privateMessage = 'Choose the Battle format. The browser will then randomly lock the other participants and team/solo assignment before the game is revealed. You still get your normal roll afterward.'
+      publicMessage = `${playerName} used Challenge Glove and is choosing the Battle format.`
       publicType = 'battle'
     } else if (card.effect === 'precision-die') {
       const value = Number(options.value)
@@ -2825,10 +2798,11 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
         privateMessage = `${targetName}'s Shield blocked ${card.name}. ${card.name} had no effect.`
         publicMessage = `${playerName} used a Card on ${targetName}, but it was blocked.`
       } else {
-        const requested = Math.max(0, Number(card.amount) || 4)
+        const requested = randomPartyInt(randomSeed, card.minAmount ?? 4, card.maxAmount ?? 8, 53)
         const stolen = Math.min(requested, Math.max(0, targetSetup.tokens || 0))
         targetSetup.tokens = Math.max(0, (targetSetup.tokens || 0) - stolen)
         setup.tokens = (setup.tokens || 0) + stolen
+        if (stolen > 0) addPartyStat(room, playerId, 'tokensCollected', stolen)
         privateMessage = `You stole ${stolen} Token${stolen === 1 ? '' : 's'} from ${targetName}.`
         publicMessage = `${playerName} stole ${stolen} Token${stolen === 1 ? '' : 's'} from ${targetName} with a Card.`
       }
@@ -2931,35 +2905,16 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       }
     } else if (card.effect === 'mulligan') {
       const effect = turn.landingEffect
-      if (!effect?.resolved || effect.success !== false) {
-        failureReason = 'Mulligan can only be used after you miss a Mechanic or Danger Mechanic and before you end the turn.'
+      if (!effect || effect.resolved || Number(effect.attemptsUsed) !== 1 || effect.lastAttemptSuccess !== false || Number(effect.attemptLimit || 2) < 2) {
+        failureReason = 'Mulligan can only be used after missing Attempt 1 and before Attempt 2.'
         return
       }
-
-      // A Danger failure already removed Tokens. A Mulligan rewinds that failed
-      // result before granting the retry, so the retry can genuinely avoid it.
-      const refund = effect.type === 'danger-mechanic'
-        ? Math.max(0, -(Number(effect.tokenChange) || 0))
-        : 0
-      if (refund > 0) {
-        setup.tokens = (setup.tokens || 0) + refund
-      }
-
-      effect.resolved = false
-      delete effect.success
-      delete effect.tokenChange
-      delete effect.resultMessage
-      delete effect.publicResultMessage
-      effect.attemptLimit = 1
-      effect.attemptsUsed = 0
+      effect.attemptLimit = Math.max(2, Number(effect.attemptLimit) || 2) + 1
       effect.mulliganRetry = true
       turn.landingEffect = effect
       turn.mulliganUsed = true
-
-      privateMessage = refund > 0
-        ? `Mulligan granted a retry and restored ${refund} Token${refund === 1 ? '' : 's'} from the failed Danger attempt.`
-        : 'Mulligan granted one retry on your failed Mechanic.'
-      publicMessage = `${playerName} used a Card to retry the failed Mechanic.`
+      privateMessage = `Mulligan added one extra attempt. You now have ${effect.attemptLimit} total attempts on the same ${effect.type === 'danger-mechanic' ? 'Danger ' : ''}Mechanic.`
+      publicMessage = `${playerName} used a Card to add one extra attempt to the current Mechanic.`
     } else if (card.effect === 'mechanic-reroll') {
       const effect = turn.landingEffect
       if (!effect || effect.resolved) {
@@ -2980,6 +2935,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       effect.challengeId = replacement.id
       effect.challengeName = replacement.name
       effect.difficulty = getPartyMechanicDifficulty(replacement)
+      refreshPartyLandingEconomy(room, effect)
       effect.rerolled = true
       turn.landingEffect = effect
 
@@ -3089,6 +3045,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       effect.challengeId = last.challengeId
       effect.challengeName = last.challengeName
       effect.difficulty = last.difficulty || getPartyMechanicDifficulty(last)
+      refreshPartyLandingEconomy(room, effect)
       effect.copycatUsed = true
       turn.landingEffect = effect
       privateMessage = `Copycat changed your challenge to ${last.challengeName}.`
@@ -3099,14 +3056,6 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
         failureReason = 'Insurance can only be used before attempting a normal Mechanic Space.'
         return
       }
-      if (setup.doublePayout) {
-        failureReason = 'Insurance cannot be combined with an armed Double Payout.'
-        return
-      }
-      if (effect.jackpotTriggered) {
-        failureReason = 'Insurance cannot be combined with an active Jackpot challenge.'
-        return
-      }
       if (effect.insuranceActive) {
         failureReason = 'This Mechanic is already insured.'
         return
@@ -3114,7 +3063,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
 
       effect.insuranceActive = true
       turn.landingEffect = effect
-      privateMessage = 'Insurance is active. If you miss this Mechanic, you still gain +1 Token.'
+      privateMessage = 'Insurance is active. You gain +3 Tokens after this normal Mechanic whether you make it or miss it.'
       publicMessage = `${playerName} insured their current Mechanic with a Card.`
     } else if (card.effect === 'free-pass') {
       const effect = turn.landingEffect
@@ -3136,35 +3085,41 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       }
 
       const baseReward = effect.reward || PARTY_MECHANIC_REWARDS.Medium
-      const hotStreakBonus = effect.hotStreakTriggered ? 2 : 0
-      const automaticReward = baseReward + hotStreakBonus
+      if (effect.hotStreakTriggered) {
+        setup.hotStreakActive = true
+        delete effect.hotStreakTriggered
+        effect.attemptLimit = Math.max(2, Number(effect.attemptLimit) || 2)
+      }
+      const automaticReward = baseReward
       setup.tokens = (setup.tokens || 0) + automaticReward
+      if (automaticReward > 0) addPartyStat(room, playerId, 'tokensCollected', automaticReward)
 
       effect.resolved = true
       effect.success = true
       effect.tokenChange = automaticReward
       effect.automaticCompletion = true
-      effect.resultMessage = `Free Pass automatically completed ${effect.challengeName} without an attempt. +${automaticReward} Tokens${hotStreakBonus ? ' (including Hot Streak +2)' : ''}.`
+      // Free Pass is an automatic clear, not a mechanic the player actually made.
+      // It therefore does not qualify the player to arm Hot Streak next turn.
+      setup.lastMechanicSuccess = false
+      effect.resultMessage = `Free Pass automatically completed ${effect.challengeName} without an attempt. +${automaticReward} Tokens.`
       effect.publicResultMessage = `An Action Card automatically completed ${effect.challengeName} without an attempt. +${automaticReward} Tokens.`
       turn.landingEffect = effect
 
-      room.lastScoredMechanic = {
-        playerId,
-        challengeId: effect.challengeId,
-        challengeName: effect.challengeName,
-        difficulty: effect.difficulty || 'Medium',
-      }
 
       privateMessage = effect.resultMessage
       publicMessage = `${playerName} automatically completed ${effect.challengeName} without taking the shot and gained +${automaticReward} Tokens with a Card.`
     } else if (card.effect === 'hot-streak') {
       if (setup.hotStreakActive) {
-        failureReason = 'Hot Streak is already armed for your next Mechanic.'
+        failureReason = 'Hot Streak is already armed for your next normal Mechanic.'
         return
       }
-
+      if (setup.lastMechanicSuccess !== true) {
+        failureReason = 'Hot Streak can only be used before rolling if you made your most recent Mechanic.'
+        return
+      }
       setup.hotStreakActive = true
-      privateMessage = 'Hot Streak armed. Your next Mechanic has only 1 attempt; success earns +2 bonus Tokens.'
+      setup.lastMechanicSuccess = false
+      privateMessage = 'Hot Streak armed. Your next normal Mechanic has 1 attempt; make it for 2× its Token payout. A miss adds no extra Hot Streak penalty.'
       publicMessage = ''
     } else if (card.effect === 'difficulty-spike' || card.effect === 'difficulty-drop') {
       const effect = turn.landingEffect
@@ -3196,6 +3151,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       effect.challengeId = replacement.id
       effect.challengeName = replacement.name
       effect.difficulty = targetDifficulty
+      refreshPartyLandingEconomy(room, effect)
       effect.difficultyChanged = card.effect === 'difficulty-spike' ? 'up' : 'down'
       turn.landingEffect = effect
       privateMessage = `${card.name} replaced ${oldName} with ${replacement.name} (${targetDifficulty}).`
@@ -3212,13 +3168,6 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       effect.deadlineAt ||= actionNow + 90000
       privateMessage = 'Unlimited Tries: keep attempting this Mechanic until time expires. The clock does not reset.'
       publicMessage = `${playerName} used Unlimited Tries. Complete the Mechanic before the timer ends.`
-    } else if (card.effect === 'reverse-turn-order') {
-      const currentDirection = room.turnDirection === -1 ? -1 : 1
-      room.turnDirection = currentDirection * -1
-      privateMessage = room.turnDirection === -1
-        ? 'Reverse activated. Turn direction is now reversed.'
-        : 'Reverse activated. Turn direction is back to normal.'
-      publicMessage = `${playerName} reversed the turn direction with a Card.`
     } else if (card.effect === 'clean-slate') {
       const oldHandSize = cards.length
       const replacements = cleanSlateDraws.slice(0, oldHandSize)
@@ -3230,7 +3179,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       return
     }
 
-    if (!blockedByShield) addPartyStat(room, playerId, 'cardsPlayed')
+    if (!blockedByShield) { addPartyStat(room, playerId, 'cardsPlayed'); addPartyStat(room, playerId, 'itemsUsed') }
 
     // Shared Activity follows the lobby's hand-visibility rule.
     // Hidden Hands always records that a Card was played, but keeps the Card's
@@ -3341,6 +3290,7 @@ export async function choosePartyMechanicChoice(roomCode, playerId, choiceIndex)
     turn.landingEffect.challengeId = selected.id
     turn.landingEffect.challengeName = selected.name
     turn.landingEffect.difficulty = selected.difficulty || getPartyMechanicDifficulty(selected)
+    refreshPartyLandingEconomy(room, turn.landingEffect)
     turn.landingEffect.pickYourPoisonChoice = true
     turn.awaitingMechanicChoice = false
     delete turn.mechanicChoices
@@ -3453,6 +3403,8 @@ export async function resolvePartyJackpotDecision(roomCode, playerId, useJackpot
         )
       } else {
         jackpotTriggered = true
+        addPartyStat(room, playerId, 'cardsPlayed')
+        addPartyStat(room, playerId, 'itemsUsed')
         turn.lastPrivateCardMessage = 'Jackpot accepted. The Mechanic is now being revealed: success pays 2× its normal would-be payout; missing all attempts loses that normal would-be payout.'
 
         addPartyActivity(
@@ -3592,76 +3544,62 @@ export async function resolvePartyMechanicLanding(roomCode, playerId, success) {
     let actualTokenChange = 0
 
     if (effect.type === 'mechanic') {
-      if (madeIt) {
-        const baseReward = effect.reward || PARTY_MECHANIC_REWARDS.Medium
-        const payoutMultiplier = setup.doublePayout ? 2 : 1
-        const doubledReward = baseReward * payoutMultiplier
-        const hotStreakBonus = effect.hotStreakTriggered ? 2 : 0
+      const baseReward = effect.reward || PARTY_MECHANIC_REWARDS.Medium
+      const doubleMultiplier = setup.doublePayout ? 2 : 1
+      const hotMultiplier = effect.hotStreakTriggered ? 2 : 1
+      const payoutWithoutJackpot = baseReward * doubleMultiplier * hotMultiplier
+      const insuranceBonus = effect.insuranceActive ? 3 : 0
 
-        // Jackpot is true risk/reward: first calculate exactly what this
-        // Mechanic would pay without Jackpot (including other payout modifiers),
-        // then double that amount on success. A failure risks that same amount.
-        const payoutWithoutJackpot = doubledReward + hotStreakBonus
-        actualTokenChange = effect.jackpotTriggered
+      if (madeIt) {
+        const mechanicPayout = effect.jackpotTriggered
           ? payoutWithoutJackpot * 2
           : payoutWithoutJackpot
+        actualTokenChange = mechanicPayout + insuranceBonus
         setup.tokens = (setup.tokens || 0) + actualTokenChange
 
         const bonusNotes = []
-        if (setup.doublePayout) bonusNotes.push(`Double Payout ${baseReward}→${doubledReward}`)
-        if (effect.hotStreakTriggered) bonusNotes.push('Hot Streak +2')
-        if (effect.jackpotTriggered) bonusNotes.push(`Jackpot ${payoutWithoutJackpot}→${actualTokenChange}`)
+        if (setup.doublePayout) bonusNotes.push(`Double Payout ×2 (${baseReward}→${baseReward * 2})`)
+        if (effect.hotStreakTriggered) bonusNotes.push('Hot Streak ×2')
+        if (effect.jackpotTriggered) bonusNotes.push(`Jackpot ×2 (${payoutWithoutJackpot}→${mechanicPayout})`)
+        if (effect.insuranceActive) bonusNotes.push('Insurance +3')
         effect.resultMessage = `Made it on attempt ${effect.attemptsUsed}! +${actualTokenChange} Tokens${bonusNotes.length ? ` (${bonusNotes.join(', ')})` : ''}.`
         effect.publicResultMessage = `Made it on attempt ${effect.attemptsUsed}! +${actualTokenChange} Tokens.`
 
         if (setup.doublePayout) {
           setup.doublePayout = false
           turn.lastCardUserId = playerId
-          turn.lastPrivateCardMessage = `Double Payout triggered: ${baseReward} Tokens became ${doubledReward}.`
+          turn.lastPrivateCardMessage = `Double Payout triggered on ${effect.challengeName}.`
         }
-      } else if (effect.insuranceActive) {
-        actualTokenChange = 1
-        setup.tokens = (setup.tokens || 0) + 1
-        effect.resultMessage = `Missed both attempts, but Insurance paid +1 Token.`
-        effect.publicResultMessage = `Missed both attempts, but a Card effect awarded +1 Token.`
-      } else if (effect.jackpotTriggered) {
-        const baseReward = effect.reward || PARTY_MECHANIC_REWARDS.Medium
-        const payoutMultiplier = setup.doublePayout ? 2 : 1
-        const hotStreakBonus = effect.hotStreakTriggered ? 2 : 0
-        const payoutWithoutJackpot = (baseReward * payoutMultiplier) + hotStreakBonus
-        const before = setup.tokens || 0
-        setup.tokens = Math.max(0, before - payoutWithoutJackpot)
-        actualTokenChange = setup.tokens - before
-        const actuallyLost = Math.abs(actualTokenChange)
-        const floorNote = actuallyLost < payoutWithoutJackpot
-          ? ` (only ${actuallyLost} could be lost because Tokens cannot go below 0)`
-          : ''
-        effect.resultMessage = `Missed all ${attemptLimit} attempt${attemptLimit === 1 ? '' : 's'}. Jackpot lost ${payoutWithoutJackpot} Token${payoutWithoutJackpot === 1 ? '' : 's'} — the amount this Mechanic would have paid without Jackpot${floorNote}.`
-        effect.publicResultMessage = `Missed all ${attemptLimit} attempt${attemptLimit === 1 ? '' : 's'} and lost ${actuallyLost} Token${actuallyLost === 1 ? '' : 's'} from a Card effect.`
       } else {
-        effect.resultMessage = `Missed all ${attemptLimit} attempt${attemptLimit === 1 ? '' : 's'}. No Tokens gained.`
-        effect.publicResultMessage = effect.resultMessage
-      }
+        let jackpotLoss = 0
+        if (effect.jackpotTriggered) {
+          const beforeLoss = Math.max(0, Number(setup.tokens) || 0)
+          setup.tokens = Math.max(0, beforeLoss - payoutWithoutJackpot)
+          jackpotLoss = beforeLoss - setup.tokens
+        }
 
-      if (!madeIt && setup.doublePayout) {
-        setup.doublePayout = false
-        turn.lastCardUserId = playerId
-        turn.lastPrivateCardMessage = 'Double Payout was used up on this Mechanic. You missed your final attempt, so the double payout is gone.'
+        if (insuranceBonus) setup.tokens = (setup.tokens || 0) + insuranceBonus
+        actualTokenChange = insuranceBonus - jackpotLoss
+
+        const notes = []
+        if (effect.jackpotTriggered) notes.push(`Jackpot lost ${jackpotLoss} Token${jackpotLoss === 1 ? '' : 's'}`)
+        if (effect.insuranceActive) notes.push('Insurance awarded +3 Tokens')
+        effect.resultMessage = `Missed all ${attemptLimit} attempt${attemptLimit === 1 ? '' : 's'}.${notes.length ? ` ${notes.join('; ')}.` : ' No Tokens gained.'}`
+        effect.publicResultMessage = effect.resultMessage
+
+        if (setup.doublePayout) {
+          setup.doublePayout = false
+          turn.lastCardUserId = playerId
+          turn.lastPrivateCardMessage = 'Double Payout was consumed by the missed Mechanic.'
+        }
       }
     } else if (effect.type === 'danger-mechanic') {
       if (madeIt) {
-        if (effect.hotStreakTriggered) {
-          actualTokenChange = 2
-          setup.tokens = (setup.tokens || 0) + 2
-          effect.resultMessage = `Made it on attempt ${effect.attemptsUsed}! Penalty avoided and Hot Streak awarded +2 Tokens.`
-          effect.publicResultMessage = `Made it on attempt ${effect.attemptsUsed}! Penalty avoided and a Card effect awarded +2 Tokens.`
-        } else {
-          effect.resultMessage = `Made it on attempt ${effect.attemptsUsed}! Penalty avoided.`
-          effect.publicResultMessage = effect.resultMessage
-        }
+        effect.resultMessage = `Made it on attempt ${effect.attemptsUsed}! Penalty avoided.`
+        effect.publicResultMessage = effect.resultMessage
       } else {
-        const requestedPenalty = effect.penalty || PARTY_DANGER_PENALTY
-        const before = setup.tokens || 0
+        const requestedPenalty = effect.penalty || PARTY_DANGER_PENALTIES.Medium
+        const before = Math.max(0, Number(setup.tokens) || 0)
         setup.tokens = Math.max(0, before - requestedPenalty)
         actualTokenChange = setup.tokens - before
         effect.resultMessage = `Missed all ${attemptLimit} attempt${attemptLimit === 1 ? '' : 's'}. Lost ${Math.abs(actualTokenChange)} Token${Math.abs(actualTokenChange) === 1 ? '' : 's'}.`
@@ -3676,8 +3614,10 @@ export async function resolvePartyMechanicLanding(roomCode, playerId, success) {
     effect.success = madeIt
     if(expired){effect.timedOut=true;effect.resultMessage='Time expired. '+effect.resultMessage;effect.publicResultMessage='Time expired. '+effect.publicResultMessage}
     effect.tokenChange = actualTokenChange
+    if (actualTokenChange > 0) addPartyStat(room, playerId, 'tokensCollected', actualTokenChange)
     effect.lastAttemptSuccess = madeIt
     turn.landingEffect = effect
+    setup.lastMechanicSuccess = madeIt
 
     if (madeIt) {
       addPartyStat(room, playerId, 'mechanicsCompleted')
@@ -3766,6 +3706,8 @@ export async function resolvePartyBattle(roomCode, reporterId, winnerId) {
     const reward = Number(battle.rewardTokens) || PARTY_BATTLE_WIN_REWARD
     const requestedLoss = Number(battle.lossTokens) || PARTY_BATTLE_LOSS_PENALTY
     winnerSetup.tokens = (winnerSetup.tokens || 0) + reward
+    addPartyStat(room, winnerId, 'tokensCollected', reward)
+    addPartyStat(room, winnerId, 'minigameTokens', reward)
 
     const loserIds = battle.allPlayers
       ? participantIds.filter((id) => id !== winnerId)
@@ -4047,7 +3989,7 @@ export async function preparePartyLuckDevTest(roomCode, requesterId, spaceType =
 
     const totalRounds = room.settings?.rounds || 10
     room.currentRound = normalizedType === 'Very Bad Luck'
-      ? Math.max(1, totalRounds - 4)
+      ? Math.max(1, totalRounds - 2)
       : 1
 
     order.forEach((id, index) => {
@@ -4204,6 +4146,115 @@ export async function preparePartyEventDevTest(roomCode, requesterId, eventId = 
   if (!result.committed) throw new Error(failureReason || 'Could not prepare the DEV Event test.')
 }
 
+
+export async function skipPartyEvent(roomCode, requesterId) {
+  requireOnlineIdentity(requesterId)
+  const code = normalizeCode(roomCode)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
+  let failureReason = ''
+
+  const result = await runTransaction(roomRef, (room) => {
+    if (!room) { failureReason = 'Party room not found.'; return }
+    if (room.hostId !== requesterId) { failureReason = 'Only the host can skip a stuck Event.'; return }
+    const turn = room.turnState
+    const effect = turn?.eventEffect
+    if (room.status !== 'playing' || room.phase !== 'board' || !turn || !effect) {
+      failureReason = 'There is no Event to skip right now.'
+      return
+    }
+
+    effect.resolved = true
+    effect.skippedByHost = true
+    effect.awaitingCrateChoice = false
+    delete effect.crateRewardIds
+    const playerName = room.players?.[turn.playerId]?.name || 'Player'
+    effect.publicMessage = `${effect.name || 'Event'} was closed by the host recovery control. Any effect that already happened stays in place.`
+    effect.privateMessage = effect.publicMessage
+    turn.eventEffect = effect
+    if (!(turn.movementRemaining > 0) && !turn.awaitingService && !turn.awaitingGate && !turn.awaitingTrophy) turn.readyToEnd = true
+    addPartyActivity(room, requesterId, `${playerName}'s Event was closed with Host Recovery.`, 'system')
+    room.turnState = turn
+    return room
+  })
+
+  if (!result.committed) throw new Error(failureReason || 'Could not skip that Event.')
+}
+
+export async function preparePartyServiceDevTest(roomCode, requesterId, serviceType = 'Shop') {
+  requireOnlineIdentity(requesterId)
+  const code = normalizeCode(roomCode)
+  const roomRef = ref(db, `securePartyRooms/${code}`)
+  const normalizedType = serviceType === 'Paratroopa' ? 'Paratroopa' : serviceType === 'Lakitu' ? 'Lakitu' : 'Shop'
+  let failureReason = ''
+
+  const result = await runTransaction(roomRef, (room) => {
+    if (!room) { failureReason = 'Party room not found.'; return }
+    if (room.hostId !== requesterId) { failureReason = 'Only the host can prepare a DEV service test.'; return }
+    const order = orderedPlayerIds(room)
+    const testerIndex = order.indexOf(requesterId)
+    const node = BOOSTSTONE_RUINS.nodes.find((entry) => entry.type === normalizedType)
+    if (testerIndex < 0 || !room.playerSetup?.[requesterId] || !node) {
+      failureReason = `A ${normalizedType} test could not be prepared on this board.`
+      return
+    }
+
+    room.status = 'playing'
+    room.phase = 'board'
+    room.turnIndex = testerIndex
+    room.turnDirection = 1
+    room.roundTakenPlayerIds = []
+    delete room.devBattleTest
+    delete room.devCardTest
+    delete room.devSpaceTest
+    delete room.devEventTest
+
+    const boardState = ensurePartyBoardState(room)
+    if (normalizedType === 'Shop') {
+      delete boardState.pendingActionShopRefills?.[node.id]
+      boardState.actionShopStocks[node.id] = pickPartyActionShopStock([], 3, Math.random())
+    }
+
+    const testerSetup = room.playerSetup[requesterId]
+    testerSetup.onStartDeck = false
+    testerSetup.boardNodeId = node.id
+    testerSetup.tokens = 50
+    testerSetup.cards = []
+
+    if (normalizedType === 'Lakitu') {
+      for (const id of order) {
+        if (id === requesterId || !room.playerSetup?.[id]) continue
+        room.playerSetup[id].tokens = Math.max(12, Number(room.playerSetup[id].tokens) || 0)
+        room.playerSetup[id].trophies = Math.max(1, Number(room.playerSetup[id].trophies) || 0)
+      }
+    }
+
+    const turn = makeTurnState(requesterId)
+    turn.rolled = true
+    turn.dieType = 'dev'
+    turn.faceLabel = 'DEV'
+    turn.movementRemaining = 2
+    turn.movementStarted = true
+    turn.readyToEnd = false
+    turn.landedNodeId = node.id
+    turn.landedType = normalizedType
+    turn.awaitingService = makePartyServiceStop(room, node.id, normalizedType)
+    room.turnState = turn
+    room.devServiceTest = {
+      type: normalizedType,
+      testerId: requesterId,
+      instructions: normalizedType === 'Shop'
+        ? 'Buy or skip one of the three stocked Cards. Verify the purchased slot stays empty until the turn ends.'
+        : normalizedType === 'Paratroopa'
+          ? 'Choose a Transportation destination or skip, then verify movement can continue.'
+          : 'Test Token/Trophy stealing or skip, then verify costs and remaining movement.',
+      preparedAt: Date.now(),
+    }
+    return room
+  })
+
+  if (!result.committed) throw new Error(failureReason || `Could not prepare the DEV ${normalizedType} test.`)
+}
+
 export async function endPartyTurn(roomCode, playerId) {
   requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
@@ -4283,6 +4334,10 @@ export async function endPartyTurn(roomCode, playerId) {
       return
     }
 
+    // Reverse is retired in Party Mode. Normalize any stale room created by an
+    // older build so turn progression always moves forward.
+    room.turnDirection = 1
+
     // A bought Action Shop card leaves its slot visibly empty for the rest of
     // this turn. Refill only now, so nobody sees the replacement early.
     refillPendingPartyActionShops(room, shopRefillSeed)
@@ -4297,7 +4352,8 @@ export async function endPartyTurn(roomCode, playerId) {
     room.roundTakenPlayerIds = [...taken]
 
     if (order.some((id) => !taken.has(id))) {
-      const direction = room.turnDirection === -1 ? -1 : 1
+      room.turnDirection = 1
+      const direction = 1
       let nextIndex = activeIndex
       let foundNext = false
 
@@ -4368,6 +4424,7 @@ export async function beginNextPartyRound(roomCode, requesterId) {
       return room
     }
     room.currentRound = (room.currentRound || 1) + 1
+    room.turnDirection = 1
     room.turnIndex = 0
     room.roundTakenPlayerIds = []
     room.phase = 'board'
@@ -4415,7 +4472,8 @@ export async function leavePartyRoom(roomCode, playerId) {
     } else if (room.phase === 'board') {
       if (activeId === playerId) {
         const taken = new Set(Object.values(room.roundTakenPlayerIds || {}))
-        const direction = room.turnDirection === -1 ? -1 : 1
+        room.turnDirection = 1
+        const direction = 1
         const start = before.indexOf(playerId)
         let nextId
         for (let step=1; step<=before.length; step++) {
@@ -4454,9 +4512,11 @@ export async function leavePartyRoom(roomCode, playerId) {
 
 
 // Services pause movement; prices are centralized here for future balancing.
-export const PARTY_SERVICE_PRICES = { transport: 5, stealTokens: 3, stealTrophy: 30 }
+export const PARTY_SERVICE_PRICES = { transport: 5, stealTokens: 5, stealTrophy: 30 }
 export async function resolvePartyService(roomCode, playerId, action = 'skip', targetId = '') {
   requireOnlineIdentity(playerId)
+  // Keep this value stable if Firebase retries the transaction.
+  const tokenStealSeed = Math.random()
   let failure = ''
   const result = await runTransaction(ref(db, `securePartyRooms/${normalizeCode(roomCode)}`), (room) => {
     const turn = room?.turnState
@@ -4465,6 +4525,7 @@ export async function resolvePartyService(roomCode, playerId, action = 'skip', t
     if (!room || room.status !== 'playing' || room.phase !== 'board' || turn?.playerId !== playerId || !stop || !setup) return
     let cost = 0
     let message = `${room.players[playerId].name} passed the stop.`
+
     if (action === 'buy' && stop.type === 'Shop') {
       const boardState = ensurePartyBoardState(room)
       const stock = partyShopArray(boardState.actionShopStocks?.[stop.nodeId]).slice(0, 3)
@@ -4485,11 +4546,18 @@ export async function resolvePartyService(roomCode, playerId, action = 'skip', t
       boardState.pendingActionShopRefills[stop.nodeId] = true
       message = `${room.players[playerId].name} bought ${room.settings?.cardVisibility === 'open' ? card.name : 'an Action Card'} for ${cost} Tokens.`
     } else if (action === 'transport' && stop.type === 'Paratroopa') {
-      if (!['n11', 'n32', 'n51'].includes(targetId)) return
+      const targetSetup = room.playerSetup?.[targetId]
+      if (targetId === playerId || !room.players?.[targetId] || !targetSetup?.boardNodeId) {
+        failure = 'Choose another active player to teleport to.'
+        return
+      }
       cost = PARTY_SERVICE_PRICES.transport
       if ((setup.tokens || 0) < cost) { failure = 'Not enough Tokens.'; return }
-      setup.boardNodeId = targetId
-      message = `${room.players[playerId].name} flew to Space ${partyNodeNumber(targetId)} for ${cost} Tokens. Movement continues from there.`
+      setup.boardNodeId = targetSetup.boardNodeId
+      setup.onStartDeck = Boolean(targetSetup.onStartDeck)
+      turn.transportTargetPlayerId = targetId
+      turn.transportDestinationNodeId = targetSetup.boardNodeId
+      message = `${room.players[playerId].name} used Transportation for ${cost} Tokens and teleported to ${room.players[targetId].name}. The destination space does not activate.`
     } else if (['tokens', 'trophy'].includes(action) && stop.type === 'Lakitu') {
       const target = room.playerSetup?.[targetId]
       if (targetId === playerId || !room.players?.[targetId] || !target) return
@@ -4499,17 +4567,23 @@ export async function resolvePartyService(roomCode, playerId, action = 'skip', t
         if (!(target.trophies > 0)) { failure = 'That player has no Trophy.'; return }
         target.trophies -= 1
         setup.trophies = (setup.trophies || 0) + 1
+        message = `${room.players[playerId].name} paid ${cost} Tokens to steal 1 Trophy from ${room.players[targetId].name}.`
       } else {
-        const amount = Math.min(5, Math.max(0, target.tokens || 0))
+        const requested = randomPartyInt(tokenStealSeed, 5, 15)
+        const amount = Math.min(requested, Math.max(0, Number(target.tokens) || 0))
         if (!amount) { failure = 'That player has no Tokens.'; return }
         target.tokens -= amount
         setup.tokens = (setup.tokens || 0) + amount
+        addPartyStat(room, playerId, 'tokensCollected', amount)
+        message = `${room.players[playerId].name} paid ${cost} Tokens and stole ${amount} Token${amount === 1 ? '' : 's'} from ${room.players[targetId].name}${amount < requested ? ` (rolled ${requested}, limited by their balance)` : ''}.`
       }
-      message = `${room.players[playerId].name} paid ${cost} Tokens to steal ${action === 'trophy' ? '1 Trophy' : 'up to 5 Tokens'} from ${room.players[targetId].name}.`
     } else if (action !== 'skip') return
+
     setup.tokens = Math.max(0, (setup.tokens || 0) - cost)
     delete turn.awaitingService
     if (!(turn.movementRemaining > 0)) {
+      // Service teleports never activate the destination space. If movement is
+      // already over, simply end the turn on the shared destination node.
       turn.readyToEnd = true
       turn.landedNodeId = setup.boardNodeId
       turn.landedType = BOARD_NODE_BY_ID[setup.boardNodeId]?.type || 'Space'
@@ -4519,3 +4593,4 @@ export async function resolvePartyService(roomCode, playerId, action = 'skip', t
   })
   if (!result.committed) throw new Error(failure || 'This stop is no longer available.')
 }
+

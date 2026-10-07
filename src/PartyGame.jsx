@@ -20,6 +20,8 @@ import {
   preparePartyCardDevTest,
   preparePartyLuckDevTest,
   preparePartyEventDevTest,
+  preparePartyServiceDevTest,
+  skipPartyEvent,
   resolvePartyBattle,
   resolvePartyJackpotDecision,
   resolvePartyLuckyTokenSteal,
@@ -36,6 +38,9 @@ import {
   votePartyBattleMutualConcede,
   cancelPartyBattleMutualConcede,
   PARTY_BATTLES,
+  PARTY_LUCKY_OUTCOMES,
+  PARTY_BAD_LUCK_OUTCOMES,
+  PARTY_VERY_BAD_LUCK_OUTCOMES,
 } from './partyMultiplayer'
 
 const SPACE_COLORS = {
@@ -62,10 +67,6 @@ const TURN_ORDER_OFFSETS = [
   [-20, 34],
   [20, 34],
 ]
-
-function nodeNumber(nodeId) {
-  return Number(String(nodeId || '').replace('n', '')) || 0
-}
 
 function junctionDirection(nodeMap, currentId, nextId, previousId = '') {
   const current = nodeMap[currentId]
@@ -170,20 +171,17 @@ function getPartyCardUseState(card, turn, isMyTurn, currentSetup, roomPhase, roo
     }
   }
 
-  if (card.timing === 'after-failed-mechanic') {
+  if (card.timing === 'after-first-miss') {
+    const effect = turn.landingEffect
     if (
       !turn.rolled ||
       !turn.readyToEnd ||
-      !turn.landingEffect?.resolved ||
-      turn.landingEffect.success !== false
+      !effect || effect.resolved ||
+      Number(effect.attemptsUsed) !== 1 ||
+      effect.lastAttemptSuccess !== false ||
+      Number(effect.attemptLimit || 2) < 2
     ) {
-      return { canUse: false, reason: 'Use after you miss this Mechanic, before ending your turn.' }
-    }
-  }
-
-  if (card.timing === 'after-successful-mechanic') {
-    if (!turn.landingEffect?.resolved || turn.landingEffect.success !== true) {
-      return { canUse: false, reason: 'Use immediately after completing a Mechanic.' }
+      return { canUse: false, reason: 'Use after missing Attempt 1 and before Attempt 2.' }
     }
   }
 
@@ -195,8 +193,11 @@ function getPartyCardUseState(card, turn, isMyTurn, currentSetup, roomPhase, roo
     return { canUse: false, reason: 'Shield already armed.' }
   }
 
-  if (card.effect === 'hot-streak' && currentSetup.hotStreakActive) {
-    return { canUse: false, reason: 'Hot Streak already armed.' }
+  if (card.effect === 'hot-streak') {
+    if (currentSetup.hotStreakActive) return { canUse: false, reason: 'Hot Streak already armed.' }
+    if (currentSetup.lastMechanicSuccess !== true) {
+      return { canUse: false, reason: 'Your most recent Mechanic must have been successful.' }
+    }
   }
 
   if (card.effect === 'copycat') {
@@ -209,12 +210,6 @@ function getPartyCardUseState(card, turn, isMyTurn, currentSetup, roomPhase, roo
   if (card.effect === 'insurance') {
     if (turn.landingEffect?.type !== 'mechanic') {
       return { canUse: false, reason: 'Insurance is for a normal Mechanic Space.' }
-    }
-    if (currentSetup.doublePayout) {
-      return { canUse: false, reason: 'Cannot combine with Double Payout.' }
-    }
-    if (turn.landingEffect?.jackpotTriggered) {
-      return { canUse: false, reason: 'Cannot combine with Jackpot.' }
     }
   }
 
@@ -242,6 +237,64 @@ function getPartyCardUseState(card, turn, isMyTurn, currentSetup, roomPhase, roo
   return { canUse: true, reason: '' }
 }
 
+
+function FinalPartyCinematic({ room, players, onLeave, isHost }) {
+  const [stage, setStage] = useState(0)
+  const bonuses = useMemo(() => Array.isArray(room.bonusResults)
+    ? room.bonusResults
+    : Object.values(room.bonusResults || {}), [room.bonusResults])
+  const sorted = useMemo(() => [...players].sort((a, b) =>
+    (Number(room.playerSetup?.[b.id]?.trophies) || 0) - (Number(room.playerSetup?.[a.id]?.trophies) || 0) ||
+    (Number(room.playerSetup?.[b.id]?.tokens) || 0) - (Number(room.playerSetup?.[a.id]?.tokens) || 0)
+  ), [players, room.playerSetup])
+  const revealOrder = useMemo(() => [...sorted].reverse(), [sorted])
+  const bonusStages = bonuses.length * 2
+  const placementStart = 1 + bonusStages
+  const totalStages = placementStart + revealOrder.length
+
+  useEffect(() => {
+    if (stage >= totalStages) return undefined
+    const isBonusName = stage > 0 && stage < placementStart && (stage - 1) % 2 === 0
+    const isBonusWinner = stage > 0 && stage < placementStart && (stage - 1) % 2 === 1
+    const delay = stage === 0 ? 2100 : isBonusName ? 2300 : isBonusWinner ? 2700 : 1950
+    const timer = window.setTimeout(() => setStage((value) => value + 1), delay)
+    return () => window.clearTimeout(timer)
+  }, [stage, totalStages, placementStart])
+
+  const bonusIndex = stage > 0 && stage < placementStart ? Math.floor((stage - 1) / 2) : -1
+  const bonus = bonusIndex >= 0 ? bonuses[bonusIndex] : null
+  const bonusNameStage = bonusIndex >= 0 && (stage - 1) % 2 === 0
+  const bonusWinnerNames = (bonus?.winners || []).map((id) => room.players?.[id]?.name || 'Player')
+  const placementStage = stage >= placementStart && stage < totalStages
+  const revealedCount = placementStage ? Math.max(0, Math.min(revealOrder.length, stage - placementStart + 1)) : 0
+  const currentReveal = revealedCount > 0 ? revealOrder[revealedCount - 1] : null
+  const currentScore = currentReveal ? room.playerSetup?.[currentReveal.id] || {} : {}
+  const currentRank = currentReveal ? 1 + sorted.filter((other) => {
+    const a = room.playerSetup?.[other.id] || {}
+    return (Number(a.trophies) || 0) > (Number(currentScore.trophies) || 0) ||
+      ((Number(a.trophies) || 0) === (Number(currentScore.trophies) || 0) && (Number(a.tokens) || 0) > (Number(currentScore.tokens) || 0))
+  }).length : null
+
+  return <div className="party-final-cinematic" role="dialog" aria-modal="true" aria-label="Final Party results">
+    <div className="party-final-cinematic__glow" />
+    <section className="party-final-cinematic__card">
+      {stage === 0 && <div className="party-final-beat"><p>FINAL ROUND COMPLETE</p><h1>The board has gone quiet…</h1><span>Tokens and Trophies are hidden. Two final bonus categories can still change everything.</span></div>}
+      {bonus && bonusNameStage && <div className="party-final-beat"><p>BONUS TROPHY {bonusIndex + 1} / {bonuses.length}</p><h1>{bonus.name}</h1><span>{bonus.description}</span></div>}
+      {bonus && !bonusNameStage && <div className={`party-final-beat ${bonusWinnerNames.length ? 'party-final-beat--winner' : ''}`}><p>{bonus.name}</p><h1>{bonusWinnerNames.length ? bonusWinnerNames.join(' + ') : 'No Trophy Awarded'}</h1><span>{bonusWinnerNames.length ? `${bonusWinnerNames.length > 1 ? 'Tie! Each winner receives' : 'Receives'} +1 Trophy.` : 'Everyone finished this category at 0.'}</span></div>}
+      {placementStage && currentReveal && <div key={`${currentReveal.id}-${stage}`} className={`party-final-beat party-final-placement ${currentRank === 1 ? 'is-champion' : ''}`}>
+        <p>FINAL PLACEMENT</p>
+        <div className="party-final-placement__rank">#{currentRank}</div>
+        <h1>{currentReveal.name}</h1>
+        <span>{Number(currentScore.trophies) || 0} Trophies · {Number(currentScore.tokens) || 0} Tokens</span>
+      </div>}
+      {stage >= totalStages && <div className="party-final-finished">
+        <strong>{sorted[0]?.name || 'Winner'} takes the Party!</strong>
+        <button type="button" onClick={onLeave}>{isHost ? 'End Party Game' : 'Leave Party Game'}</button>
+      </div>}
+    </section>
+  </div>
+}
+
 export default function PartyGame({ roomCode, room, clientId, onLeave, isHost }) {
   const [actionBusy, setBusy] = useState(false)
   const [motionBusy, setMotionBusy] = useState(false)
@@ -256,14 +309,21 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
     const motion = room.boardMotion
     const moveEnd = Number(motion?.startedAt || 0) + Math.max(0, (motion?.path?.length || 1) - 1) * (motion?.stepMs || 280)
     const event = room.turnState?.eventEffect
-    const ballEnd = event?.id === 'reactor-trigger-c' && Number(event.animationStartedAt)
-      ? Math.max(Number(event.animationStartedAt), moveEnd) + 3200 : 0
-    const remaining = Math.max(moveEnd, ballEnd) - Date.now() - clockOffset
+    const eventStartedAt = Number(event?.animationStartedAt) || 0
+    const ballEnd = event?.id === 'reactor-trigger-c' && eventStartedAt
+      ? Math.max(eventStartedAt, moveEnd) + 3200 : 0
+    const gateEnd = event?.id?.startsWith('gate-switch-') && eventStartedAt ? eventStartedAt + 3800 : 0
+    const chestApproachEnd = event?.id === 'supply-crates' && eventStartedAt && !event.resolved ? eventStartedAt + 1200 : 0
+    const chestOpenedAt = Number(event?.openedAt) || 0
+    const chestReturnEnd = event?.id === 'supply-crates' && chestOpenedAt ? chestOpenedAt + 1500 : 0
+    const trophyStartedAt = Number(room.turnState?.trophyCinematic?.startedAt) || 0
+    const trophyEnd = trophyStartedAt ? trophyStartedAt + 3300 : 0
+    const remaining = Math.max(moveEnd, ballEnd, gateEnd, chestApproachEnd, chestReturnEnd, trophyEnd) - Date.now() - clockOffset
     setMotionBusy(remaining > 0)
     if (remaining <= 0) return undefined
     const timer = window.setTimeout(() => setMotionBusy(false), Math.min(remaining, 15000))
     return () => window.clearTimeout(timer)
-  }, [room.boardMotion, room.turnState?.eventEffect, clockOffset])
+  }, [room.boardMotion, room.turnState?.eventEffect, room.turnState?.trophyCinematic, clockOffset])
   const [error, setError] = useState('')
   const [selectedCardIndex, setSelectedCardIndex] = useState(null)
   const [selectedStealTargetId, setSelectedStealTargetId] = useState('')
@@ -271,7 +331,6 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const [overview, setOverview] = useState(false)
   const [hudPanel, setHudPanel] = useState(null)
   const [quality, setQuality] = useState('low')
-  const [showNumbers, setShowNumbers] = useState(false)
   const immersiveRef = useRef(null)
   const [fullscreenError, setFullscreenError] = useState('')
   useEffect(() => { localStorage.setItem('party-board-view', boardView) }, [boardView])
@@ -283,6 +342,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const [partyRoulette, setPartyRoulette] = useState(null)
   const [rollingDieType, setRollingDieType] = useState('')
   const seenRouletteKeyRef = useRef('')
+  const seenLuckRouletteKeyRef = useRef('')
   const board = BOOSTSTONE_RUINS
   const devCards = useMemo(() => getEnabledPartyCards(), [])
 
@@ -370,6 +430,16 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
     room.settings?.openHands === true
   ) ? 'open' : 'hidden'
   const openHands = cardVisibility === 'open'
+  const transportTargetPlayers = turn.awaitingService?.type === 'Paratroopa'
+    ? players.filter((player) => player.id !== clientId && room.playerSetup?.[player.id])
+    : []
+  const transportTargetNodeIds = [...new Set(transportTargetPlayers
+    .map((player) => room.playerSetup?.[player.id]?.boardNodeId)
+    .filter(Boolean))]
+
+  useEffect(() => {
+    if (turn.awaitingService?.type === 'Paratroopa') setOverview(true)
+  }, [turn.awaitingService?.type, turn.awaitingService?.nodeId])
 
   useEffect(() => {
     // Never start the Battle selection overlay while the car is still visibly moving.
@@ -390,6 +460,26 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             .map((player) => player.name),
     })
   }, [battle, room.currentRound, room.turnIndex, room.players, players, movementBusy])
+
+  useEffect(() => {
+    const effect = turn.spaceEffect
+    if (movementBusy || !effect?.id) return
+    const key = `luck-${room.currentRound}-${room.turnIndex}-${turn.playerId}-${effect.type}-${effect.id}`
+    if (seenLuckRouletteKeyRef.current === key) return
+    seenLuckRouletteKeyRef.current = key
+    const pool = effect.type === 'very-bad-luck'
+      ? PARTY_VERY_BAD_LUCK_OUTCOMES
+      : effect.type === 'bad-luck'
+        ? PARTY_BAD_LUCK_OUTCOMES
+        : PARTY_LUCKY_OUTCOMES
+    setPartyRoulette({
+      phase: 'luck',
+      title: effect.type === 'very-bad-luck' ? 'Very Bad Luck Roulette' : effect.type === 'bad-luck' ? 'Bad Luck Roulette' : 'Lucky Roulette',
+      winner: effect.name,
+      options: rouletteLabels(pool.map((entry) => entry.name), effect.name),
+      opponentOptions: [],
+    })
+  }, [turn.spaceEffect?.id, turn.spaceEffect?.type, turn.spaceEffect?.name, room.currentRound, room.turnIndex, turn.playerId, movementBusy])
 
   // Event spaces are fixed by their physical board location. There is no Event roulette:
   // Garage-Gate Event spaces always trigger the gate switch, and the back Boost-Boulder
@@ -543,6 +633,16 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
     await runAction(() => preparePartyEventDevTest(roomCode, clientId, eventId))
   }
 
+  async function handlePrepareServiceTest(serviceType) {
+    setSelectedCardIndex(null)
+    setSelectedStealTargetId('')
+    await runAction(() => preparePartyServiceDevTest(roomCode, clientId, serviceType))
+  }
+
+  async function handleSkipEvent() {
+    await runAction(() => skipPartyEvent(roomCode, clientId))
+  }
+
   async function handleBattleWinner(winnerId) {
     await runAction(() => resolvePartyBattle(roomCode, clientId, winnerId))
   }
@@ -596,6 +696,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const battleLocked=battle?.status==='active'||room.phase==='round-complete'||orderResults
   return (
     <div ref={immersiveRef} className="game party-game-screen party-immersive" data-panel={hudPanel||'none'}>
+      {room.phase === 'party-complete-test' && <FinalPartyCinematic room={room} players={players} onLeave={onLeave} isHost={isHost} />}
       {partyRoulette && !movementBusy && (
         <div className="party-roulette-overlay">
           <div className="game-modal-card selection-roulette">
@@ -626,15 +727,22 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           <button onClick={onLeave}>{isHost?'End game':'Leave'}</button>
           {isHost&&<button onClick={()=>setHudPanel(hudPanel==='dev'?null:'dev')}>Dev</button>}
         </nav>
-        <footer className="party-hud-footer"><strong>{activePlayer?.name||'Players'}{movementBusy?' is moving…':isMyTurn?' · Your turn':' · Current turn'}</strong><span>🏆 Trophy: Space {activeTrophyNode?nodeNumber(activeTrophyNode.id):'…'} · {trophyPrice} Tokens</span></footer>
+        <footer className="party-hud-footer"><strong>{activePlayer?.name||'Players'}{movementBusy?' is moving…':isMyTurn?' · Your turn':' · Current turn'}</strong><span>🏆 Trophy: {activeTrophyNode?'Active on board':'Relocating…'} · {trophyPrice} Tokens</span></footer>
       </div>
+
+      {room.phase === 'board' && movementBusy && turn.eventEffect && (
+        <div className="party-event-cinematic-note" aria-live="polite">
+          <strong>⚡ {turn.eventEffect.name}</strong>
+          <span>{turn.eventEffect.publicMessage}</span>
+        </div>
+      )}
 
       {room.phase === 'board' && !movementBusy && turn.awaitingChoice && battle?.status !== 'active' && (() => {
         const currentId = turn.choiceNodeId || activeSetup.boardNodeId
         const motionPath = Array.isArray(room.boardMotion?.path) ? room.boardMotion.path : []
         const previousId = motionPath.at(-1) === currentId ? motionPath.at(-2) : ''
         return (
-          <div className="party-junction-overlay" role="dialog" aria-modal="true" aria-label="Choose a path">
+          <div className="party-junction-overlay" role="region" aria-label="Choose a path">
             <section className="party-junction-card">
               <p className="home-mode-card__eyebrow">Junction</p>
               <h2>{isMyTurn ? 'Which way do you want to go?' : `${activePlayer?.name || 'The current player'} is choosing a path…`}</h2>
@@ -658,9 +766,9 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                       <span className="party-junction-arrow__symbol" aria-hidden="true">{direction.symbol}</span>
                       <strong>{direction.label}</strong>
                       <small>
-                        Space {nodeNumber(nextId)} · {nextNode?.type === 'Bad Luck' && finalFive ? 'Very Bad Luck' : nextNode?.type || 'Space'}
+                        {nextNode?.type === 'Bad Luck' && finalFive ? 'Very Bad Luck' : nextNode?.type || 'Board path'}
                       </small>
-                      {gate && <small className={blocked ? 'party-junction-gate is-closed' : 'party-junction-gate is-open'}>{blocked ? `🚧 CLOSED · ${gate.toll || 3} Tokens to pass` : '✓ Garage Gate OPEN'}</small>}
+                      {gate && <small className={blocked ? 'party-junction-gate is-closed' : 'party-junction-gate is-open'}>{blocked ? `🚧 CLOSED · ${gate.toll || 5} Tokens to pass` : '✓ Garage Gate OPEN'}</small>}
                     </button>
                   )
                 })}
@@ -676,12 +784,13 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
         <section className="party-game-board-card party-game-board-card--ruins">
           {true && (
             <BooststoneRuins3D
-              overview={overview||boardView==='2d'} topDown={boardView==='2d'} quality={quality} showNumbers={showNumbers}
+              overview={overview} topDown={boardView==='2d'} quality={quality}
               board={board}
               room={room}
               players={players}
               activePlayer={activePlayer}
               finalFive={finalFive}
+              highlightNodeIds={transportTargetNodeIds}
               closedGarageGateIds={closedGarageGateIds}
               turnOrderPhase={isTurnOrderPhase}
               turnOrderRolls={turnOrderRolls}
@@ -696,7 +805,6 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             <button onClick={enterFullscreen}>Enter fullscreen</button>{fullscreenError&&<p>{fullscreenError}</p>}
             <label>Board graphics<select value={boardView} onChange={e=>setBoardView(e.target.value)}><option value="3d">3D follow camera</option><option value="2d">Overhead view (same 3D board)</option></select></label>
             <label>3D quality<select value={quality} onChange={e=>setQuality(e.target.value)}><option value="low">Low (less GPU work)</option><option value="performance">Performance</option><option value="detail">Detailed shadows</option></select></label>
-            <button onClick={()=>setShowNumbers(!showNumbers)}>{showNumbers?'Hide':'Show'} space numbers</button>
             <p>In Board view, drag to explore and pinch/scroll to zoom. Follow Player returns to the active player.</p>
             <button onClick={onLeave} disabled={busy}>{isHost?'End Party Game':'Leave Party Game'}</button>
           </section>
@@ -752,17 +860,15 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             )}
             {activeNode && (
               <p>
-                Current space: <strong>{nodeNumber(activeNode.id)}</strong> •{' '}
-                {activeNode.type === 'Bad Luck' && finalFive ? 'Very Bad Luck' : activeNode.type}
+                Current space: <strong>{activeNode.type === 'Bad Luck' && finalFive ? 'Very Bad Luck' : activeNode.type}</strong>
               </p>
             )}
-            <p>Turn direction: <strong>{room.turnDirection === -1 ? 'Reversed' : 'Normal'}</strong></p>
           </div>}
 
           {!isTurnOrderPhase && <div className="party-trophy-status">
             <div>
               <span>Active Trophy</span>
-              <strong>{activeTrophyNode ? `Space ${nodeNumber(activeTrophyNode.id)}` : 'Relocating…'}</strong>
+              <strong>{activeTrophyNode ? 'Active on board' : 'Relocating…'}</strong>
             </div>
             <div>
               <span>Price</span>
@@ -848,6 +954,18 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                 >
                   🚧 Gate Switch Test
                 </button>
+                <button type="button" onClick={() => handlePrepareEventTest('supply-crates')} disabled={busy} title="Instantly test Choose a Treasure Chest!">
+                  🎁 Treasure Chest Event Test
+                </button>
+                <button type="button" onClick={() => handlePrepareServiceTest('Shop')} disabled={busy}>
+                  🛒 Action Shop Test
+                </button>
+                <button type="button" onClick={() => handlePrepareServiceTest('Paratroopa')} disabled={busy}>
+                  ✈️ Transportation Test
+                </button>
+                <button type="button" onClick={() => handlePrepareServiceTest('Lakitu')} disabled={busy}>
+                  ☁️ Steal Stop Test
+                </button>
               </div>
               {room.devCardTest && (
                 <div className="party-private-card-message" style={{ marginTop: 12 }}>
@@ -873,6 +991,12 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                 <div className="party-private-card-message" style={{ marginTop: 12 }}>
                   <strong>DEV Event Ready — {room.devEventTest.eventName}</strong>
                   <span>{room.devEventTest.instructions}</span>
+                </div>
+              )}
+              {room.devServiceTest && (
+                <div className="party-private-card-message" style={{ marginTop: 12 }}>
+                  <strong>DEV Service Ready — {room.devServiceTest.type}</strong>
+                  <span>{room.devServiceTest.instructions}</span>
                 </div>
               )}
             </details>
@@ -1192,7 +1316,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
               )}
               {turn.cardDrawStatus === 'full' && (
                 <p className="party-card-result party-card-result--full">
-                  {activePlayer?.name || 'The current player'} has a full 3-card inventory.
+                  {activePlayer?.name || 'The current player'} has a full 3-card inventory and received +2 Tokens instead.
                 </p>
               )}
               {turn.readyToEnd && (
@@ -1290,23 +1414,28 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                     {Array.from({ length: turn.eventEffect.crateCount || 3 }, (_, index) => (
                       <button
                         type="button"
-                        key={`supply-crate-${index}`}
+                        key={`treasure-chest-${index}`}
                         onClick={() => handleSupplyCrate(index)}
                         disabled={busy}
                       >
-                        📦 Open Crate {index + 1}
+                        🧰 Choose Chest {index + 1}
                       </button>
                     ))}
                   </div>
                 ) : (
                   <div className="party-waiting-box">
-                    Waiting for {activePlayer?.name || 'the current player'} to choose a Supply Crate…
+                    Waiting for {activePlayer?.name || 'the current player'} to choose a Treasure Chest…
                   </div>
                 )
               )}
 
               {turn.eventEffect.cardId && isMyTurn && !openHands && (
-                <small>Only you can see the exact Card found in your Supply Crate.</small>
+                <small>Only you can see the exact Card found in your Treasure Chest.</small>
+              )}
+              {isHost && (
+                <button type="button" className="party-recovery-action" onClick={handleSkipEvent} disabled={busy}>
+                  Host Recovery — Skip / Close Event
+                </button>
               )}
             </div>
           )}
@@ -1431,10 +1560,10 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                         <span>{isMyTurn || openHands ? 'Mulligan retry' : 'Extra retry from an Action Card'}</span>
                       )}
                       {turn.landingEffect.insuranceActive && (
-                        <span>{isMyTurn || openHands ? 'Insurance: +1 Token even if missed' : 'Special effect: +1 Token even if missed'}</span>
+                        <span>{isMyTurn || openHands ? 'Insurance: +3 Tokens whether made or missed' : 'Special effect: +3 Tokens whether made or missed'}</span>
                       )}
                       {turn.landingEffect.hotStreakTriggered && !turn.landingEffect.unlimitedAttempts && (
-                        <span>{isMyTurn || openHands ? 'Hot Streak: 1 attempt, +2 bonus Tokens on success' : 'Special effect: 1 attempt, +2 bonus Tokens on success'}</span>
+                        <span>{isMyTurn || openHands ? 'Hot Streak: 1 attempt, 2× Mechanic payout on success' : 'Special effect: 1 attempt, 2× payout on success'}</span>
                       )}
                       {turn.landingEffect.jackpotTriggered && (
                         <span>{isMyTurn || openHands ? 'Jackpot: 2× payout on success / lose normal payout on failure' : 'Special wager: 2× payout on success / lose normal payout on failure'}</span>
@@ -1442,8 +1571,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                     </div>
                   )}
 
-                  {turn.landingEffect.finalFive && (
-                    <p className="party-final-five-note">Final 5 rounds: +1 Mechanic reward; Danger Mechanic misses cost 3 Tokens.</p>
+                  {turn.landingEffect.finalStretch && (
+                    <p className="party-final-five-note">Final 3 rounds: boosted economy is active — this {turn.landingEffect.type === 'danger-mechanic' ? `Danger miss costs ${turn.landingEffect.penalty} Tokens` : `Mechanic pays ${turn.landingEffect.reward} Tokens`}.</p>
                   )}
                   {isMyTurn ? (
                     <div className="party-landing-effect__actions">
@@ -1519,7 +1648,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
               <h3>🚧 Pay {turn.gateToll || 3} Tokens to pass?</h3>
               <p>
                 The currently closed Garage Gate is blocking your route. Paying lets you keep the rest of your movement.
-                If you stop, your turn lands on Space {nodeNumber(turn.gateFromNodeId)}.
+                If you stop, your turn ends on the space before the closed gate.
               </p>
               {isMyTurn ? (
                 <div className="party-path-choice__buttons">
@@ -1569,6 +1698,12 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
+          {movementBusy && turn.trophyCinematic && (
+            <div className="party-stage-note party-game-stage-note">
+              <strong>🏆 Trophy collected!</strong><br />The camera is following the Trophy to its new location…
+            </div>
+          )}
+
           {turn.awaitingService && room.phase === 'board' && !movementBusy && (
             <div className="party-turn-panel__section">
               <h2>{turn.awaitingService.type === 'Shop' ? 'Action Shop' : turn.awaitingService.type === 'Paratroopa' ? 'Transportation' : 'Steal Stop'}</h2>
@@ -1581,26 +1716,34 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                     const card = getPartyCard(cardId)
                     const price = getPartyCardShopPrice(cardId)
                     if (!card || price === null) return null
-                    return <button
-                      key={card.id}
-                      disabled={busy || (currentSetup.tokens || 0) < price || normalizePartyCards(currentSetup.cards).length >= 3}
-                      title={card.description}
-                      onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'buy', card.id))}
-                    >
-                      {card.name} — {price} Token{price === 1 ? '' : 's'}
-                    </button>
+                    return <div className="party-shop-item" key={card.id}>
+                      <button
+                        disabled={busy || (currentSetup.tokens || 0) < price || normalizePartyCards(currentSetup.cards).length >= 3}
+                        onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'buy', card.id))}
+                      >
+                        {card.name} — {price} Token{price === 1 ? '' : 's'}
+                      </button>
+                      <small>{card.description}</small>
+                    </div>
                   })}
                   {(turn.awaitingService.shopCardIds || []).length < 3 && (
                     <p className="party-lobby-hint">A bought slot is empty until this turn ends.</p>
                   )}
                 </>}
                 {turn.awaitingService.type === 'Paratroopa' && <>
-                  <p>Fly for {PARTY_SERVICE_PRICES.transport} Tokens. The destination stop does not activate again.</p>
-                  {['n11', 'n32', 'n51'].map((id) => <button key={id} disabled={busy || (currentSetup.tokens || 0) < PARTY_SERVICE_PRICES.transport}
-                    onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'transport', id))}>Fly to Space {nodeNumber(id)}</button>)}
+                  <p>Fly for {PARTY_SERVICE_PRICES.transport} Tokens. The board zooms out and highlights every space currently occupied by another player.</p>
+                  <p><small>Choose a player to teleport onto their exact space. You may share that space; arriving by Transportation does not activate it.</small></p>
+                  {transportTargetPlayers.map((player) => {
+                    const targetSetup = room.playerSetup?.[player.id] || {}
+                    const targetNode = nodeMap[targetSetup.boardNodeId]
+                    return <button key={player.id} disabled={busy || (currentSetup.tokens || 0) < PARTY_SERVICE_PRICES.transport}
+                      onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'transport', player.id))}>
+                      Teleport to {player.name}{targetNode ? ` — ${targetNode.type} Space` : ''}
+                    </button>
+                  })}
                 </>}
                 {turn.awaitingService.type === 'Lakitu' && <>
-                  <p>Pay {PARTY_SERVICE_PRICES.stealTokens} to take up to 5 Tokens, or {PARTY_SERVICE_PRICES.stealTrophy} to take 1 Trophy.</p>
+                  <p>Pay {PARTY_SERVICE_PRICES.stealTokens} to steal a random 5–15 Tokens (limited by what they have), or {PARTY_SERVICE_PRICES.stealTrophy} to steal 1 Trophy.</p>
                   {players.filter((p) => p.id !== clientId).map((p) => <div key={p.id}>
                     <strong>{p.name}</strong>
                     <button disabled={busy || (currentSetup.tokens || 0) < PARTY_SERVICE_PRICES.stealTokens || !(room.playerSetup?.[p.id]?.tokens > 0)} onClick={() => runAction(() => resolvePartyService(roomCode, clientId, 'tokens', p.id))}>Steal Tokens</button>
@@ -1614,30 +1757,12 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
 
           
 
-          {room.phase === 'party-complete-test' && (
-            <div className="party-turn-panel__section party-round-complete">
-              <h2>Final Results</h2>
-              {(Array.isArray(room.bonusResults) ? room.bonusResults : Object.values(room.bonusResults || {})).map((bonus) => <div key={bonus.key}>
-                <h3>{bonus.name} · +1 Trophy</h3>
-                <p>{bonus.description}</p>
-                <p>{(bonus.winners || []).length ? bonus.winners.map((id) => room.players?.[id]?.name || 'Player').join(', ') + ` — ${bonus.score}` : 'No qualifying actions; no bonus awarded.'}</p>
-              </div>)}
-              <p>Ranked by Trophies, then Tokens. Equal totals share a rank.</p>
-              {[...players].sort((a,b) => (room.playerSetup?.[b.id]?.trophies || 0) - (room.playerSetup?.[a.id]?.trophies || 0) || (room.playerSetup?.[b.id]?.tokens || 0) - (room.playerSetup?.[a.id]?.tokens || 0)).map((p) => {
-                const score = room.playerSetup?.[p.id] || {}
-                const rank = 1 + players.filter((other) => {
-                  const v = room.playerSetup?.[other.id] || {}
-                  return (v.trophies || 0) > (score.trophies || 0) || ((v.trophies || 0) === (score.trophies || 0) && (v.tokens || 0) > (score.tokens || 0))
-                }).length
-                return <p key={p.id}><strong>#{rank} {p.name}</strong> — {score.trophies || 0} Trophies · {score.tokens || 0} Tokens</p>
-              })}
-            </div>
-          )}
+
 
           {error && <p className="party-form-error"><strong>{error}</strong></p>}
 
           <div className="party-stage-note party-game-stage-note">
-            Explore Booststone Ruins: shops, transport, stealing, Supply Crates, reactors, gates and Trophies. Each round ends with a Challenge break. Bonus Trophies are awarded after the final round.
+            Explore Booststone Ruins: shops, transport, stealing, Treasure Chests, boulders, gates and Trophies. Each round ends with a Challenge break. Bonus Trophies are awarded after the final round.
           </div>
         </aside>
       </div>

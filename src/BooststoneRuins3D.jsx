@@ -12,6 +12,15 @@ const DECK = [4.975, 0.71, 5.875]
 const CAMERA = [5, 18, 20]
 const TARGET = [0, 0.6, 0.3]
 const BALL_DURATION = 3.2
+// The chest terrace is the center landmark whose entrance is Event node n19.
+// These are render-only coordinates; the player's authoritative board node stays n19.
+const TREASURE_CENTER = [0.25, 1.56, -2.975]
+const TREASURE_PLAYER = [1.72, 1.34, -2.93]
+const TREASURE_CHEST_POSITIONS = [
+  [-0.95, 1.5, -2.98],
+  [0.25, 1.5, -2.98],
+  [1.45, 1.5, -2.98],
+]
 const LEGACY_GATES = {
   'garage-gate-bridge-east': 'bridge_east',
   'garage-gate-bridge-west': 'bridge_west',
@@ -44,7 +53,7 @@ function SpriteLabel({ text, y = 0.42, width = 1.05 }) {
   </sprite>
 }
 
-function BoardModel({ board, room, finalFive, closedGarageGateIds = [], showNumbers, ballRun, clockOffset }) {
+function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun, clockOffset }) {
   const invalidate = useThree((state) => state.invalidate)
   const gltf = useGLTF(MODEL_URL)
   const model = useMemo(() => {
@@ -99,11 +108,16 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], showNumb
   const initialized = useRef(false)
   const trophyReveal = useRef(0)
   const closedGateKey = (closedGarageGateIds || []).join('|')
+  const toModelGateId = (closedId) => board.gates?.find((gate) => gate.id === closedId)?.modelGateId || LEGACY_GATES[closedId] || ''
   const closedModelGateIds = useMemo(() => new Set(
-    (closedGarageGateIds || []).map((closedId) =>
-      board.gates?.find((gate) => gate.id === closedId)?.modelGateId || LEGACY_GATES[closedId] || ''
-    ).filter(Boolean)
+    (closedGarageGateIds || []).map(toModelGateId).filter(Boolean)
   ), [board.gates, closedGateKey])
+  const gateEffect = room.turnState?.eventEffect
+  const previousClosedGateKey = gateEffect?.id?.startsWith('gate-switch-')
+    ? JSON.stringify(gateEffect.previousClosedGarageGateIds || {}) : ''
+  const previousClosedModelGateIds = useMemo(() => new Set(
+    Object.values(gateEffect?.previousClosedGarageGateIds || {}).map(toModelGateId).filter(Boolean)
+  ), [board.gates, previousClosedGateKey])
 
   useEffect(() => {
     for (const { object, rest, gateId: id } of model.doors) {
@@ -122,7 +136,7 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], showNumb
       model.trophy.scale.copy(model.trophyScale).multiplyScalar(0.01)
       trophyReveal.current = performance.now()
     }
-    Object.entries(model.spaces).forEach(([nodeId, object]) => { object.visible = nodeId !== id && !['Lucky','Bad Luck','Battle'].includes(board.nodes.find(n=>n.id===nodeId)?.type) })
+    Object.entries(model.spaces).forEach(([nodeId, object]) => { object.visible = nodeId !== id && !['Lucky','Bad Luck','Battle','Event'].includes(board.nodes.find(n=>n.id===nodeId)?.type) })
   }, [model, room.activeTrophyNodeId])
   useEffect(() => {
     model.originals.forEach(({ material, color }) => {
@@ -132,7 +146,7 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], showNumb
 
   useEffect(() => {
     invalidate()
-  }, [invalidate, model, closedGateKey, room.activeTrophyNodeId, room.boardMotion, finalFive, ballRun])
+  }, [invalidate, model, closedGateKey, room.activeTrophyNodeId, room.boardMotion, room.turnState?.eventEffect, room.turnState?.trophyCinematic, finalFive, ballRun])
 
   useFrame((_, dt) => {
     let moving = false
@@ -143,8 +157,49 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], showNumb
     const reveal = Math.min(1, (performance.now() - trophyReveal.current) / 500)
     model.trophy.scale.copy(model.trophyScale).multiplyScalar(1 - Math.pow(1-reveal, 3))
     if (reveal < 1 || crossing) moving = true
+
+    const trophyCinema = room.turnState?.trophyCinematic
+    const trophyStartedAt = Number(trophyCinema?.startedAt) || 0
+    const fromTrophy = layout.nodes[trophyCinema?.fromNodeId]
+    const toTrophy = layout.nodes[trophyCinema?.toNodeId]
+    if (trophyStartedAt && fromTrophy && toTrophy) {
+      const elapsedTrophy = Date.now() + clockOffset - trophyStartedAt
+      if (elapsedTrophy >= -250 && elapsedTrophy < 3300) {
+        const travel = Math.max(0, Math.min(1, (elapsedTrophy - 850) / 1850))
+        const smooth = travel * travel * (3 - 2 * travel)
+        model.trophy.visible = true
+        model.trophy.position.set(
+          THREE.MathUtils.lerp(fromTrophy[0], toTrophy[0], smooth),
+          THREE.MathUtils.lerp(fromTrophy[1] + 0.04, toTrophy[1] + 0.04, smooth) + Math.sin(Math.PI * smooth) * 0.9,
+          THREE.MathUtils.lerp(fromTrophy[2], toTrophy[2], smooth)
+        )
+        const pulse = elapsedTrophy < 850
+          ? 1 + 0.24 * Math.max(0, Math.sin(Math.max(0, elapsedTrophy) / 120))
+          : 1
+        model.trophy.scale.copy(model.trophyScale).multiplyScalar(pulse)
+        moving = true
+      }
+    }
+
+    // Garage Gate Event: switch the right pair first, then the left pair when
+    // the camera cuts to it. This keeps the visible doors in sync with the
+    // two-step cinematic instead of both pairs jumping at once.
+    let visualClosedModelGateIds = closedModelGateIds
+    const gateAnimation = room.turnState?.eventEffect
+    if (gateAnimation?.id?.startsWith('gate-switch-') && Number(gateAnimation.animationStartedAt)) {
+      const elapsedGate = Date.now() + clockOffset - Number(gateAnimation.animationStartedAt)
+      if (elapsedGate < 0 && previousClosedModelGateIds.size) {
+        visualClosedModelGateIds = previousClosedModelGateIds
+      } else if (elapsedGate >= 0 && elapsedGate < 1900 && previousClosedModelGateIds.size) {
+        const rightClosed = toModelGateId(gateAnimation.closedGarageGateIds?.right)
+        const leftClosed = toModelGateId(gateAnimation.previousClosedGarageGateIds?.left)
+        visualClosedModelGateIds = new Set([rightClosed, leftClosed].filter(Boolean))
+      }
+      if (elapsedGate >= -250 && elapsedGate < 3800) moving = true
+    }
+
     for (const { object, rest, gateId: id } of model.doors) {
-      const gateShouldBeClosed = closedModelGateIds.has(id) && !(crossing && id === crossingModelGateId)
+      const gateShouldBeClosed = visualClosedModelGateIds.has(id) && !(crossing && id === crossingModelGateId)
       const target = rest.y + (gateShouldBeClosed ? 0 : 0.81)
       if (Math.abs(object.position.y - target) > 0.001) {
         object.position.y = THREE.MathUtils.damp(object.position.y, target, 7, Math.min(dt, 0.1))
@@ -169,20 +224,110 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], showNumb
     }
     if (moving || (ballRun && elapsed < 0)) invalidate()
   })
-  return <>
-    <primitive object={model.scene} dispose={null} />
-    {showNumbers && Object.entries(layout.nodes).map(([id, p]) =>
-      <group key={id} position={p}><SpriteLabel text={id.slice(1)} y={0.22} width={0.38} /></group>
-    )}
-  </>
+  return <primitive object={model.scene} dispose={null} />
 }
 
-function AnimatedPiece({ position, motion, playerId, clockOffset, followPoint, isActive, children }) {
+function TreasureChests({ effect, clockOffset }) {
+  const lidRefs = useRef([])
+  const invalidate = useThree((state) => state.invalidate)
+  const selected = Number.isInteger(effect?.selectedCrateIndex) ? effect.selectedCrateIndex : -1
+  const openedAt = Number(effect?.openedAt) || 0
+
+  useEffect(() => { invalidate() }, [effect?.id, effect?.selectedCrateIndex, effect?.openedAt, invalidate])
+  useFrame((_, dt) => {
+    if (!openedAt || selected < 0) return
+    const elapsed = Date.now() + clockOffset - openedAt
+    if (elapsed < -100 || elapsed > 1600) return
+    const lid = lidRefs.current[selected]
+    if (lid) {
+      const target = -Math.PI * 0.46
+      lid.rotation.x = THREE.MathUtils.damp(lid.rotation.x, target, 8, Math.min(dt, 0.1))
+    }
+    invalidate()
+  })
+
+  if (effect?.id !== 'supply-crates') return null
+  return <group>{TREASURE_CHEST_POSITIONS.map((position, index) => {
+    const isSelected = index === selected
+    return <group key={index} position={position}>
+      <mesh castShadow receiveShadow position={[0, 0.12, 0]}>
+        <boxGeometry args={[0.72, 0.28, 0.48]} />
+        <meshStandardMaterial color={isSelected ? '#b97924' : '#8a5a25'} roughness={0.78} metalness={0.05} />
+      </mesh>
+      <group ref={(value) => { lidRefs.current[index] = value }} position={[0, 0.29, -0.19]}>
+        <mesh castShadow position={[0, 0.08, 0.19]}>
+          <boxGeometry args={[0.74, 0.16, 0.5]} />
+          <meshStandardMaterial color={isSelected ? '#d59b3f' : '#a66d2d'} roughness={0.7} metalness={0.08} />
+        </mesh>
+      </group>
+      <mesh position={[0, 0.12, -0.252]}>
+        <boxGeometry args={[0.12, 0.18, 0.035]} />
+        <meshStandardMaterial color="#e4c66a" roughness={0.42} metalness={0.35} />
+      </mesh>
+      <SpriteLabel text={`${index + 1}`} y={0.72} width={0.42} />
+    </group>
+  })}</group>
+}
+
+function AnimatedPiece({ position, motion, playerId, clockOffset, followPoint, isActive, escape, treasure, children }) {
   const ref = useRef()
   const invalidate = useThree((state) => state.invalidate)
   useEffect(() => { invalidate() }, [motion, position, invalidate])
   useFrame(() => {
     if (!ref.current) return
+
+    if (treasure) {
+      const now = Date.now() + clockOffset
+      const startedAt = Number(treasure.startedAt) || 0
+      const openedAt = Number(treasure.openedAt) || 0
+      const from = layout.nodes.n19
+      const to = TREASURE_PLAYER
+      if (startedAt && from && to) {
+        let progress = Math.max(0, Math.min(1, (now - startedAt) / 1200))
+        let activeTreasureMotion = !openedAt
+        if (openedAt) {
+          const sinceOpen = now - openedAt
+          if (sinceOpen < 450) {
+            progress = 1
+            activeTreasureMotion = true
+          } else if (sinceOpen < 1500) {
+            const back = Math.max(0, Math.min(1, (sinceOpen - 450) / 1050))
+            const smoothBack = back * back * (3 - 2 * back)
+            progress = 1 - smoothBack
+            activeTreasureMotion = true
+          }
+        }
+        if (activeTreasureMotion) {
+          const smooth = progress * progress * (3 - 2 * progress)
+          ref.current.position.set(
+            from[0] + (to[0] - from[0]) * smooth,
+            from[1] + (to[1] - from[1]) * smooth + 0.14 + Math.sin(smooth * Math.PI) * 0.09,
+            from[2] + (to[2] - from[2]) * smooth
+          )
+          if (isActive) followPoint.current.copy(ref.current.position)
+          invalidate()
+          return
+        }
+      }
+    }
+
+    const escapeElapsed = escape ? (performance.now() - escape.started) / 1000 : Infinity
+    if (escape && escapeElapsed >= 0 && escapeElapsed < BALL_DURATION) {
+      const a = layout.nodes[escape.fromNodeId]
+      const b = layout.nodes[escape.toNodeId]
+      if (a && b) {
+        const raw = Math.max(0, Math.min(1, (escapeElapsed / BALL_DURATION - 0.18) / 0.72))
+        const t = raw * raw * (3 - 2 * raw)
+        ref.current.position.set(
+          a[0] + (b[0] - a[0]) * t,
+          a[1] + (b[1] - a[1]) * t + 0.14 + Math.abs(Math.sin(raw * Math.PI * 7)) * 0.08,
+          a[2] + (b[2] - a[2]) * t
+        )
+        if (isActive) followPoint.current.copy(ref.current.position)
+        invalidate()
+        return
+      }
+    }
     const elapsed = Date.now() + clockOffset - Number(motion?.startedAt || 0)
     const path = motion?.playerId === playerId ? motion.path || [] : []
     const stepMs = motion?.stepMs || 280
@@ -212,7 +357,12 @@ function PlayerTokens({ board, room, players, activePlayer, turnOrderPhase, turn
     const offset = onDeck ? 0.28 : 0.11
     const position = [point[0] + (i % 2 ? offset : -offset), point[1] + (onDeck ? 0 : 0.14), point[2] + (i < 2 ? -offset : offset)]
     const roll = Number(turnOrderRolls?.[p.id]) || 0
-    return <AnimatedPiece key={p.id} position={position} motion={room.boardMotion} playerId={p.id} clockOffset={clockOffset} followPoint={followPoint} isActive={p.id === activePlayer?.id}>
+    const escape = held ? { fromNodeId: held, toNodeId: ballRun?.resetTo || 'n57', started: ballRun.started } : null
+    const eventEffect = room.turnState?.eventEffect
+    const treasure = eventEffect?.id === 'supply-crates' && p.id === room.turnState?.playerId && (!eventEffect.resolved || eventEffect.openedAt)
+      ? { startedAt: eventEffect.animationStartedAt, openedAt: eventEffect.openedAt }
+      : null
+    return <AnimatedPiece key={p.id} position={position} motion={room.boardMotion} playerId={p.id} clockOffset={clockOffset} followPoint={followPoint} isActive={p.id === activePlayer?.id} escape={escape} treasure={treasure}>
       <mesh castShadow>
         <sphereGeometry args={[0.17, 18, 12]} />
         <meshStandardMaterial color={COLORS[i % COLORS.length]} roughness={0.5} />
@@ -225,7 +375,7 @@ function PlayerTokens({ board, room, players, activePlayer, turnOrderPhase, turn
   })}</group>
 }
 
-function CameraControls({ resetKey, overview, followPoint, topDown }) {
+function CameraControls({ resetKey, overview, followPoint, topDown, room, board, clockOffset }) {
   const ref = useRef()
   const { camera, size, invalidate } = useThree()
   const fit = Math.max(8, Math.min(size.width / 18, size.height / 17))
@@ -242,11 +392,60 @@ function CameraControls({ resetKey, overview, followPoint, topDown }) {
   useFrame((_, dt) => {
     if (!ref.current) return
     if (overview && previous.current === overview) return
-    const desired = overview ? new THREE.Vector3(...TARGET) : followPoint.current
+    let cinematicTarget = null
+    const now = Date.now() + clockOffset
+    const trophyCinema = room.turnState?.trophyCinematic
+    const trophyStartedAt = Number(trophyCinema?.startedAt) || 0
+    const fromTrophy = layout.nodes[trophyCinema?.fromNodeId]
+    const toTrophy = layout.nodes[trophyCinema?.toNodeId]
+    if (trophyStartedAt && fromTrophy && toTrophy && now - trophyStartedAt >= -250 && now - trophyStartedAt < 3300) {
+      const travel = Math.max(0, Math.min(1, (now - trophyStartedAt - 850) / 1850))
+      const smooth = travel * travel * (3 - 2 * travel)
+      cinematicTarget = new THREE.Vector3(
+        THREE.MathUtils.lerp(fromTrophy[0], toTrophy[0], smooth),
+        THREE.MathUtils.lerp(fromTrophy[1], toTrophy[1], smooth),
+        THREE.MathUtils.lerp(fromTrophy[2], toTrophy[2], smooth)
+      )
+    } else if (!overview) {
+      const effect = room.turnState?.eventEffect
+      const startedAt = Number(effect?.animationStartedAt) || 0
+      if (effect?.id?.startsWith('gate-switch-') && startedAt) {
+        const elapsed = now - startedAt
+        const focusId = elapsed >= 0 && elapsed < 1900 ? 'n05' : elapsed >= 1900 && elapsed < 3800 ? 'n37' : ''
+        if (focusId && layout.nodes[focusId]) cinematicTarget = new THREE.Vector3(...layout.nodes[focusId])
+      } else if (effect?.id === 'supply-crates' && startedAt) {
+        const openedAt = Number(effect.openedAt) || 0
+        if (!openedAt && !effect.resolved) {
+          cinematicTarget = new THREE.Vector3(...TREASURE_CENTER)
+        } else if (openedAt) {
+          const sinceOpen = now - openedAt
+          if (sinceOpen >= 0 && sinceOpen < 1500) {
+            const back = Math.max(0, Math.min(1, (sinceOpen - 550) / 950))
+            const chest = new THREE.Vector3(...TREASURE_CENTER)
+            const returnPoint = new THREE.Vector3(...(layout.nodes.n19 || TREASURE_CENTER))
+            cinematicTarget = chest.lerp(returnPoint, back * back * (3 - 2 * back))
+          }
+        }
+      } else if (effect?.id === 'reactor-trigger-c' && startedAt) {
+        const motion = room.boardMotion
+        const moveEnd = Number(motion?.startedAt || 0) + Math.max(0, (motion?.path?.length || 1) - 1) * (motion?.stepMs || 280)
+        const animationStart = Math.max(startedAt, moveEnd)
+        const elapsed = (now - animationStart) / 1000
+        if (elapsed >= 0 && elapsed < BALL_DURATION) {
+          const t = Math.pow(elapsed / BALL_DURATION, 1.35)
+          const distance = ((1102 - 288) / 80) * t
+          const ball = new THREE.Vector3(...(layout.nodes.n58 || TARGET))
+          ball.x += distance
+          ball.y = Math.max(ball.y, 0.4)
+          cinematicTarget = ball
+        }
+      }
+    }
+    const desired = cinematicTarget || (overview ? new THREE.Vector3(...TARGET) : followPoint.current)
     if (!desired) return
     const factor = 1 - Math.exp(-8 * Math.min(dt, .1))
     const delta = desired.clone().sub(ref.current.target)
-    const zoom = fit * (overview ? 1 : 2.65)
+    const zoom = fit * (cinematicTarget ? 3.15 : overview ? 1 : 2.65)
     if (delta.lengthSq() > .00001 || Math.abs(camera.zoom - zoom) > .015) {
       delta.multiplyScalar(factor)
       camera.position.add(delta)
@@ -278,7 +477,7 @@ class ModelErrorBoundary extends Component {
 }
 
 export default function BooststoneRuins3D({ board, room, players = [], activePlayer,
-  finalFive = false, closedGarageGateIds = [], turnOrderPhase = false, turnOrderRolls = {}, overview = false, quality = 'low', showNumbers = false, topDown = false }) {
+  finalFive = false, closedGarageGateIds = [], turnOrderPhase = false, turnOrderRolls = {}, overview = false, quality = 'low', topDown = false, highlightNodeIds = [] }) {
   const [clockOffset, setClockOffset] = useState(0)
   const followPoint = useRef(new THREE.Vector3(...TARGET))
   useEffect(() => onValue(databaseRef(db, '.info/serverTimeOffset'), (snapshot) => setClockOffset(Number(snapshot.val()) || 0)), [])
@@ -305,7 +504,7 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
       const startedAt = Math.max(Number(effect.animationStartedAt) || 0, moveEnd)
       const elapsed = Date.now() + clockOffset - startedAt
       if (startedAt && elapsed < BALL_DURATION * 1000 && elapsed > -15000) {
-        setBallRun({ started: performance.now() - elapsed, positions: effect.fromPositions || positions })
+        setBallRun({ started: performance.now() - elapsed, positions: effect.fromPositions || positions, resetTo: effect.resetTo || 'n57' })
       }
     }
     // Keep the pre-event snapshot so knockback appears after the ball passes.
@@ -340,20 +539,61 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
         <directionalLight position={[6, 6, -8]} color="#9cc9db" intensity={0.8} />
         <Suspense fallback={<Html center><div style={{ color: '#fff', whiteSpace: 'nowrap' }}>Loading your board…</div></Html>}>
           <BoardModel board={board} room={room} finalFive={finalFive} closedGarageGateIds={effectiveClosedGarageGateIds}
-            showNumbers={showNumbers} ballRun={ballRun} clockOffset={clockOffset} />
+            ballRun={ballRun} clockOffset={clockOffset} />
           <SpaceMarkers board={board} room={room} finalStretch={finalFive}/>
+          <DestinationHighlights nodeIds={highlightNodeIds} />
+          <TreasureChests effect={effect} clockOffset={clockOffset} />
           <PlayerTokens board={board} room={room} players={players} activePlayer={activePlayer}
             turnOrderPhase={turnOrderPhase} turnOrderRolls={turnOrderRolls} ballRun={ballRun} clockOffset={clockOffset} followPoint={followPoint} />
         </Suspense>
-        <CameraControls topDown={topDown} resetKey={resetKey} overview={overview || turnOrderPhase} followPoint={followPoint} />
+        <CameraControls topDown={topDown} resetKey={resetKey} overview={overview || turnOrderPhase} followPoint={followPoint} room={room} board={board} clockOffset={clockOffset} />
       </Canvas>
     </ModelErrorBoundary>
   </div>
 }
 
+function DestinationHighlights({ nodeIds = [] }) {
+  const ref = useRef()
+  const invalidate = useThree((state) => state.invalidate)
+  useFrame(() => {
+    if (!ref.current || !nodeIds.length) return
+    const pulse = 1 + Math.sin(performance.now() / 180) * 0.08
+    ref.current.scale.setScalar(pulse)
+    invalidate()
+  })
+  return <group ref={ref}>{nodeIds.filter((id) => layout.nodes[id]).map((id) => {
+    const p = layout.nodes[id]
+    return <group key={`transport-highlight-${id}`} position={[p[0], p[1] + 0.045, p[2]]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.29, 0.39, 36]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0.95} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+      <SpriteLabel text="TELEPORT" y={0.24} width={0.78} />
+    </group>
+  })}</group>
+}
+
 function SpaceMarkers({board,room,finalStretch}) {
- const spike=useMemo(()=>{const s=new THREE.Shape();for(let i=0;i<24;i++){const a=i*Math.PI/12,r=i%2?.22:.34,x=Math.cos(a)*r,y=Math.sin(a)*r;if(i===0)s.moveTo(x,y);else s.lineTo(x,y)}s.closePath();return s},[]);
- return <group>{board.nodes.filter(n=>['Lucky','Bad Luck','Battle'].includes(n.type)&&n.id!==room.activeTrophyNodeId&&layout.nodes[n.id]).map(n=>{const p=layout.nodes[n.id];return <group key={n.id} position={[p[0],p[1]+.035,p[2]]}>
- {n.type==='Bad Luck'?<mesh rotation={[-Math.PI/2,0,0]}><shapeGeometry args={[spike]}/><meshStandardMaterial color={finalStretch?'#741525':'#df283e'} side={THREE.DoubleSide}/></mesh>:n.type==='Battle'?<mesh rotation={[-Math.PI/2,0,0]}><circleGeometry args={[.34,3]}/><meshStandardMaterial color="#fb923c" side={THREE.DoubleSide}/></mesh>:<><mesh rotation={[-Math.PI/2,0,0]}><circleGeometry args={[.31,32]}/><meshStandardMaterial color="#12652f"/></mesh>{[[-.09,.035],[.09,.035],[0,-.1]].map(([x,z],i)=><mesh key={i} position={[x,.006,z]} rotation={[-Math.PI/2,0,0]}><circleGeometry args={[.105,20]}/><meshBasicMaterial color="#b6f477"/></mesh>)}<mesh position={[.015,.006,.15]} rotation={[-Math.PI/2,0,.2]}><planeGeometry args={[.045,.18]}/><meshBasicMaterial color="#b6f477"/></mesh></>}
- </group>})}</group>
+  const markerTypes = new Set(['Lucky', 'Bad Luck', 'Battle', 'Event'])
+  const visual = (node) => {
+    if (node.type === 'Lucky') return { color: '#47785b', symbol: '★', width: 0.42 }
+    if (node.type === 'Bad Luck') return { color: finalStretch ? '#352341' : '#8a3f49', symbol: '!?', width: 0.48 }
+    if (node.type === 'Battle') return { color: '#9a603b', symbol: 'VS', width: 0.48 }
+    return { color: '#3d6e66', symbol: '!', width: 0.34 }
+  }
+  return <group>{board.nodes.filter((node) => markerTypes.has(node.type) && node.id !== room.activeTrophyNodeId && layout.nodes[node.id]).map((node) => {
+    const p = layout.nodes[node.id]
+    const style = visual(node)
+    return <group key={node.id} position={[p[0], p[1] + 0.012, p[2]]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.255, 32]} />
+        <meshStandardMaterial color="#f5f7f7" roughness={0.8} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh position={[0, 0.006, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.205, 32]} />
+        <meshStandardMaterial color={style.color} roughness={0.82} side={THREE.DoubleSide} />
+      </mesh>
+      <SpriteLabel text={style.symbol} y={0.026} width={style.width} />
+    </group>
+  })}</group>
 }

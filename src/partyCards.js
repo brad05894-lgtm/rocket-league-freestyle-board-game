@@ -1,5 +1,5 @@
 export const PARTY_CARDS = [
-  { id: 'unlimited-tries', name: 'Unlimited Tries', description: 'After your Mechanic is revealed, use before Attempt 1. Take unlimited attempts within 90 seconds. An existing timer is never extended.', enabled: true, effect: 'unlimited-attempts', timing: 'before-mechanic-attempt' },
+  { id: 'unlimited-tries', name: 'Unlimited Tries', description: 'After your Mechanic is revealed, use before Attempt 1. Take unlimited attempts within the existing 90-second limit; the clock never resets or extends.', enabled: true, effect: 'unlimited-attempts', timing: 'before-mechanic-attempt' },
   {
     id: 'boost-canister',
     name: 'Boost Canister',
@@ -29,10 +29,11 @@ export const PARTY_CARDS = [
   {
     id: 'token-tornado',
     name: 'Token Tornado',
-    description: 'Use before rolling. Choose a player and steal up to 4 Tokens from them.',
+    description: 'Use before rolling. Choose a player and steal a random 4–8 Tokens from them, limited by what they have.',
     enabled: true,
     effect: 'token-steal',
-    amount: 4,
+    minAmount: 4,
+    maxAmount: 8,
     requiresTarget: true,
     negativeTargetEffect: true,
     timing: 'before-roll',
@@ -114,10 +115,10 @@ export const PARTY_CARDS = [
   {
     id: 'mulligan',
     name: 'Mulligan',
-    description: 'After you miss a Mechanic or Danger Mechanic, use this before ending your turn to gain one retry.',
+    description: 'After missing Attempt 1 of a normal or Danger Mechanic, use before Attempt 2 to add one extra attempt. The same Danger Mechanic stays active.',
     enabled: true,
     effect: 'mulligan',
-    timing: 'after-failed-mechanic',
+    timing: 'after-first-miss',
   },
   {
     id: 'reroll',
@@ -188,7 +189,7 @@ export const PARTY_CARDS = [
   {
     id: 'insurance',
     name: 'Insurance',
-    description: 'Before attempting a normal Mechanic, insure it. If you miss, still gain +1 Token.',
+    description: 'Before attempting a normal Mechanic, insure it. Gain +3 Tokens after it resolves whether you make it or miss it.',
     enabled: true,
     effect: 'insurance',
     timing: 'before-mechanic-attempt',
@@ -196,10 +197,10 @@ export const PARTY_CARDS = [
   {
     id: 'hot-streak',
     name: 'Hot Streak',
-    description: 'After completing a Mechanic, arm your next Mechanic: only 1 attempt, but success earns +2 bonus Tokens.',
+    description: 'Use before rolling only if you made your most recent Mechanic. Your next normal Mechanic gets 1 attempt; make it to earn 2× its Token payout. A miss adds no extra penalty.',
     enabled: true,
     effect: 'hot-streak',
-    timing: 'after-successful-mechanic',
+    timing: 'before-roll',
   },
   {
     id: 'jackpot',
@@ -235,21 +236,12 @@ export const PARTY_CARDS = [
     timing: 'before-mechanic-attempt',
   },
 
-  {
-    id: 'reverse',
-    name: 'Reverse',
-    description: 'Use before rolling. Reverse the turn direction. It stays reversed until another Reverse is used.',
-    enabled: true,
-    effect: 'reverse-turn-order',
-    timing: 'before-roll',
-  },
-
 
   // Remaining Cards still waiting on their supporting Party systems.
   {
     id: 'challenge-glove',
     name: 'Challenge Glove',
-    description: 'Before rolling, choose a battle format, participants and teams. Lock them in before the random game is revealed, then continue your normal turn.',
+    description: 'Before rolling, choose the Battle format. The browser then randomly locks the other participants and team/solo assignment before revealing the random game; then continue your normal turn.',
     enabled: true,
     effect: 'challenge-glove',
     requiresTarget: false,
@@ -294,9 +286,9 @@ export const PARTY_CARD_SHOP_PRICES = Object.freeze({
   'boost-canister': 2,
   'golden-boost': 3,
   'precision-dice': 4,
-  'token-tornado': 1,
+  'token-tornado': 2,
   'teleport-pad': 4,
-  'golden-teleporter': 6,
+  'golden-teleporter': 8,
   shield: 2,
   'double-payout': 2,
   'steal-card': 2,
@@ -311,12 +303,13 @@ export const PARTY_CARD_SHOP_PRICES = Object.freeze({
   '100-kph': 2,
   'top-corner': 2,
   copycat: 2,
-  'hot-streak': 1,
-  jackpot: 1,
+  insurance: 1,
+  'unlimited-tries': 2,
+  'hot-streak': 4,
+  jackpot: 3,
   'difficulty-spike': 1,
   'difficulty-drop': 1,
   'free-pass': 3,
-  reverse: 1,
   'challenge-glove': 2,
 })
 
@@ -336,11 +329,11 @@ export function pickPartyCard() {
 }
 
 export function normalizePartyCards(cards) {
-  if (Array.isArray(cards)) return cards.filter((cardId) => Boolean(cardId) && cardId !== 'trade-offer')
+  if (Array.isArray(cards)) return cards.filter((cardId) => Boolean(cardId) && cardId !== 'trade-offer' && cardId !== 'reverse')
   if (!cards || typeof cards !== 'object') return []
 
   return Object.keys(cards)
     .sort((a, b) => Number(a) - Number(b))
     .map((key) => cards[key])
-    .filter((cardId) => Boolean(cardId) && cardId !== 'trade-offer')
+    .filter((cardId) => Boolean(cardId) && cardId !== 'trade-offer' && cardId !== 'reverse')
 }

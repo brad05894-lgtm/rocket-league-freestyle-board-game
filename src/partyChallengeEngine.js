@@ -58,7 +58,7 @@ export function createGame(challengeId,format,ids,r,now,options={}) {
  if((c.tag&&asymmetric(g))||n===64||n===69){g.engine='series';g.seriesMode=[33,57,59,60].includes(n)?'wins':'goals';g.pairs=n===64?[[sides[0][0],sides[1][0]],[sides[0][1],sides[1][1]]]:sides[1].map(id=>[sides[0][0],id]);g.segment=0;g.segmentScores=[];if(n===33)g.draft=draft(r);if([33,59,60].includes(n)){g.matches={current:createGame(challengeId,'1v1',g.pairs[0],r,now)};if([59,60].includes(n))g.matches.current.lives=Object.fromEntries(g.pairs[0].map(id=>[id,1]))}}
  if([6,31,74,75].includes(n))g.mechanic=mech(r);
  if([22,33,78].includes(n))g.draft=draft(r);
- if(n===19)g.setting=pick(MODES,r);if(n===36)g.setting=pick(ARENAS,r);
+ if(n===19)g.setting=pick(MODES,r);
  if(n===55)g.target=1+Math.floor(r()*150);
  if(n===65)g.displayTeams=[order.slice(0,2),order.slice(2)];
  if(n===31)g.ladders=Object.fromEntries(ids.map(id=>[id,{level:0,misses:0,done:false}]));
@@ -82,9 +82,10 @@ export function createGame(challengeId,format,ids,r,now,options={}) {
  if(g.engine==='draft'){g.draftTimed=challengeId.toLowerCase()==='challenge-22b';g.attempt=0;g.draftCounts={};}
  if(g.engine==='possession'){g.possessionOrder=g.sides.map(side=>side[0]);g.possessionIndex=0;g.attempt=0;g.possessionRound=1;}
  if([59,60].includes(n)&&g.engine==='survival')g.lives=Object.fromEntries(ids.map(id=>[id,1]));
+ if(g.engine==='bust'){g.bustTarget=200+Math.floor(r()*301);g.bustRemaining=g.bustTarget;g.bustHistory=[];}
  return g
 }
-function createMatch(parent,ids,r,now) {const n=nOf(parent);let cid=parent.challengeId;let sprint='';if(n===86)cid=pick(ROULETTE_IDS,r);if(n===85){sprint=pick(SPRINTS,r);cid='challenge-1'}if(n===87)cid='challenge-1';const g=createGame(cid,'1v1',ids,r,now);if(sprint)return createSprint(sprint,'1v1',ids,r,now);if(n===87){g.playerChosen=true;g.engine='manual'}return g}
+function createMatch(parent,ids,r,now) {const n=nOf(parent);let cid=parent.challengeId;let sprint='';if(n===86)cid=pick(ROULETTE_IDS,r);if(n===85){sprint=pick(SPRINTS,r);cid='challenge-1'}if(n===87)cid='challenge-1';const g=createGame(cid,'1v1',ids,r,now);if(sprint)return createSprint(sprint,'1v1',ids,r,now);if(n===87){g.playerChosen=true;g.engine='manual'}if([28,52].includes(n))g.mustResolveWinner=true;return g}
 function snapshot(g){const h=g.history||[];const saved=JSON.parse(JSON.stringify(g,(key,value)=>key==='history'?[]:value));g.history=[...h.slice(-29),saved]}
 export function undoGame(g,now) {need(g.history?.length,'Nothing to undo.');const h=[...g.history];const restored=h.pop();for(const key of Object.keys(g))delete g[key];Object.assign(g,restored,{history:h});if(g.timer?.pausedAt==null&&g.timer)g.timer.pausedAt=now;if(g.engine==='bomb'&&Math.abs(bombPosition(g,now))>=1)sideWin(g,bombPosition(g,now)<0?1:0,now);g.revision++;}
 function applyGameAction(g,a,uid,host,r,now) {
@@ -96,7 +97,7 @@ function applyGameAction(g,a,uid,host,r,now) {
  if(a.type==='correct'){admin();need(g.result,'No result to correct.');delete g.result;g.phase='active';return}
  if(a.type==='manualResult'){admin();need(['active','overtime','result'].includes(g.phase),'Read the rules and start first.');const groups=a.placements;need(Array.isArray(groups)&&groups.length&&groups.every(x=>Array.isArray(x)&&x.length),'Enter placements.');const flat=groups.flat();need(flat.length===g.ids.length&&new Set(flat).size===g.ids.length&&flat.every(id=>g.ids.includes(id)),'Every player needs one placement.');need(['manual','mechanic','draft','mode','arena','light','pressure','sprintJudge'].includes(g.engine)||a.override===true,'Use the Challenge controls, or confirm a correction.');if(ffa(g)&&a.override!==true)need(groups.every(group=>group.length===1)||drawAllowed(g),'Resolve tied placements using the Challenge rules first.');if(groups.length===1)need(drawAllowed(g)||a.override===true,'This Challenge requires a winner.');snapshot(g);result(g,groups,now);return}
  need(!g.result,'Correct the result before changing this Challenge.');if(a.type!=='matchAction')snapshot(g);g.revision++;
- if(a.type==='start'){admin();need(g.phase==='ready','Already started.');g.phase='active';if(['names','bomb','light','timedGoals','hunt','endurance'].includes(g.engine)){const seconds=n===71?8:[66,67,68].includes(n)?60:180;g.timer=timer(now,['names'].includes(g.engine)?10000:n===72||n===76||n===77||n===83||n===16?120000:seconds*1000);if(g.engine==='bomb'){g.bomb.at=g.timer.startedAt;g.timer.duration=null};if(n===71)g.subphase='headstart';if(g.engine==='endurance'&&asymmetric(g))delete g.timer;if(g.engine==='light'){g.lightSeed=Math.floor(r()*2**32);g.timer.duration=null}}return}
+ if(a.type==='start'){admin();need(g.phase==='ready','Already started.');g.phase='active';if(['names','bomb','light','timedGoals','hunt','endurance','bust'].includes(g.engine)){const seconds=n===71?8:[66,67,68].includes(n)?60:180;g.timer=timer(now,g.engine==='bust'?60000:['names'].includes(g.engine)?10000:n===72||n===76||n===77||n===83||n===16?120000:seconds*1000);if(g.engine==='bomb'){g.bomb.at=g.timer.startedAt;g.timer.duration=null};if(n===71)g.subphase='headstart';if(g.engine==='endurance'&&asymmetric(g))delete g.timer;if(g.engine==='light'){g.lightSeed=Math.floor(r()*2**32);g.timer.duration=null}}return}
  if(a.type==='pause'){admin();need(g.timer&&!g.timer.pausedAt);if(g.engine==='bomb')g.bomb={...g.bomb,position:bombPosition(g,now),at:now};g.timer.pausedAt=now;return}
  if(a.type==='resume'){admin();need(g.timer?.pausedAt);g.timer.pauseTotal+=(now-g.timer.pausedAt);delete g.timer.pausedAt;if(g.engine==='bomb')g.bomb.at=now;return}
  if(a.type==='timerStart'){need(g.phase==='active'||g.phase==='ready');const id=current();if(g.engine==='pressure')need(g.sides[g.turn%2].includes(uid)||host);else if(g.engine==='airdribble'){need(uid!==id&&g.ids.includes(uid),'Another player must operate the timer.');g.operator=uid}else person(id);need(g.engine==='pressure'?(!g.timer||timerLeft(g.timer,now)===0):!g.timer,'Submit or redo the existing run first.');const duration=g.engine==='pressure'?numeric(a.seconds)*1000:g.engine==='endurance'?(sideOf(g,id)===0?g.sides[1].length:1)*60000:g.engine==='reverseSpeed'||g.engine==='gauntlet'?60000:null;if(g.engine==='pressure')need([5000,10000,15000].includes(duration));g.timer=timer(now,duration);g.phase='active';return}
@@ -117,14 +118,16 @@ function applyGameAction(g,a,uid,host,r,now) {
  if(g.engine==='survival'&&a.type==='batchLife'){need(a.ids?.length===1&&a.ids[0]===uid,'Players report only their own elimination.');need(Array.isArray(a.ids)&&a.ids.length&&new Set(a.ids).size===a.ids.length&&a.ids.every(id=>active(g).includes(id)));for(const id of a.ids)g.lives[id]--;eliminate(g,a.ids.filter(id=>!g.lives[id]),now);return}
  if(g.engine==='survival'){person(own);need(active(g).includes(own));g.lives[own]--;if(!g.lives[own])eliminate(g,[own],now);return}
  if(g.engine==='horse'||g.engine==='chain'||g.engine==='copySurvival'){admin();horseAction(g,a,now);return}
- if(g.engine==='ttt'){const i=numeric(a.tile,true);need(i<9);if(a.type==='rerollTile'){admin();need(n===28&&!g.tiles[i]);g.tileMechanics[i]=mech(r);return}need(g.ids.includes(uid));if(n===52)need(uid===g.order[g.turn%2],'Wait for your turn.');if(g.tiles[i]){need(n===28&&g.tiles[i]===uid);g.tiles[i]='';return}need(a.type==='claim');g.tiles[i]=uid;g.turn++;const line=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]].find(l=>l.every(j=>g.tiles[j]===uid));if(line){g.winLine=line;sideWin(g,sideOf(g,uid),now)}else if(g.tiles.every(Boolean))sideWin(g,-1,now);return}
+ if(g.engine==='ttt'){const i=numeric(a.tile,true);need(i<9);if(a.type==='rerollTile'){admin();need(n===28&&!g.tiles[i]);g.tileMechanics[i]=mech(r);return}need(g.ids.includes(uid));if(n===52)need(uid===g.order[g.turn%2],'Wait for your turn.');if(g.tiles[i]){need(n===28&&g.tiles[i]===uid);g.tiles[i]='';return}need(a.type==='claim');g.tiles[i]=uid;g.turn++;const line=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]].find(l=>l.every(j=>g.tiles[j]===uid));if(line){g.winLine=line;sideWin(g,sideOf(g,uid),now)}else if(g.tiles.every(Boolean)){if(g.mustResolveWinner){g.round=(g.round||1)+1;g.tiles=Array(9).fill('');delete g.winLine;if(n===28)g.tileMechanics=Array.from({length:9},()=>mech(r));g.turn=g.round%2}else sideWin(g,-1,now)}return}
  if(g.engine==='tug'){need(g.ids.includes(uid));need(a.revision===g.mechanicVersions?.[uid]||(!g.mechanicVersions?.[uid]&&a.revision===0),'That mechanic was already submitted.');const side=sideOf(g,uid);const amount=a.type==='rerollOwn'?-1:asymmetric(g)&&side===0?g.sides[1].length:1;g.rope=Math.max(-g.limit,Math.min(g.limit,g.rope+(side===0?-1:1)*amount));g.mechanics[uid]=mech(r);g.mechanicVersions||={};g.mechanicVersions[uid]=(g.mechanicVersions[uid]||0)+1;if(Math.abs(g.rope)===g.limit)sideWin(g,g.rope<0?0:1,now);return}
  if(g.engine==='bomb'){need(a.type==='reverse');need(a.revision===g.bomb.version,'Another answer already reversed the bomb.');const p=bombPosition(g,now);need(Math.abs(p)<1,'The bomb already reached the endpoint.');need(sideOf(g,uid)===(g.bomb.direction<0?0:1),'Only the targeted side can answer.');g.bomb={position:p,direction:-g.bomb.direction,at:now,version:g.bomb.version+1};return}
  if(g.engine==='alphabet'){if(a.type==='chooseLetter'){admin();need(!g.letter);g.letter=pick([...new Set(PARTY_MECHANICS.map(m=>m.name[0].toUpperCase()))],r);return}person(own);need(g.letter&&g.ids.includes(own));g.scores[own]++;if(g.scores[own]>=3)settleScores(g,g.scores,now,{mode:'max'});else g.letter='';return}
  if(g.engine==='speedladder'){person(current());if(g.subphase==='set'){need(a.type==='baseline');g.subphase='beat';g.turn=(g.turn+1)%active(g).length}else if(a.type==='higher')g.turn=(g.turn+1)%active(g).length;else{const id=current();g.lives[id]--;g.subphase='set';if(!g.lives[id]){eliminate(g,[id],now);g.order=shuffle(active(g),r);g.turn=0}}return}
  if(g.engine==='reverseSpeed'){person(current());need(g.timer?.pausedAt,'Press Goal Scored before entering KPH.');const value=numeric(a.value),id=current(),alive=active(g),index=alive.indexOf(id);if(value===0){eliminate(g,[alive[(index+1)%alive.length]],now);g.baseline=null}else if(g.baseline!==null&&value>g.baseline){g.lives[id]--;if(!g.lives[id])eliminate(g,[id],now)}else g.baseline=value;const next=alive.slice(index+1).concat(alive.slice(0,index+1)).find(x=>!g.out.includes(x));g.turn=active(g).indexOf(next);delete g.timer;return}
+ if(g.engine==='bust'){const aliveNow=active(g),id=current();person(id);need(a.type==='bustKph','Enter the KPH from your scored goal.');need(g.timer&&!g.timer.pausedAt&&now>=g.timer.startedAt&&timerLeft(g.timer,now)>0,'Your 1-minute turn is not active.');const value=numeric(a.value),before=Number(g.bustRemaining)||0,after=before-value;g.bustHistory||=[];g.bustHistory.push({playerId:id,value,before,after,round:g.round});if(after<0){eliminate(g,[id],now);if(!g.result)resetBustRound(g,r,now);return}if(after===0){const aliveBefore=[...aliveNow],idx=aliveBefore.indexOf(id),victim=aliveBefore[(idx+1)%aliveBefore.length];if(victim&&victim!==id)eliminate(g,[victim],now);if(!g.result)resetBustRound(g,r,now);return}g.bustRemaining=after;g.turn=(g.turn+1)%active(g).length;g.timer=timer(now,60000);return}
  if(g.engine==='names'&&a.type==='invalidAnswer'){throw Error('Try a different answer before your timer expires.')}
- if(g.engine==='names'){need(uid===current(),'Wait for your turn.');need(a.type==='pass'&&timerLeft(g.timer,now)>0);g.lastPlayer=current();g.turn=(g.turn+1)%active(g).length;g.timer={startedAt:now,duration:10000,pauseTotal:0};return}
+ if(g.engine==='names'&&a.type==='redoLastPass'){admin();need(g.lastPass,'Only the immediately previous submitted turn can be redone.');need(active(g).includes(g.lastPass.playerId),'That player is no longer active.');g.turn=active(g).indexOf(g.lastPass.playerId);g.timer={startedAt:now+500,duration:Math.max(1,Number(g.lastPass.remainingMs)||1),pauseTotal:0};g.redoNotice={playerId:g.lastPass.playerId,remainingMs:g.timer.duration};delete g.lastPass;return}
+ if(g.engine==='names'){need(uid===current(),'Wait for your turn.');need(a.type==='pass'&&timerLeft(g.timer,now)>0);const remainingMs=timerLeft(g.timer,now);g.lastPlayer=current();g.lastPass={playerId:current(),turn:g.turn,remainingMs,submittedAt:now};delete g.redoNotice;g.turn=(g.turn+1)%active(g).length;g.timer={startedAt:now,duration:10000,pauseTotal:0};return}
  if(g.engine==='series'){
  if(g.matches?.current){
    if(a.type==='matchAction'){need(a.matchId==='current');gameAction(g.matches.current,a.action,uid,host,r,now);return}
@@ -191,10 +194,12 @@ function handleTournament(g,a,uid,host,r,now){if(g.engine==='potatoTournament'&&
  if(g.stage==='placements'&&g.matches.final.result&&g.matches.third.result)result(g,[...g.matches.final.result.placements,...g.matches.third.result.placements],now);return}
  throw Error('Choose a match action.')}
 export function bombPosition(g,now){if(!g.bomb)return 0;const end=g.timer?.pausedAt??now;return Math.max(-1,Math.min(1,g.bomb.position+g.bomb.direction*Math.max(0,end-g.bomb.at)/10000))}
-export function lightAt(g,now){const elapsed=timerElapsed(g.timer,now);const r=seeded(g.lightSeed);let at=0,color='green',index=0;while(at<=elapsed&&index<50000){const v=r(),trio=g.format==='1v3',duo=g.format==='1v2';color=v<(trio?.35:.5)?'green':v<.8?'yellow':'red';const range=trio?(color==='red'?[3,4.5]:[7.5,12]):duo?(color==='green'?[9,15]:color==='yellow'?[6,10.5]:[3,6]):(color==='green'?[9,13.5]:color==='yellow'?[6,9]:[3,4.5]);at+=(range[0]+r()*(range[1]-range[0]))*1000;index++}return {color,index}}
+export function lightAt(g,now){const elapsed=timerElapsed(g.timer,now);const r=seeded(g.lightSeed);let at=0,color='green',index=0;while(at<=elapsed&&index<50000){const v=r(),trio=g.format==='1v3',duo=g.format==='1v2';const greenCut=trio?.30:.42,yellowCut=trio?.77:.78;color=v<greenCut?'green':v<yellowCut?'yellow':'red';const range=trio?(color==='green'?[7.5,12]:color==='yellow'?[8.5,13]:[3,4.5]):duo?(color==='green'?[9,15]:color==='yellow'?[7.5,12]:[3,6]):(color==='green'?[9,13.5]:color==='yellow'?[7.5,11.5]:[3,4.5]);at+=(range[0]+r()*(range[1]-range[0]))*1000;index++}return {color,index}}
 function nextGauntlet(g,now){g.turn++;delete g.timer;if(g.turn>=g.ids.length){const compare=(a,b)=>{const x=g.laps?.[a]||[],y=g.laps?.[b]||[];if(x.length!==y.length)return y.length-x.length;for(let i=x.length-1;i>=0;i--)if(x[i]!==y[i])return x[i]-y[i];return 0};const ids=[...g.ids].sort(compare),groups=[];for(const id of ids){if(groups.length&&!compare(id,groups.at(-1)[0]))groups.at(-1).push(id);else groups.push([id])}result(g,groups,now)}}
+function resetBustRound(g,r,now){if(survivalResult(g,now))return;const alive=active(g);g.round=(g.round||1)+1;g.bustTarget=200+Math.floor(r()*301);g.bustRemaining=g.bustTarget;g.order=shuffle(alive,r);g.turn=0;g.timer=timer(now,60000)}
 function tick(g,now,r){if(g.phase!=='active')return;const n=nOf(g);if(g.engine==='bomb'){const pos=bombPosition(g,now);if(Math.abs(pos)>=1)sideWin(g,pos<0?1:0,now);return}if(!g.timer||g.timer.pausedAt||timerLeft(g.timer,now)>0)return;
- if(g.engine==='names'){const alive=active(g),id=alive[g.turn%alive.length];eliminate(g,[id],now);if(!g.result){g.turn%=active(g).length;g.timer={startedAt:g.timer.startedAt+g.timer.duration+g.timer.pauseTotal,duration:10000,pauseTotal:0}}}
+ if(g.engine==='names'){const alive=active(g),id=alive[g.turn%alive.length];delete g.lastPass;delete g.redoNotice;eliminate(g,[id],now);if(!g.result){g.turn%=active(g).length;g.timer={startedAt:g.timer.startedAt+g.timer.duration+g.timer.pauseTotal,duration:10000,pauseTotal:0}}}
+ else if(g.engine==='bust'){const alive=active(g),id=alive[g.turn%alive.length];eliminate(g,[id],now);if(!g.result)resetBustRound(g,r,now)}
  else if(g.engine==='reverseSpeed'){const alive=active(g),id=alive[g.turn%alive.length];g.lives[id]--;if(!g.lives[id])eliminate(g,[id],now);g.turn=(g.turn+(g.out.includes(id)?0:1))%Math.max(1,active(g).length);delete g.timer}
  else if(g.engine==='gauntlet')nextGauntlet(g,now);
  else if(g.engine==='hunt'&&n===71&&g.subphase==='headstart'){g.subphase='hunt';g.timer={startedAt:g.timer.startedAt+8000,duration:60000,pauseTotal:0}}
@@ -216,15 +221,70 @@ export function rewardDistribution(b){
  for(const group of groups){const payout=scale[rank+group.length-1]||0;for(const id of group)rewards[id]=payout;rank+=group.length}
  return rewards
 }
-export function reduceBattle(b,a,uid,seed,now){b=clone(b);const r=seeded(seed),host=uid===b.hostId;need(b.status==='active','Battle is already complete.');need(b.participantIds.includes(uid)||host,'Not a Battle participant.');if(a.type==='format'){need(host&&b.stage==='format');need(FORMAT_SIZES[a.format]<=b.participantIds.length,'Not enough players.');b.format=a.format;b.stage=b.chooseParticipants?'participants':'draw'}
- else if(a.type==='participants'){
- need(host&&b.stage==='participants');const ids=a.sides?.flat();need(Array.isArray(ids)&&ids.length===FORMAT_SIZES[b.format]&&new Set(ids).size===ids.length&&ids.includes(b.challengerId)&&ids.every(id=>b.availableIds.includes(id)),'Choose the required players, including yourself.');
- const sizes=a.sides.map(side=>side.length);need(b.format==='2v2'?sizes.join(',')==='2,2':b.format==='1v2'?sizes.join(',')==='1,2':b.format==='1v3'?sizes.join(',')==='1,3':sizes.every(x=>x===1),'Choose valid teams.');b.selectedSides=a.sides;b.participantIds=ids;b.stage='draw';
+export function reduceBattle(b,a,uid,seed,now){
+ b=clone(b);const r=seeded(seed),host=uid===b.hostId;
+ need(b.status==='active','Battle is already complete.');
+ need(b.participantIds.includes(uid)||host,'Not a Battle participant.');
+
+ if(a.type==='format'){
+  need(host&&b.stage==='format');
+  need(FORMAT_SIZES[a.format]<=b.participantIds.length,'Not enough players.');
+  b.format=a.format;
+
+  // Challenge Glove: the card owner chooses ONLY the format. The browser
+  // secretly/randomly locks the remaining participants and team assignment
+  // before the random Challenge is drawn. The card owner always participates.
+  if(b.source==='challenge-glove'){
+   const needed=FORMAT_SIZES[b.format];
+   const others=shuffle(b.availableIds.filter(id=>id!==b.challengerId),r).slice(0,Math.max(0,needed-1));
+   const ids=[b.challengerId,...others];
+   need(ids.length===needed,'Not enough players for that format.');
+   const randomOrder=shuffle(ids,r);
+   const sides=b.format==='2v2'?[randomOrder.slice(0,2),randomOrder.slice(2)]
+    :b.format==='1v2'?[[randomOrder[0]],randomOrder.slice(1,3)]
+    :b.format==='1v3'?[[randomOrder[0]],randomOrder.slice(1,4)]
+    :randomOrder.map(id=>[id]);
+   b.participantIds=ids;
+   b.selectedSides=sides;
+   b.stage='draw';
+  }else b.stage=b.chooseParticipants?'participants':'draw';
  }
- else if(a.type==='next'){need(host);b.revealStartedAt=now;if(b.stage==='intro'){b.stage=b.devSelected?'challengeReveal':b.chooseParticipants?'format':b.format==='1v1'?'draw':'formatReveal'}else if(b.stage==='formatReveal')b.stage='draw';else if(b.stage==='draw'){const c=pick(challengePool(b.format),r);b.challengeId=c.id;b.name=c.name;b.stage='challengeReveal'}else if(b.stage==='challengeReveal'){let ids=shuffle(b.participantIds,r);if(FORMAT_SIZES[b.format]<ids.length)ids=[b.challengerId,...ids.filter(id=>id!==b.challengerId)].slice(0,FORMAT_SIZES[b.format]);b.participantIds=ids;b.game=createGame(b.challengeId,b.format,ids,r,now,{sides:b.selectedSides});b.stage=!b.selectedSides&&['2v2','1v2','1v3'].includes(b.format)?'teamReveal':'rules'}else if(b.stage==='teamReveal'){b.stage='rules'}else if(b.stage==='rules'){b.stage='play';gameAction(b.game,{type:'start'},uid,true,r,now)}else throw Error('Use the Challenge controls.')}
- else if(a.type==='game'){need(b.stage==='play'||b.stage==='rules'&&a.action.type==='reroll');if(a.action.type==='tiebreak'){need(host);startTiebreak(b.game,r)}else gameAction(b.game,a.action,uid,host,r,now)}else throw Error('Unknown Battle action.');b.version++;return b}
+ else if(a.type==='participants'){
+  need(host&&b.stage==='participants');const ids=a.sides?.flat();
+  need(Array.isArray(ids)&&ids.length===FORMAT_SIZES[b.format]&&new Set(ids).size===ids.length&&ids.includes(b.challengerId)&&ids.every(id=>b.availableIds.includes(id)),'Choose the required players, including yourself.');
+  const sizes=a.sides.map(side=>side.length);
+  need(b.format==='2v2'?sizes.join(',')==='2,2':b.format==='1v2'?sizes.join(',')==='1,2':b.format==='1v3'?sizes.join(',')==='1,3':sizes.every(x=>x===1),'Choose valid teams.');
+  b.selectedSides=a.sides;b.participantIds=ids;b.stage='draw';
+ }
+ else if(a.type==='next'){
+  need(host);b.revealStartedAt=now;
+  if(b.stage==='intro') b.stage=b.devSelected?'challengeReveal':b.chooseParticipants?'format':b.format==='1v1'?'draw':'formatReveal';
+  else if(b.stage==='formatReveal') b.stage='draw';
+  else if(b.stage==='draw'){
+   const c=pick(challengePool(b.format),r);b.challengeId=c.id;b.name=c.name;b.stage='challengeReveal';
+  }else if(b.stage==='challengeReveal'){
+   let ids=shuffle(b.participantIds,r);
+   if(FORMAT_SIZES[b.format]<ids.length) ids=[b.challengerId,...ids.filter(id=>id!==b.challengerId)].slice(0,FORMAT_SIZES[b.format]);
+   b.participantIds=ids;
+   const challenge=CHALLENGE_BY_ID[b.challengeId];
+   const secretImposter=challenge?.engine==='imposter';
+   if(secretImposter) delete b.selectedSides;
+   b.game=createGame(b.challengeId,b.format,ids,r,now,{sides:secretImposter?undefined:b.selectedSides});
+   // Imposter team/solo assignment is private. Never run the public team roulette.
+   b.stage=secretImposter?'rules':!b.selectedSides&&['2v2','1v2','1v3'].includes(b.format)?'teamReveal':'rules';
+  }else if(b.stage==='teamReveal') b.stage='rules';
+  else if(b.stage==='rules'){b.stage='play';gameAction(b.game,{type:'start'},uid,true,r,now)}
+  else throw Error('Use the Challenge controls.');
+ }
+ else if(a.type==='game'){
+  need(b.stage==='play'||b.stage==='rules'&&a.action.type==='reroll');
+  if(a.action.type==='tiebreak'){need(host);startTiebreak(b.game,r)}else gameAction(b.game,a.action,uid,host,r,now);
+ }else throw Error('Unknown Battle action.');
+ b.version++;return b
+}
+
 function kuxirDuel(g,a,uid,host,now){const id=a.playerId||uid;need(g.ids.includes(id)&&(host||uid===id));g.kuxir||={};g.kph||={};if(a.type==='scored'||a.type==='missed'){need(g.kuxir[id]===undefined);g.kuxir[id]=a.type==='scored'}else{need(a.type==='kph'&&g.ids.every(id=>g.kuxir[id]));g.kph[id]=numeric(a.value)}if(!g.ids.every(id=>g.kuxir[id]!==undefined))return;const made=g.ids.filter(id=>g.kuxir[id]);if(made.length===1){sideWin(g,sideOf(g,made[0]),now);return}if(!made.length){g.kuxir={};g.kph={};g.round++;return}if(g.ids.every(id=>g.kph[id]!==undefined)){const [a,b]=g.ids;if(g.kph[a]!==g.kph[b])sideWin(g,sideOf(g,g.kph[a]>g.kph[b]?a:b),now);else{g.kuxir={};g.kph={};g.round++}}}
-function placementMatch(parent,old,ids,r,now){if(!old)return createMatch(parent,ids,r,now);const fresh=createGame(old.challengeId,'1v1',ids,r,now);for(const key of ['sprint','playerChosen','setting'])if(old[key]!==undefined)fresh[key]=old[key];if(old.sprint)return createSprint(old.sprint,'1v1',ids,r,now);if(old.playerChosen)fresh.engine='manual';return fresh}
+function placementMatch(parent,old,ids,r,now){if(!old)return createMatch(parent,ids,r,now);const fresh=createGame(old.challengeId,'1v1',ids,r,now);for(const key of ['sprint','playerChosen','setting'])if(old[key]!==undefined)fresh[key]=old[key];if(old.sprint)return createSprint(old.sprint,'1v1',ids,r,now);if(old.playerChosen)fresh.engine='manual';if([28,52].includes(nOf(parent)))fresh.mustResolveWinner=true;return fresh}
 
 export function createSprint(name,format,ids,r,now,options={}) {
  const g=createGame('challenge-1',format,ids,r,now,{sprintBase:true,sides:options.sides});g.sprint=name;
@@ -254,7 +314,7 @@ export function gameAction(g,a,uid,host,r,now) {
  const repeated=(g.engine==='airdribble'&&g.groups&&g.turn===0&&before.turn>0)||(['heads','combo','reset2'].includes(g.engine)&&g.round>before.round)||
   (g.engine==='target'&&g.shot>=6&&g.shot>before.shot&&(g.shot-6)%2===0)||
   (g.engine==='guess'&&before.shot>0&&g.shot===0)||
-  (g.engine==='imposter'&&before.subphase==='vote'&&g.subphase==='clues')||
+  (g.engine==='imposter'&&before.subphase==='vote'&&g.subphase==='freeClues')||
   (!before.overtime&&g.overtime)||(!before.phase?.includes('overtime')&&g.phase==='overtime')||
   (g.engine==='triathlon'&&!g.result&&g.eventIndex>=g.events.length-1&&g.tiebreakOpponent);
  if(repeated){g.tieNotice={message:g.engine==='target'?'Scores tied! Each side gets one extra attacking possession, then compare totals again.':g.engine==='imposter'?'The vote is tied. Everyone gives another clue, then votes again.':'No winner yet! Continue with the tiebreak rules for this game.'};if(g.timer&&!g.timer.pausedAt)g.timer.pausedAt=now;}

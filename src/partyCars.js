@@ -119,7 +119,7 @@ export const PARTY_CARS = [
     name: 'Road Hog XL',
     imageUrl: roadHogXlImage,
     specialDie: [
-      { type: 'tokens', value: 5 },
+      { type: 'tokens', value: 3 },
       0,
       0,
       0,

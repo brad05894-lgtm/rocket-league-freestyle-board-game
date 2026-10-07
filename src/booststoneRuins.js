@@ -12,7 +12,7 @@ const TYPE_BY_ID = {
   n58: 'Event',
   n15: 'Lucky',
   n17: 'Paratroopa',
-  n19: 'Mechanic',
+  n19: 'Event',
   n20: 'Bad Luck',
 
   // LOCKED Boost Boulder lane.
@@ -257,6 +257,7 @@ const SPECIAL_BY_ID = {
   n06: 'gate-switch-bridge-west',
 
   // Top-right loop board Events.
+  n19: 'supply-crates',
   n58: 'reactor-trigger-c',
 
   // Every Event on the horizontal Boost Boulder lane triggers the same boulder.
@@ -389,10 +390,10 @@ export const BOOSTSTONE_RUINS = {
   ],
 
   gates: [
-    { id: 'garage-gate-bridge-east', modelGateId: 'bridge_east', label: 'Right Forward Garage Gate', between: ['n05', 'n53'], x: 1048, y: 412, toll: 3, group: 'ruins-gates', pairId: 'right', route: 'forward' },
-    { id: 'garage-gate-bridge-west', modelGateId: 'bridge_west', label: 'Right Side Garage Gate', between: ['n05', 'n06'], x: 1016, y: 444, toll: 3, group: 'ruins-gates', pairId: 'right', route: 'branch' },
-    { id: 'garage-gate-west', modelGateId: 'west_straight', label: 'Left Forward Garage Gate', between: ['n37', 'n41'], x: 344, y: 540, toll: 3, group: 'ruins-gates', pairId: 'left', route: 'forward' },
-    { id: 'garage-gate-center', modelGateId: 'west_branch', label: 'Left Side Garage Gate', between: ['n37', 'n43'], x: 376, y: 508, toll: 3, group: 'ruins-gates', pairId: 'left', route: 'branch' },
+    { id: 'garage-gate-bridge-east', modelGateId: 'bridge_east', label: 'Right Forward Garage Gate', between: ['n05', 'n53'], x: 1048, y: 412, toll: 5, group: 'ruins-gates', pairId: 'right', route: 'forward' },
+    { id: 'garage-gate-bridge-west', modelGateId: 'bridge_west', label: 'Right Side Garage Gate', between: ['n05', 'n06'], x: 1016, y: 444, toll: 5, group: 'ruins-gates', pairId: 'right', route: 'branch' },
+    { id: 'garage-gate-west', modelGateId: 'west_straight', label: 'Left Forward Garage Gate', between: ['n37', 'n41'], x: 344, y: 540, toll: 5, group: 'ruins-gates', pairId: 'left', route: 'forward' },
+    { id: 'garage-gate-center', modelGateId: 'west_branch', label: 'Left Side Garage Gate', between: ['n37', 'n43'], x: 376, y: 508, toll: 5, group: 'ruins-gates', pairId: 'left', route: 'branch' },
   ],
 
   landmarks: [
@@ -436,12 +437,17 @@ export const BOOSTSTONE_RUINS = {
   },
 
   boardEvents: {
+    'supply-crates': {
+      name: 'Choose a Treasure Chest!',
+      oneUse: false,
+      description: 'Choose one of three mystery treasure chests. Every chest contains a helpful reward.',
+    },
     'reactor-trigger-c': {
       name: 'Boost Boulder Chain',
       oneUse: false,
       affectedNodes: ['n58', 'n13', 'n14', 'n15', 'n21', 'n22', 'n23', 'n24', 'n25', 'n26', 'n27', 'n28'],
       resetTo: 'n57',
-      description: 'Launches the Boost Boulder down the full horizontal lane. Any player caught on its lane is knocked back toward the safe blue space below the right-side trigger.',
+      description: 'Launches the Boost Boulder down the full horizontal lane. Any player caught on its lane loses up to 5 Tokens and is knocked back toward the safe blue space below the right-side trigger.',
     },
     'gate-switch-bridge-east': {
       name: 'Garage Gate Switch',
