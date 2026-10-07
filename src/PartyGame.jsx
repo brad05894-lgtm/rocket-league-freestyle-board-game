@@ -1,3 +1,4 @@
+import PartyFinale from './PartyFinale'
 import TokenIcon from './TokenIcon'
 import './partyImmersive.css'
 import PartyChallenge, { ChallengeDev } from './PartyChallenge'
@@ -21,6 +22,9 @@ import {
   preparePartyLuckDevTest,
   preparePartyEventDevTest,
   preparePartyServiceDevTest,
+  preparePartyBonusDevTest,
+  closePartyBonusDevTest,
+  stopPartyAtPreviousSpace,
   skipPartyEvent,
   resolvePartyBattle,
   resolvePartyJackpotDecision,
@@ -418,7 +422,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
     .filter(Boolean)
   const totalRounds = room.settings?.rounds || 10
   const currentRound = room.currentRound || 1
-  const finalFive = currentRound > Math.max(0, totalRounds - 5)
+  const finalFive = currentRound > Math.max(0, totalRounds - 3)
   const baseTrophyPrice = room.settings?.trophyPrice ?? board.defaultTrophyPrice
   const trophyPrice = Math.max(
     0,
@@ -693,9 +697,12 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const fullBox=board.viewBox||{x:0,y:0,width:board.width,height:board.height}
   const boardBox=overview?`${fullBox.x} ${fullBox.y} ${fullBox.width} ${fullBox.height}`:`${mapCenter.x-230} ${mapCenter.y-140} 460 280`
   const orderResults = isTurnOrderPhase && room.turnOrderComplete
+  if(room.devBonusPreview)return <PartyFinale room={room.devBonusPreview} clockOffset={clockOffset} isHost={isHost} isPreview onLeave={()=>runAction(()=>closePartyBonusDevTest(roomCode,clientId))}/>
+  if(room.phase==='party-complete-test')return <PartyFinale room={room} clockOffset={clockOffset} onLeave={onLeave} isHost={isHost}/>
+  const routeDecision = room.phase==='board' && !movementBusy && (turn.awaitingChoice || turn.awaitingGate)
   const battleLocked=battle?.status==='active'||room.phase==='round-complete'||orderResults
   return (
-    <div ref={immersiveRef} className="game party-game-screen party-immersive" data-panel={hudPanel||'none'}>
+    <div ref={immersiveRef} className="game party-game-screen party-immersive" data-route={Boolean(routeDecision)} data-panel={hudPanel||'none'}>
       {room.phase === 'party-complete-test' && <FinalPartyCinematic room={room} players={players} onLeave={onLeave} isHost={isHost} />}
       {partyRoulette && !movementBusy && (
         <div className="party-roulette-overlay">
@@ -737,7 +744,31 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
         </div>
       )}
 
-      {room.phase === 'board' && !movementBusy && turn.awaitingChoice && battle?.status !== 'active' && (() => {
+      {orderResults&&<div className="bc-backdrop"><section className="bc-dialog party-order-results" role="dialog" aria-modal="true" aria-label="Turn order results"><button onClick={onLeave}>{isHost?'End game':'Leave game'}</button><h1>Turn order is set!</h1><p>Everyone starts on the deck. Your first movement point reaches the first blue Mechanic space.</p><ol>{players.map((player,index)=><li key={player.id}><strong>{player.name}</strong><span>🎲 {turnOrderRolls[player.id]}</span><small>{index===0?'Goes first':'Turn order locked'}</small></li>)}</ol><p>Equal rolls use a random tiebreak. Only the player going first needs to continue.</p>{players[0]?.id===clientId?<button disabled={actionBusy} onClick={()=>runAction(()=>confirmPartyTurnOrder(roomCode,clientId))}>Continue to Board</button>:<p>Waiting for <strong>{players[0]?.name||'the first player'}</strong> to continue…</p>}{error&&<p role="alert">{error}</p>}</section></div>}
+      {!movementBusy&&(battle?.status==='active'||room.phase==='round-complete')&&<PartyChallenge room={room} roomCode={roomCode} clientId={clientId} onLeave={onLeave} onNextRound={handleNextRound}/>}
+      <div className="party-game-layout">
+        <section className="party-game-board-card party-game-board-card--ruins">
+          {true && (
+            <BooststoneRuins3D
+              overview={overview} topDown={boardView==='2d'} quality={quality}
+              board={board}
+              room={room}
+              players={players}
+              activePlayer={activePlayer}
+              finalFive={finalFive}
+              highlightNodeIds={transportTargetNodeIds}
+              closedGarageGateIds={closedGarageGateIds}
+              turnOrderPhase={isTurnOrderPhase}
+              turnOrderRolls={turnOrderRolls}
+            />
+          )}
+
+        </section>
+
+        <aside className="party-turn-panel" inert={battleLocked?true:undefined} aria-label="Game overlay">
+          <header className="party-panel-header"><strong>{({turn:'Your turn',cards:'Action Cards',players:'Standings',log:'Activity',dev:'Dev Test Lab',settings:'Settings'})[hudPanel]||'Game'}</strong><button aria-label="Close overlay" onClick={()=>setHudPanel(null)}>✕</button></header>
+          {routeDecision && hudPanel==='turn' ? <>
+      {room.phase === 'board' && !movementBusy && turn.awaitingChoice && !turn.awaitingGate && battle?.status !== 'active' && (() => {
         const currentId = turn.choiceNodeId || activeSetup.boardNodeId
         const motionPath = Array.isArray(room.boardMotion?.path) ? room.boardMotion.path : []
         const previousId = motionPath.at(-1) === currentId ? motionPath.at(-2) : ''
@@ -773,34 +804,51 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                   )
                 })}
               </div>
+              {isMyTurn && turn.lastLandableNodeId && <button disabled={busy} onClick={()=>runAction(()=>stopPartyAtPreviousSpace(roomCode,clientId))}>Stop at the previous space</button>}
               {!isMyTurn && <small>Only {activePlayer?.name || 'the current player'} can choose.</small>}
             </section>
           </div>
         )
       })()}
-      {orderResults&&<div className="bc-backdrop"><section className="bc-dialog party-order-results" role="dialog" aria-modal="true" aria-label="Turn order results"><button onClick={onLeave}>{isHost?'End game':'Leave game'}</button><h1>Turn order is set!</h1><p>Everyone starts on the deck. Your first movement point reaches the first blue Mechanic space.</p><ol>{players.map((player,index)=><li key={player.id}><strong>{player.name}</strong><span>🎲 {turnOrderRolls[player.id]}</span><small>{index===0?'Goes first':'Turn order locked'}</small></li>)}</ol><p>Equal rolls use a random tiebreak. Only the player going first needs to continue.</p>{players[0]?.id===clientId?<button disabled={actionBusy} onClick={()=>runAction(()=>confirmPartyTurnOrder(roomCode,clientId))}>Continue to Board</button>:<p>Waiting for <strong>{players[0]?.name||'the first player'}</strong> to continue…</p>}{error&&<p role="alert">{error}</p>}</section></div>}
-      {!movementBusy&&(battle?.status==='active'||room.phase==='round-complete')&&<PartyChallenge room={room} roomCode={roomCode} clientId={clientId} onLeave={onLeave} onNextRound={handleNextRound}/>}
-      <div className="party-game-layout">
-        <section className="party-game-board-card party-game-board-card--ruins">
-          {true && (
-            <BooststoneRuins3D
-              overview={overview} topDown={boardView==='2d'} quality={quality}
-              board={board}
-              room={room}
-              players={players}
-              activePlayer={activePlayer}
-              finalFive={finalFive}
-              highlightNodeIds={transportTargetNodeIds}
-              closedGarageGateIds={closedGarageGateIds}
-              turnOrderPhase={isTurnOrderPhase}
-              turnOrderRolls={turnOrderRolls}
-            />
+          {room.phase === 'board' && !movementBusy && turn.awaitingGate && (
+            <div className="party-turn-panel__section party-path-choice">
+              <p className="home-mode-card__eyebrow">Closed Garage Gate</p>
+              <h3>🚧 Pay {turn.gateToll || 3} Tokens to pass?</h3>
+              <p>
+                The currently closed Garage Gate is blocking your route. Paying lets you keep the rest of your movement.
+                Go back to choose another route without paying.
+              </p>
+              {isMyTurn ? (
+                <div className="party-path-choice__buttons">
+                  <button
+                    type="button"
+                    className="party-primary-action"
+                    onClick={() => handleGarageGate(true)}
+                    disabled={busy || (currentSetup.tokens || 0) < (turn.gateToll || 3)}
+                  >
+                    Pay {turn.gateToll || 3} Tokens & Continue
+                  </button>
+                  <button
+                    type="button"
+                    className="party-secondary-action"
+                    onClick={() => handleGarageGate(false)}
+                    disabled={busy}
+                  >
+                    Back to route choices
+                  </button>
+                  {(currentSetup.tokens || 0) < (turn.gateToll || 3) && (
+                    <p className="party-lobby-hint">You do not have enough Tokens to pay this Gate.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="party-waiting-box">
+                  Waiting for {activePlayer?.name || 'the current player'} to resolve the Garage Gate…
+                </div>
+              )}
+            </div>
           )}
 
-        </section>
-
-        <aside className="party-turn-panel" inert={battleLocked?true:undefined} aria-label="Game overlay">
-          <header className="party-panel-header"><strong>{({turn:'Your turn',cards:'Action Cards',players:'Standings',log:'Activity',dev:'Dev Test Lab',settings:'Settings'})[hudPanel]||'Game'}</strong><button aria-label="Close overlay" onClick={()=>setHudPanel(null)}>✕</button></header>
+          </> : <>
           <section className="party-settings-panel">
             <button onClick={enterFullscreen}>Enter fullscreen</button>{fullscreenError&&<p>{fullscreenError}</p>}
             <label>Board graphics<select value={boardView} onChange={e=>setBoardView(e.target.value)}><option value="3d">3D follow camera</option><option value="2d">Overhead view (same 3D board)</option></select></label>
@@ -934,29 +982,12 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                   type="button"
                   onClick={() => handlePrepareLuckTest('Very Bad Luck')}
                   disabled={busy}
-                  title="Jump to the final five rounds and test the upgraded Very Bad Luck roulette."
+                  title="Test the final three rounds and test the upgraded Very Bad Luck roulette."
                 >
                   💀 Very Bad Luck Test
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handlePrepareEventTest('reactor-trigger-c')}
-                  disabled={busy}
-                  title="Instantly test the fixed Boost Boulder event used by the back-lane Event spaces."
-                >
-                  ⚡ Boost Boulder Event Test
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePrepareEventTest('gate-switch-bridge-east')}
-                  disabled={busy}
-                  title="Instantly test the Garage Gate Switch."
-                >
-                  🚧 Gate Switch Test
-                </button>
-                <button type="button" onClick={() => handlePrepareEventTest('supply-crates')} disabled={busy} title="Instantly test Choose a Treasure Chest!">
-                  🎁 Treasure Chest Event Test
-                </button>
+                {Object.entries(board.boardEvents || {}).filter(([id])=>board.nodes.some(node=>node.special===id)).map(([id,event])=><button key={id} disabled={busy} onClick={()=>handlePrepareEventTest(id)}>{event.name} · {board.nodes.filter(node=>node.special===id).length} trigger(s)</button>)}
+                <label>Bonus Trophy preview<select defaultValue="" disabled={busy} onChange={e=>{if(e.target.value==='')return;runAction(()=>preparePartyBonusDevTest(roomCode,clientId,Number(e.target.value)));e.target.value=''}}><option value="">Choose a bonus test…</option><option value="-1">Random bonus + finale</option>{['Minigame Trophy','Rich Star','Eventful Star','Item Star','Sightseer Star','Slowpoke Star','Unlucky Star'].map((label,index)=><option key={label} value={index}>{label}</option>)}</select></label>
                 <button type="button" onClick={() => handlePrepareServiceTest('Shop')} disabled={busy}>
                   🛒 Action Shop Test
                 </button>
@@ -1321,7 +1352,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
               )}
               {turn.readyToEnd && (
                 <p>
-                  {turn.landedType === 'Card'
+                  {turn.noMovement ? 'No movement — your current space does not activate.' : turn.landedType === 'Card'
                     ? 'Landed on a Card Space.'
                     : <>Landed on <strong>{turn.landedType === 'Bad Luck' && finalFive ? 'Very Bad Luck' : turn.landedType || 'Space'}</strong>.</>}
                 </p>
@@ -1642,44 +1673,6 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'board' && !movementBusy && turn.awaitingGate && (
-            <div className="party-turn-panel__section party-path-choice">
-              <p className="home-mode-card__eyebrow">Closed Garage Gate</p>
-              <h3>🚧 Pay {turn.gateToll || 3} Tokens to pass?</h3>
-              <p>
-                The currently closed Garage Gate is blocking your route. Paying lets you keep the rest of your movement.
-                If you stop, your turn ends on the space before the closed gate.
-              </p>
-              {isMyTurn ? (
-                <div className="party-path-choice__buttons">
-                  <button
-                    type="button"
-                    className="party-primary-action"
-                    onClick={() => handleGarageGate(true)}
-                    disabled={busy || (currentSetup.tokens || 0) < (turn.gateToll || 3)}
-                  >
-                    Pay {turn.gateToll || 3} Tokens & Continue
-                  </button>
-                  <button
-                    type="button"
-                    className="party-secondary-action"
-                    onClick={() => handleGarageGate(false)}
-                    disabled={busy}
-                  >
-                    Don’t Pay — Stop Here
-                  </button>
-                  {(currentSetup.tokens || 0) < (turn.gateToll || 3) && (
-                    <p className="party-lobby-hint">You do not have enough Tokens to pay this Gate.</p>
-                  )}
-                </div>
-              ) : (
-                <div className="party-waiting-box">
-                  Waiting for {activePlayer?.name || 'the current player'} to resolve the Garage Gate…
-                </div>
-              )}
-            </div>
-          )}
-
           {room.phase === 'board' && isMyTurn && turn.rolled && (turn.movementRemaining || 0) > 0 && !turn.readyToEnd && !turn.awaitingChoice && !turn.awaitingTrophy && !turn.awaitingGate && !turn.awaitingService && battle?.status !== 'active' && (
             <button className="party-primary-action" type="button" onClick={() => handleMove()} disabled={busy}>
               Move {turn.movementRemaining} Space{turn.movementRemaining === 1 ? '' : 's'}
@@ -1762,8 +1755,9 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           {error && <p className="party-form-error"><strong>{error}</strong></p>}
 
           <div className="party-stage-note party-game-stage-note">
-            Explore Booststone Ruins: shops, transport, stealing, Treasure Chests, boulders, gates and Trophies. Each round ends with a Challenge break. Bonus Trophies are awarded after the final round.
+            Explore Booststone Ruins: shops, transport, stealing, Treasure Chests, boulders, gates and Trophies. Each round ends with a Challenge break. One random bonus Trophy is awarded after the final round.
           </div>
+          </>}
         </aside>
       </div>
     </div>

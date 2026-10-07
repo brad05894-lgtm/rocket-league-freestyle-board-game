@@ -1,3 +1,4 @@
+import PartyShowcase from './PartyShowcase'
 import './partyImmersive.css'
 import { initializeOnlineIdentity } from './onlineIdentity'
 import { readPartySession, savePartySession, clearPartySession } from './partySession'
@@ -250,6 +251,8 @@ function PartyMode({ onBack }) {
   if(restoring || roomCode&&!room)return <div className="game"><h2>Reconnecting to your Party…</h2><p>Your saved progress will appear here.</p>{error&&<p role="alert">{error}</p>}<button onClick={()=>window.location.reload()}>Retry connection</button><button onClick={()=>{clearPartySession();setRoomCode('');setScreen('home');setRestoring(false)}}>Back to Party menu</button></div>
 
   if(roomCode && room?.status==='playing' && room.phase==='board-select')return <PartyBoardSelection room={room} roomCode={roomCode} clientId={clientId} isHost={isHost} onLeave={handleLeaveParty}/>
+
+  if(roomCode && room?.status==='playing' && room.phase==='showcase')return <PartyShowcase room={room} roomCode={roomCode} clientId={clientId} isHost={isHost} onLeave={handleLeaveParty}/>
 
   if (roomCode && room?.status === 'playing') {
     return (

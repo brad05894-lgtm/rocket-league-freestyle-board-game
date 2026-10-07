@@ -224,7 +224,7 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
     }
     if (moving || (ballRun && elapsed < 0)) invalidate()
   })
-  return <primitive object={model.scene} dispose={null} />
+  return <><primitive object={model.scene} dispose={null} /><SpaceMarkers board={board} room={room} model={model} finalStretch={finalFive}/></>
 }
 
 function TreasureChests({ effect, clockOffset }) {
@@ -375,11 +375,13 @@ function PlayerTokens({ board, room, players, activePlayer, turnOrderPhase, turn
   })}</group>
 }
 
-function CameraControls({ resetKey, overview, followPoint, topDown, room, board, clockOffset }) {
+function CameraControls({ resetKey, overview, followPoint, topDown, room, board, clockOffset, showcase }) {
   const ref = useRef()
   const { camera, size, invalidate } = useThree()
   const fit = Math.max(8, Math.min(size.width / 18, size.height / 17))
   const previous = useRef(null)
+  const lastPose = useRef('')
+  const broadcast = () => { if (!showcase?.host || !ref.current) return; const pose={position:camera.position.toArray(),target:ref.current.target.toArray(),viewHeight:(camera.top-camera.bottom)/camera.zoom};const key=JSON.stringify(pose);if(key!==lastPose.current){lastPose.current=key;showcase.onChange(pose)} }
   useEffect(() => { previous.current = null; invalidate() }, [overview, fit, resetKey, invalidate])
   useEffect(() => {
     camera.position.set(...(topDown ? [TARGET[0],28,TARGET[2]+.01] : CAMERA))
@@ -389,9 +391,14 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
     previous.current = null
     invalidate()
   }, [resetKey, topDown, overview, camera, invalidate])
+  useEffect(()=>{invalidate()},[showcase?.camera,invalidate])
   useFrame((_, dt) => {
     if (!ref.current) return
-    if (overview && previous.current === overview) return
+    if (showcase && !showcase.host && showcase.camera) {
+      const pose=showcase.camera;camera.position.fromArray(pose.position);ref.current.target.fromArray(pose.target)
+      camera.zoom=(camera.top-camera.bottom)/pose.viewHeight;camera.updateProjectionMatrix();ref.current.update();return
+    }
+    if (overview && previous.current === overview) { broadcast(); return }
     let cinematicTarget = null
     const now = Date.now() + clockOffset
     const trophyCinema = room.turnState?.trophyCinematic
@@ -457,7 +464,7 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
     } else previous.current = overview
     if (!overview) previous.current = false
   })
-  return <OrbitControls ref={ref} makeDefault target={TARGET} enabled={overview}
+  return <OrbitControls ref={ref} makeDefault target={TARGET} enabled={overview && (!showcase || showcase.host)} onChange={broadcast}
     minPolarAngle={topDown ? 0 : .15} maxPolarAngle={topDown ? 0 : Math.PI / 2 - .08}
     enablePan enableZoom enableRotate={!topDown} enableDamping={false}
     minZoom={fit * .65} maxZoom={fit * 4} />
@@ -477,7 +484,7 @@ class ModelErrorBoundary extends Component {
 }
 
 export default function BooststoneRuins3D({ board, room, players = [], activePlayer,
-  finalFive = false, closedGarageGateIds = [], turnOrderPhase = false, turnOrderRolls = {}, overview = false, quality = 'low', topDown = false, highlightNodeIds = [] }) {
+  finalFive = false, closedGarageGateIds = [], turnOrderPhase = false, turnOrderRolls = {}, overview = false, quality = 'low', topDown = false, highlightNodeIds = [], showcase = null }) {
   const [clockOffset, setClockOffset] = useState(0)
   const followPoint = useRef(new THREE.Vector3(...TARGET))
   useEffect(() => onValue(databaseRef(db, '.info/serverTimeOffset'), (snapshot) => setClockOffset(Number(snapshot.val()) || 0)), [])
@@ -540,13 +547,12 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
         <Suspense fallback={<Html center><div style={{ color: '#fff', whiteSpace: 'nowrap' }}>Loading your board…</div></Html>}>
           <BoardModel board={board} room={room} finalFive={finalFive} closedGarageGateIds={effectiveClosedGarageGateIds}
             ballRun={ballRun} clockOffset={clockOffset} />
-          <SpaceMarkers board={board} room={room} finalStretch={finalFive}/>
           <DestinationHighlights nodeIds={highlightNodeIds} />
           <TreasureChests effect={effect} clockOffset={clockOffset} />
           <PlayerTokens board={board} room={room} players={players} activePlayer={activePlayer}
             turnOrderPhase={turnOrderPhase} turnOrderRolls={turnOrderRolls} ballRun={ballRun} clockOffset={clockOffset} followPoint={followPoint} />
         </Suspense>
-        <CameraControls topDown={topDown} resetKey={resetKey} overview={overview || turnOrderPhase} followPoint={followPoint} room={room} board={board} clockOffset={clockOffset} />
+        <CameraControls showcase={showcase} topDown={topDown} resetKey={resetKey} overview={overview || turnOrderPhase} followPoint={followPoint} room={room} board={board} clockOffset={clockOffset} />
       </Canvas>
     </ModelErrorBoundary>
   </div>
@@ -573,27 +579,13 @@ function DestinationHighlights({ nodeIds = [] }) {
   })}</group>
 }
 
-function SpaceMarkers({board,room,finalStretch}) {
-  const markerTypes = new Set(['Lucky', 'Bad Luck', 'Battle', 'Event'])
-  const visual = (node) => {
-    if (node.type === 'Lucky') return { color: '#47785b', symbol: '★', width: 0.42 }
-    if (node.type === 'Bad Luck') return { color: finalStretch ? '#352341' : '#8a3f49', symbol: '!?', width: 0.48 }
-    if (node.type === 'Battle') return { color: '#9a603b', symbol: 'VS', width: 0.48 }
-    return { color: '#3d6e66', symbol: '!', width: 0.34 }
-  }
-  return <group>{board.nodes.filter((node) => markerTypes.has(node.type) && node.id !== room.activeTrophyNodeId && layout.nodes[node.id]).map((node) => {
-    const p = layout.nodes[node.id]
-    const style = visual(node)
-    return <group key={node.id} position={[p[0], p[1] + 0.012, p[2]]}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.255, 32]} />
-        <meshStandardMaterial color="#f5f7f7" roughness={0.8} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh position={[0, 0.006, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.205, 32]} />
-        <meshStandardMaterial color={style.color} roughness={0.82} side={THREE.DoubleSide} />
-      </mesh>
-      <SpriteLabel text={style.symbol} y={0.026} width={style.width} />
-    </group>
-  })}</group>
+function SpaceMarkers({board,room,model,finalStretch}) {
+ const spike=useMemo(()=>{const shape=new THREE.Shape();for(let i=0;i<24;i++){const a=i*Math.PI/12,r=i%2?.72:1,x=Math.cos(a)*r,y=Math.sin(a)*r;i?shape.lineTo(x,y):shape.moveTo(x,y)}shape.closePath();return shape},[]);
+ const texture=useMemo(()=>{const make=text=>{const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');x.fillStyle='white';x.font='bold '+(text==='VS'?'60':text==='!?'?'76':'96')+'px Arial';x.textAlign='center';x.textBaseline='middle';x.fillText(text,64,66);const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t};return {event:make('!'),bad:make('!?'),vs:make('VS')}},[]);
+ useEffect(()=>()=>Object.values(texture).forEach(t=>t.dispose()),[texture]);
+ return <group>{board.nodes.filter(n=>['Lucky','Bad Luck','Battle','Event'].includes(n.type)&&n.id!==room.activeTrophyNodeId&&model.spaces[n.id]).map(n=>{const o=model.spaces[n.id],p=new THREE.Vector3();o.getWorldPosition(p);const q=o.getWorldQuaternion(new THREE.Quaternion());const bad=n.type==='Bad Luck',vs=n.type==='Battle',lucky=n.type==='Lucky';const color=bad?(finalStretch?'#554165':'#b66b79'):vs?'#ca9b61':lucky?'#6c9e80':'#bb849e';const disc=(r,c)=> <mesh rotation={[-Math.PI/2,0,0]} scale={[r,r,r]}>{bad?<shapeGeometry args={[spike]}/>:<circleGeometry args={[1,vs?3:40]}/>}<meshStandardMaterial color={c} roughness={.88} side={THREE.DoubleSide}/></mesh>;return <group key={n.id} position={p.toArray()} quaternion={q}><group position={[0,.033,0]}>
+ {disc(.199,'#dce4df')}<group position={[0,.002,0]}>{disc(.174,color)}</group>
+ {(bad||vs||n.type==='Event')&&<mesh position={[0,.004,0]} rotation={[-Math.PI/2,0,0]}><planeGeometry args={[.27,.27]}/><meshBasicMaterial map={bad?texture.bad:vs?texture.vs:texture.event} transparent depthWrite={false}/></mesh>}
+ {lucky&&<group position={[0,.005,0]}>{[[-.047,-.012],[.047,-.012],[0,-.065]].map(([x,z],i)=><mesh key={i} position={[x,0,z]} rotation={[-Math.PI/2,0,0]}><circleGeometry args={[.057,20]}/><meshBasicMaterial color="#e4ece4"/></mesh>)}<mesh position={[.012,0,.055]} rotation={[-Math.PI/2,0,.2]}><planeGeometry args={[.022,.1]}/><meshBasicMaterial color="#e4ece4"/></mesh></group>}
+ </group></group>})}</group>
 }

@@ -107,3 +107,21 @@
 .party-event-cinematic-note{position:fixed;z-index:24;left:50%;top:max(82px,calc(env(safe-area-inset-top) + 68px));transform:translateX(-50%);width:min(560px,calc(100vw - 380px));padding:9px 12px;border:1px solid rgba(201,225,239,.48);border-radius:12px;background:rgba(6,22,33,.84);box-shadow:0 8px 28px rgba(0,0,0,.42);backdrop-filter:blur(7px);pointer-events:none;text-align:center;color:#f5fbff}
 .party-event-cinematic-note strong{display:block;font-size:14px;margin-bottom:3px}.party-event-cinematic-note span{display:block;font-size:11px;line-height:1.35;color:#d8e6ef}
 @media(max-width:700px){.party-event-cinematic-note{top:auto;bottom:72px;width:calc(100vw - 22px);padding:7px 9px}.party-event-cinematic-note strong{font-size:12px}.party-event-cinematic-note span{font-size:10px}}
+
+/* A shared tour stays interactive; its controls never cover the whole board. */
+.party-showcase{position:fixed;inset:0;background:#071118;color:#f1f5f9}
+.party-showcase-board{position:absolute;inset:0}
+.party-showcase-board>div{height:100%!important;width:100%!important}
+.party-showcase-controls{position:absolute;bottom:max(12px,env(safe-area-inset-bottom));left:12px;max-width:min(350px,calc(100vw - 24px));padding:12px 16px;background:#091925e8;border:1px solid #647881;border-radius:16px;z-index:5}
+.party-showcase-controls h2{margin:0;font-size:20px}.party-showcase-controls p{margin:6px 0;font-size:13px}.party-showcase-controls button{padding:9px;margin:4px;font-size:13px}
+.party-finale{position:fixed;inset:0;overflow:auto;display:grid;place-items:center;background:radial-gradient(ellipse at 50% 30%,#254951,#071020 65%);color:#f8fafc;z-index:2000;padding:24px;box-sizing:border-box;text-align:center}
+.party-finale-card{position:relative;width:min(600px,100%);animation:party-finale-in .8s ease both}.party-finale-card h1{font-size:clamp(28px,6vw,52px);margin:12px 0}.party-finale-card>p{letter-spacing:.04em}.party-finale-trophy{font-size:100px;filter:drop-shadow(0 0 30px #f6c55380);animation:party-finale-pulse 2s ease-in-out infinite}
+.party-finale-placements{display:grid;gap:10px}.party-finale-placements article{display:flex;align-items:center;gap:16px;padding:12px;border:1px solid #7799aa;background:#101f30;border-radius:16px;text-align:left;animation:party-finale-in .7s ease both}.party-finale-placements article.is-champion{border-color:#f4cc72;background:#44391d}.party-finale-placements img{width:80px;height:60px;object-fit:contain}.party-finale-placements h2,.party-finale-placements p{margin:3px 0}.party-finale-placements>article>strong{font-size:28px}
+@keyframes party-finale-in{from{opacity:0;transform:translateY(22px) scale(.96)}to{opacity:1;transform:none}}@keyframes party-finale-pulse{50%{transform:scale(1.07)}}
+@media(prefers-reduced-motion:reduce){.party-finale *{animation:none!important}}
+/* Route decisions replace the Turn contents and use its existing close button. */
+.party-immersive[data-route="true"][data-panel="turn"] .party-turn-panel{max-height:min(44dvh,410px);overflow:auto;width:min(360px,calc(100vw - 24px))}
+.party-immersive[data-route="true"][data-panel="turn"] .party-turn-panel>.party-junction-overlay{display:block!important;position:static;inset:auto;width:auto;z-index:auto;padding:0;background:none;pointer-events:auto}
+.party-turn-panel .party-junction-card{width:100%;padding:8px 0;box-sizing:border-box;background:none;border:0;box-shadow:none;backdrop-filter:none}
+.party-turn-panel .party-junction-card h2{font-size:18px}.party-turn-panel .party-junction-arrow{flex:1;min-width:0;width:auto;min-height:72px!important}
+.party-finale-preview{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;background:#071020e8;padding:10px;border-radius:10px;font-size:13px}

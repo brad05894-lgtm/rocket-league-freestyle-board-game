@@ -405,7 +405,7 @@ function applyCardLanding(room, turn, playerId, card) {
 function isPartyFinalFive(room) {
   const totalRounds = room?.settings?.rounds || 10
   const currentRound = room?.currentRound || 1
-  return currentRound > Math.max(0, totalRounds - 5)
+  return currentRound > Math.max(0, totalRounds - 3)
 }
 
 function isPartyFinalThree(room) {
@@ -811,6 +811,7 @@ export async function resolvePartyLuckyTokenSteal(roomCode, playerId, targetId =
 
     sourceSetup.tokens = Math.max(0, (Number(sourceSetup.tokens) || 0) - amount)
     destinationSetup.tokens = Math.max(0, Number(destinationSetup.tokens) || 0) + amount
+    addPartyStat(room, playerId, 'tokensCollected', amount)
 
     const playerName = room.players?.[playerId]?.name || 'Player'
     const targetName = room.players?.[chosenTargetId]?.name || 'another player'
@@ -1502,6 +1503,8 @@ export async function startPartyRoom(roomCode, requesterId) {
     status: 'playing',
     partyStats: null,
     bonusResults: null,
+    finaleStartedAt: null,
+    showcaseCamera: null,
     boardMotion: null,
     motionSequence: 0,
     startedAt: Date.now(),
@@ -1510,6 +1513,7 @@ export async function startPartyRoom(roomCode, requesterId) {
     turnDirection: 1,
     roundTakenPlayerIds: [],
     phase: 'board-select',
+    devBonusPreview: null,
     playerOrder,
     turnOrderRolls: {},
     turnOrderComplete: false,
@@ -1544,7 +1548,7 @@ export async function confirmPartyBoardSelection(roomCode, playerId, mapId) {
   if(mapId !== 'booststone-ruins') throw new Error('That board is not available yet.')
   const result=await runTransaction(ref(db, `securePartyRooms/${normalizeCode(roomCode)}`),room=>{
     if(!room || room.hostId!==playerId || room.status!=='playing' || room.phase!=='board-select')return
-    room.phase='turn-order'
+    room.phase='showcase'
     room.settings.mapId=mapId
     return room
   })
@@ -1649,15 +1653,6 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
   const roomRef = ref(db, `securePartyRooms/${code}`)
   const randomFaceIndex = Math.floor(Math.random() * 6)
   const normalRoll = randomFaceIndex + 1
-  // Pre-generate any landing randomness so a zero-movement roll can resolve the
-  // player's CURRENT space exactly like landing on that space again. Keeping
-  // these values outside the transaction also makes transaction retries stable.
-  const zeroLandingMechanic = pickPartyMechanic()
-  const zeroLandingCard = pickPartyCard()
-  const zeroLandingBattleMechanic = pickPartyMechanic()
-  const zeroLandingBattleSeed = Math.random()
-  const zeroLandingOpponentSeed = Math.random()
-  const zeroLandingSpaceOutcomeSeed = Math.random()
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
@@ -1741,6 +1736,8 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
       ...previousTurn,
       playerId,
       rolled: true,
+      movementStartNodeId: setup.onStartDeck ? 'start-deck' : setup.boardNodeId,
+      movementSpacesTaken: 0,
       dieType,
       faceLabel: formatPartyDieFace(face),
       baseMovement: movement,
@@ -1788,42 +1785,7 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
       'roll'
     )
 
-    if (totalMovement === 0) {
-      if (setup.onStartDeck) {
-        // The Starting Deck is not a board space, so there is no landing effect to replay.
-        room.turnState.landedNodeId = 'start-deck'
-        room.turnState.landedType = 'Starting Deck'
-      } else {
-        const currentNodeId = setup.boardNodeId || BOOSTSTONE_RUINS.startId
-        const currentNode = BOARD_NODE_BY_ID[currentNodeId]
-
-        // Service spaces normally interrupt movement before finishLanding(). A zero roll
-        // should still reactivate that exact stop even though the car never moved.
-        if (['Shop', 'Paratroopa', 'Lakitu'].includes(currentNode?.type)) {
-          room.turnState.readyToEnd = false
-          room.turnState.landedNodeId = currentNodeId
-          room.turnState.landedType = currentNode.type
-          room.turnState.awaitingService = makePartyServiceStop(room, currentNodeId, currentNode.type)
-          addLandingActivity(room, playerId, currentNodeId)
-        } else {
-          finishLanding(
-            room,
-            room.turnState,
-            playerId,
-            currentNodeId,
-            zeroLandingMechanic,
-            zeroLandingCard,
-            {
-              battleSeed: zeroLandingBattleSeed,
-              opponentSeed: zeroLandingOpponentSeed,
-              battleMechanic: zeroLandingBattleMechanic,
-              spaceOutcomeSeed: zeroLandingSpaceOutcomeSeed,
-              eventSeed: zeroLandingSpaceOutcomeSeed,
-            }
-          )
-        }
-      }
-    }
+    if (totalMovement === 0) { room.turnState.readyToEnd = true; room.turnState.noMovement = true }
 
     return room
   })
@@ -1916,6 +1878,7 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
       let nextId
 
       if (options.length > 1) {
+        chosenNextId = chosenNextId || turn.selectedRoute || ''
         if (!chosenNextId || choiceUsed) {
           turn.awaitingChoice = true
           turn.choiceNodeId = currentNodeId
@@ -1929,6 +1892,7 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
         }
 
         nextId = chosenNextId
+        delete turn.selectedRoute
         choiceUsed = true
         turn.awaitingChoice = false
         delete turn.choiceNodeId
@@ -1941,6 +1905,8 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
       const gateEdgeKey = partyGateEdgeKey(currentNodeId, nextId)
       if (closedGate && turn.gatePassApproved !== gateEdgeKey) {
         turn.awaitingGate = true
+        turn.awaitingChoice = false
+        turn.selectedRoute = nextId
         turn.gateId = closedGate.id
         turn.gateFromNodeId = currentNodeId
         turn.gateToNodeId = nextId
@@ -1959,6 +1925,7 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
         remaining -= 1
         turn.lastLandableNodeId = nextId
         addPartyStat(room, playerId, 'spacesTraveled')
+        turn.movementSpacesTaken = (turn.movementSpacesTaken || 0) + 1
       }
       const serviceType = BOARD_NODE_BY_ID[nextId]?.type
       if (['Shop', 'Paratroopa', 'Lakitu'].includes(serviceType)) {
@@ -2079,13 +2046,6 @@ export async function resolvePartyGarageGate(roomCode, playerId, payToll) {
   requireOnlineIdentity(playerId)
   const code = normalizeCode(roomCode)
   const roomRef = ref(db, `securePartyRooms/${code}`)
-  const landingMechanic = pickPartyMechanic()
-  const landingCard = pickPartyCard()
-  const landingBattleMechanic = pickPartyMechanic()
-  const landingBattleSeed = Math.random()
-  const landingOpponentSeed = Math.random()
-  const landingSpaceOutcomeSeed = Math.random()
-  const landingEventSeed = Math.random()
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
@@ -2129,24 +2089,13 @@ export async function resolvePartyGarageGate(roomCode, playerId, payToll) {
       delete turn.gateToll
       addPartyActivity(room, playerId, `${playerName} paid ${toll} Tokens to pass the closed Garage Gate.`, 'event')
     } else {
-      let stopNodeId = setup.boardNodeId || turn.gateFromNodeId
-      if (['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[stopNodeId]?.type)) stopNodeId = turn.lastLandableNodeId || BOARD_NODE_BY_ID[stopNodeId]?.previous?.find(id=>!['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[id]?.type)) || BOOSTSTONE_RUINS.startId
-      setup.boardNodeId = stopNodeId
-      turn.movementRemaining = 0
-      delete turn.awaitingGate
-      delete turn.gateId
-      delete turn.gateFromNodeId
-      delete turn.gateToNodeId
-      delete turn.gateToll
-      delete turn.gatePassApproved
-      addPartyActivity(room, playerId, `${playerName} did not pay the Garage Gate toll and stopped at the safe space before the gate.`, 'event')
-      finishLanding(room, turn, playerId, stopNodeId, landingMechanic, landingCard, {
-        battleSeed: landingBattleSeed,
-        opponentSeed: landingOpponentSeed,
-        battleMechanic: landingBattleMechanic,
-        spaceOutcomeSeed: landingSpaceOutcomeSeed,
-        eventSeed: landingEventSeed,
-      })
+      const fromId = turn.gateFromNodeId
+      turn.awaitingChoice = true
+      turn.choiceNodeId = fromId
+      turn.choices = BOARD_NODE_BY_ID[fromId]?.next || []
+      turn.readyToEnd = false
+      for (const key of ['awaitingGate','gateId','gateFromNodeId','gateToNodeId','gateToll','gatePassApproved','selectedRoute']) delete turn[key]
+
     }
 
     room.turnState = turn
@@ -4394,6 +4343,7 @@ export async function endPartyTurn(roomCode, playerId) {
 }
 
 export async function beginNextPartyRound(roomCode, requesterId) {
+  const categorySeed = Math.random(), bonusTieSeed = Math.random()
   requireOnlineIdentity(requesterId)
   const code = normalizeCode(roomCode)
   const roomRef = ref(db, `securePartyRooms/${code}`)
@@ -4419,7 +4369,8 @@ export async function beginNextPartyRound(roomCode, requesterId) {
     delete room.roundBattle
     const order = orderedPlayerIds(room)
     if ((room.currentRound || 1) >= (room.settings?.rounds || 10)) {
-      awardPartyBonuses(room, order)
+      awardPartyBonuses(room, order, categorySeed, bonusTieSeed)
+      room.finaleStartedAt = serverTimestamp()
       room.phase = 'party-complete-test'
       return room
     }
@@ -4594,3 +4545,67 @@ export async function resolvePartyService(roomCode, playerId, action = 'skip', t
   if (!result.committed) throw new Error(failure || 'This stop is no longer available.')
 }
 
+
+export async function updatePartyShowcaseCamera(roomCode, playerId, camera) {
+  requireOnlineIdentity(playerId)
+  if (!camera || !['position', 'target'].every(key => Array.isArray(camera[key]) && camera[key].length === 3 && camera[key].every(v => Number.isFinite(v) && Math.abs(v) < 1000)) || !Number.isFinite(camera.viewHeight) || camera.viewHeight < .1 || camera.viewHeight > 200) return
+  await runTransaction(ref(db, `securePartyRooms/${normalizeCode(roomCode)}`), room => {
+    if (!room || room.hostId !== playerId || room.phase !== 'showcase') return
+    room.showcaseCamera = camera
+    return room
+  }, { applyLocally: false })
+}
+export async function finishPartyShowcase(roomCode, playerId) {
+  requireOnlineIdentity(playerId)
+  const result = await runTransaction(ref(db, `securePartyRooms/${normalizeCode(roomCode)}`), room => {
+    if (!room || room.hostId !== playerId || room.phase !== 'showcase') return
+    room.phase = 'turn-order'
+    delete room.showcaseCamera
+    return room
+  })
+  if (!result.committed) throw new Error('Only the host can start the turn-order rolls.')
+}
+
+export async function stopPartyAtPreviousSpace(roomCode, playerId) {
+  requireOnlineIdentity(playerId)
+  const mechanic=pickPartyMechanic(),card=pickPartyCard(),battleMechanic=pickPartyMechanic()
+  const battleSeed=Math.random(),opponentSeed=Math.random(),spaceOutcomeSeed=Math.random()
+  const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(roomCode)}`),room=>{
+    const turn=room?.turnState,setup=room?.playerSetup?.[playerId]
+    if(room?.status!=='playing'||room.phase!=='board'||turn?.playerId!==playerId||orderedPlayerIds(room)[room.turnIndex||0]!==playerId||!turn.awaitingChoice||turn.awaitingGate||!setup)return
+    const id=turn.lastLandableNodeId,node=BOARD_NODE_BY_ID[id]
+    if(!node||['Junction','Shop','Paratroopa','Lakitu'].includes(node.type))return
+    setup.boardNodeId=id
+    turn.movementRemaining=0
+    for(const key of ['awaitingChoice','choiceNodeId','choices','selectedRoute','gatePassApproved'])delete turn[key]
+    delete room.boardMotion
+    if(!turn.movementSpacesTaken&&id===turn.movementStartNodeId){turn.readyToEnd=true;turn.noMovement=true}
+    else finishLanding(room,turn,playerId,id,mechanic,card,{battleSeed,opponentSeed,battleMechanic,spaceOutcomeSeed,eventSeed:spaceOutcomeSeed})
+    return room
+  })
+  if(!result.committed)throw new Error('There is no regular space to stop at from this decision.')
+}
+
+export async function preparePartyBonusDevTest(roomCode, playerId, categoryIndex=-1) {
+  requireOnlineIdentity(playerId)
+  if(!Number.isInteger(categoryIndex)||categoryIndex< -1||categoryIndex>6)throw new Error('Choose a valid bonus category.')
+  const categorySeed=categoryIndex<0?Math.random():(categoryIndex+.5)/7,tieSeed=Math.random()
+  const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(roomCode)}`),room=>{
+    if(room?.hostId!==playerId||room.status!=='playing'||room.phase!=='board'||room.turnState?.battle?.status==='active'||(room.turnState?.landingEffect?.deadlineAt&&!room.turnState.landingEffect.resolved))return
+    const ids=orderedPlayerIds(room)
+    const preview={players:JSON.parse(JSON.stringify(room.players)),playerSetup:JSON.parse(JSON.stringify(room.playerSetup)),partyStats:JSON.parse(JSON.stringify(room.partyStats||{})),departedPlayers:JSON.parse(JSON.stringify(room.departedPlayers||{})),finaleStartedAt:serverTimestamp()}
+    awardPartyBonuses(preview,ids,categorySeed,tieSeed)
+    room.devBonusPreview=preview
+    return room
+  })
+  if(!result.committed)throw new Error('Only the host can preview bonuses during the board phase, outside an active Battle or timed Mechanic.')
+}
+export async function closePartyBonusDevTest(roomCode, playerId) {
+  requireOnlineIdentity(playerId)
+  const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(roomCode)}`),room=>{
+    if(room?.hostId!==playerId||!room.devBonusPreview)return
+    delete room.devBonusPreview
+    return room
+  })
+  if(!result.committed)throw new Error('Only the host can close the bonus preview.')
+}
