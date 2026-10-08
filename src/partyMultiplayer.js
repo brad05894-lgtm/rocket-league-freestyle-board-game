@@ -605,6 +605,7 @@ function applyPartyLuckLanding(room, turn, playerId, spaceType, seed = 0, card =
     privateMessage = publicMessage
 
     turn.spaceEffect = {
+      rouletteSeed: seed, rouletteId: Date.now(),
       type: 'lucky', spaceType: effectiveSpaceType, id: outcome.id, kind: outcome.kind, name: outcome.name,
       resolved: false, awaitingTarget: true, amount: swipeAmount,
       targetPlayerIds,
@@ -733,6 +734,7 @@ function applyPartyLuckLanding(room, turn, playerId, spaceType, seed = 0, card =
   if (tokenChange > 0) addPartyStat(room, playerId, 'tokensCollected', tokenChange)
 
   turn.spaceEffect = {
+    rouletteSeed: seed, rouletteId: Date.now(),
     type: veryBad ? 'very-bad-luck' : isBadLuck ? 'bad-luck' : 'lucky',
     spaceType: effectiveSpaceType,
     id: outcome.id,

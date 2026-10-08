@@ -239,6 +239,7 @@ function PartyMode({ onBack }) {
   }
 
   async function handleLeaveParty() {
+    if(room?.phase==='party-complete-test'){clearPartySession();setRoom(null);setRoomCode('');setScreen('home');onBack();return}
     if (!roomCode) {setScreen('home');return}
     if(!window.confirm(isHost?'End this Party game for everyone?':'Leave this Party game? Closing the tab instead lets you return later.'))return
     setLoading(true)

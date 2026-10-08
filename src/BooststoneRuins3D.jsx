@@ -14,13 +14,8 @@ const TARGET = [0, 0.6, 0.3]
 const BALL_DURATION = 3.2
 // The chest terrace is the center landmark whose entrance is Event node n19.
 // These are render-only coordinates; the player's authoritative board node stays n19.
-const TREASURE_CENTER = [0.25, 1.56, -2.975]
-const TREASURE_PLAYER = [1.72, 1.34, -2.93]
-const TREASURE_CHEST_POSITIONS = [
-  [-0.95, 1.5, -2.98],
-  [0.25, 1.5, -2.98],
-  [1.45, 1.5, -2.98],
-]
+const TREASURE_CENTER = [-0.1, 1.85, -2.85]
+const TREASURE_PLAYER = [-0.1, 1.68, -2.60]
 const LEGACY_GATES = {
   'garage-gate-bridge-east': 'bridge_east',
   'garage-gate-bridge-west': 'bridge_west',
@@ -58,7 +53,7 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
   const gltf = useGLTF(MODEL_URL)
   const model = useMemo(() => {
     const scene = gltf.scene.clone(true)
-    const spaces = {}, doors = [], originals = []
+    const spaces = {}, doors = [], originals = [], chestLids = []
     let trophy = null, ball = null
     scene.traverse((o) => {
       if (o.isMesh) {
@@ -70,6 +65,7 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
       if (role === 'door') doors.push({ object: o, gateId, rest: o.position.clone() })
       if (role === 'trophy') trophy = o
       if (role === 'ball') ball = o
+      if (role === 'chest-lid') chestLids.push({object:o,index:Number(o.userData.chestIndex),rotation:o.quaternion.clone()})
     })
     // Only Bad Luck materials need private copies for final-five recoloring.
     for (const node of board.nodes) {
@@ -102,7 +98,7 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
       })
     }
     if (!ball || !trophy || Object.keys(spaces).length !== 66) throw new Error('Incomplete board model')
-    return { scene, spaces, doors, trophy, ball, originals,
+    return { scene, spaces, doors, trophy, ball, originals, chestLids,
       ballRest: ball.position.clone(), ballRotation: ball.quaternion.clone(), trophyScale: trophy.scale.clone() }
   }, [gltf.scene, board.nodes])
   const initialized = useRef(false)
@@ -181,6 +177,16 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
       }
     }
 
+    const chestEvent=room.turnState?.eventEffect
+    const sinceChest=Date.now()+clockOffset-Number(chestEvent?.openedAt||0)
+    for(const lid of model.chestLids){
+      const selected=chestEvent?.id==='supply-crates'&&chestEvent.selectedCrateIndex===lid.index&&chestEvent.openedAt
+      const delay=lid.index===1?0:700
+      const angle=selected ? -Math.PI*.46*Math.max(0,Math.min(1,(sinceChest-delay)/650)) : 0
+      lid.object.quaternion.copy(lid.rotation).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),angle))
+      if(selected&&sinceChest<delay+800)moving=true
+    }
+
     // Garage Gate Event: switch the right pair first, then the left pair when
     // the camera cuts to it. This keeps the visible doors in sync with the
     // two-step cinematic instead of both pairs jumping at once.
@@ -188,14 +194,14 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
     const gateAnimation = room.turnState?.eventEffect
     if (gateAnimation?.id?.startsWith('gate-switch-') && Number(gateAnimation.animationStartedAt)) {
       const elapsedGate = Date.now() + clockOffset - Number(gateAnimation.animationStartedAt)
-      if (elapsedGate < 0 && previousClosedModelGateIds.size) {
+      if (elapsedGate < 900 && previousClosedModelGateIds.size) {
         visualClosedModelGateIds = previousClosedModelGateIds
-      } else if (elapsedGate >= 0 && elapsedGate < 1900 && previousClosedModelGateIds.size) {
+      } else if (elapsedGate >= 900 && elapsedGate < 3300 && previousClosedModelGateIds.size) {
         const rightClosed = toModelGateId(gateAnimation.closedGarageGateIds?.right)
         const leftClosed = toModelGateId(gateAnimation.previousClosedGarageGateIds?.left)
         visualClosedModelGateIds = new Set([rightClosed, leftClosed].filter(Boolean))
       }
-      if (elapsedGate >= -250 && elapsedGate < 3800) moving = true
+      if (elapsedGate >= -250 && elapsedGate < 4800) moving = true
     }
 
     for (const { object, rest, gateId: id } of model.doors) {
@@ -236,38 +242,20 @@ function AnimatedPiece({ position, motion, playerId, clockOffset, followPoint, i
     if (!ref.current) return
 
     if (treasure) {
-      const now = Date.now() + clockOffset
-      const startedAt = Number(treasure.startedAt) || 0
-      const openedAt = Number(treasure.openedAt) || 0
-      const from = layout.nodes.n19
-      const to = TREASURE_PLAYER
-      if (startedAt && from && to) {
-        let progress = Math.max(0, Math.min(1, (now - startedAt) / 1200))
-        let activeTreasureMotion = !openedAt
-        if (openedAt) {
-          const sinceOpen = now - openedAt
-          if (sinceOpen < 450) {
-            progress = 1
-            activeTreasureMotion = true
-          } else if (sinceOpen < 1500) {
-            const back = Math.max(0, Math.min(1, (sinceOpen - 450) / 1050))
-            const smoothBack = back * back * (3 - 2 * back)
-            progress = 1 - smoothBack
-            activeTreasureMotion = true
-          }
-        }
-        if (activeTreasureMotion) {
-          const smooth = progress * progress * (3 - 2 * progress)
-          ref.current.position.set(
-            from[0] + (to[0] - from[0]) * smooth,
-            from[1] + (to[1] - from[1]) * smooth + 0.14 + Math.sin(smooth * Math.PI) * 0.09,
-            from[2] + (to[2] - from[2]) * smooth
-          )
-          if (isActive) followPoint.current.copy(ref.current.position)
-          invalidate()
-          return
-        }
-      }
+      const now=Date.now()+clockOffset,from=layout.nodes.n19,to=TREASURE_PLAYER
+      const selected=Number.isInteger(treasure.selectedCrateIndex)?treasure.selectedCrateIndex:1
+      const chosen=[-.8+.7*selected,to[1],to[2]]
+      const age=now-Number(treasure.startedAt||0),since=now-Number(treasure.openedAt||0)
+      const blend=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*Math.max(0,Math.min(1,t)))
+      let point
+      if(!treasure.openedAt) {
+        const stair=[to[0],from[1],from[2]]
+        point=age<500?blend(from,stair,age/500):blend(stair,to,(age-500)/700)
+      } else if(since<700) point=blend(to,chosen,since/700)
+      else if(since<2100) point=chosen
+      else if(since<2800) point=blend(chosen,to,(since-2100)/700)
+      else if(since<4000) point=blend(to,from,(since-2800)/1200)
+      if(point){ref.current.position.set(point[0],point[1]+.17,point[2]);if(isActive)followPoint.current.copy(ref.current.position);invalidate();return}
     }
 
     const escapeElapsed = escape ? (performance.now() - escape.started) / 1000 : Infinity
@@ -319,7 +307,7 @@ function PlayerTokens({ board, room, players, activePlayer, turnOrderPhase, turn
     const escape = held ? { fromNodeId: held, toNodeId: ballRun?.resetTo || 'n57', started: ballRun.started } : null
     const eventEffect = room.turnState?.eventEffect
     const treasure = eventEffect?.id === 'supply-crates' && p.id === room.turnState?.playerId && (!eventEffect.resolved || eventEffect.openedAt)
-      ? { startedAt: eventEffect.animationStartedAt, openedAt: eventEffect.openedAt }
+      ? { startedAt: eventEffect.animationStartedAt, openedAt: eventEffect.openedAt, selectedCrateIndex:eventEffect.selectedCrateIndex }
       : null
     return <AnimatedPiece key={p.id} position={position} motion={room.boardMotion} playerId={p.id} clockOffset={clockOffset} followPoint={followPoint} isActive={p.id === activePlayer?.id} escape={escape} treasure={treasure}>
       <mesh castShadow>
@@ -360,6 +348,7 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
     const eventActive = Number(room.turnState?.eventEffect?.animationStartedAt) > 0 && Date.now()+clockOffset-Number(room.turnState.eventEffect.animationStartedAt) < 5000
     if (overview && previous.current === overview && !eventActive) { broadcast(); return }
     let cinematicTarget = null
+    let gateLocked = false
     const now = Date.now() + clockOffset
     const trophyCinema = room.turnState?.trophyCinematic
     const trophyStartedAt = Number(trophyCinema?.startedAt) || 0
@@ -378,16 +367,19 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
       const startedAt = Number(effect?.animationStartedAt) || 0
       if (effect?.id?.startsWith('gate-switch-') && startedAt) {
         const elapsed = now - startedAt
-        const focusId = elapsed >= 0 && elapsed < 1900 ? 'n05' : elapsed >= 1900 && elapsed < 3800 ? 'n37' : ''
-        if (focusId && layout.nodes[focusId]) cinematicTarget = new THREE.Vector3(...layout.nodes[focusId])
+        const focusId = elapsed >= 0 && elapsed < 2400 ? 'n05' : elapsed >= 2400 && elapsed < 4800 ? 'n37' : ''
+        if (focusId && layout.nodes[focusId]) {
+          cinematicTarget = new THREE.Vector3(...layout.nodes[focusId])
+          gateLocked = (elapsed >= 900 && elapsed < 2400) || (elapsed >= 3300 && elapsed < 4800)
+        }
       } else if (effect?.id === 'supply-crates' && startedAt) {
         const openedAt = Number(effect.openedAt) || 0
         if (!openedAt && !effect.resolved) {
           cinematicTarget = new THREE.Vector3(...TREASURE_CENTER)
         } else if (openedAt) {
           const sinceOpen = now - openedAt
-          if (sinceOpen >= 0 && sinceOpen < 1500) {
-            const back = Math.max(0, Math.min(1, (sinceOpen - 550) / 950))
+          if (sinceOpen >= 0 && sinceOpen < 4000) {
+            const back = Math.max(0, Math.min(1, (sinceOpen - 2800) / 1200))
             const chest = new THREE.Vector3(...TREASURE_CENTER)
             const returnPoint = new THREE.Vector3(...(layout.nodes.n19 || TREASURE_CENTER))
             cinematicTarget = chest.lerp(returnPoint, back * back * (3 - 2 * back))
@@ -407,7 +399,7 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
     }
     const desired = cinematicTarget || (overview ? new THREE.Vector3(...TARGET) : followPoint.current)
     if (!desired) return
-    const factor = 1 - Math.exp(-8 * Math.min(dt, .1))
+    const factor = gateLocked ? 1 : 1 - Math.exp(-8 * Math.min(dt, .1))
     const delta = desired.clone().sub(ref.current.target)
     const zoom = fit * (cinematicTarget ? 3.15 : overview ? 1 : 2.65)
     if (delta.lengthSq() > .00001 || Math.abs(camera.zoom - zoom) > .015) {

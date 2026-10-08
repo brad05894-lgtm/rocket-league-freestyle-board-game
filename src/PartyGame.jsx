@@ -6,6 +6,7 @@ import { onValue, ref as databaseRef } from 'firebase/database'
 import { db } from './firebase'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import RouletteReel from './RouletteReel'
+import PartyLuckRoulette from './PartyLuckRoulette'
 import { BOOSTSTONE_RUINS } from './booststoneRuins'
 import BooststoneRuins3D from './BooststoneRuins3D'
 import { formatPartyDieFace, getPartyCar, getPartyCarImageUrl, getPartyCarImageFallback } from './partyCars'
@@ -317,10 +318,10 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
     const eventStartedAt = Number(event?.animationStartedAt) || 0
     const ballEnd = event?.id === 'reactor-trigger-c' && eventStartedAt
       ? Math.max(eventStartedAt, moveEnd) + 3200 : 0
-    const gateEnd = event?.id?.startsWith('gate-switch-') && eventStartedAt ? eventStartedAt + 3800 : 0
+    const gateEnd = event?.id?.startsWith('gate-switch-') && eventStartedAt ? eventStartedAt + 4800 : 0
     const chestApproachEnd = event?.id === 'supply-crates' && eventStartedAt && !event.resolved ? eventStartedAt + 1200 : 0
     const chestOpenedAt = Number(event?.openedAt) || 0
-    const chestReturnEnd = event?.id === 'supply-crates' && chestOpenedAt ? chestOpenedAt + 1500 : 0
+    const chestReturnEnd = event?.id === 'supply-crates' && chestOpenedAt ? chestOpenedAt + 4000 : 0
     const trophyStartedAt = Number(room.turnState?.trophyCinematic?.startedAt) || 0
     const trophyEnd = trophyStartedAt ? trophyStartedAt + 3300 : 0
     const remaining = Math.max(moveEnd, ballEnd, gateEnd, chestApproachEnd, chestReturnEnd, trophyEnd) - Date.now() - clockOffset
@@ -469,7 +470,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   useEffect(() => {
     const effect = turn.spaceEffect
     if (movementBusy || !effect?.id) return
-    const key = `luck-${room.currentRound}-${room.turnIndex}-${turn.playerId}-${effect.type}-${effect.id}`
+    const key = `luck-${room.currentRound}-${room.turnIndex}-${turn.playerId}-${effect.type}-${effect.id}-${effect.rouletteId||0}`
     if (seenLuckRouletteKeyRef.current === key) return
     seenLuckRouletteKeyRef.current = key
     const pool = effect.type === 'very-bad-luck'
@@ -481,10 +482,11 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
       phase: 'luck',
       title: effect.type === 'very-bad-luck' ? 'Very Bad Luck Roulette' : effect.type === 'bad-luck' ? 'Bad Luck Roulette' : 'Lucky Roulette',
       winner: effect.name,
-      options: rouletteLabels(pool.map((entry) => entry.name), effect.name),
+      options: pool.map((entry) => entry.name),
+      seed: effect.rouletteSeed ?? 0.5,
       opponentOptions: [],
     })
-  }, [turn.spaceEffect?.id, turn.spaceEffect?.type, turn.spaceEffect?.name, room.currentRound, room.turnIndex, turn.playerId, movementBusy])
+  }, [turn.spaceEffect?.rouletteId, turn.spaceEffect?.id, turn.spaceEffect?.type, turn.spaceEffect?.name, room.currentRound, room.turnIndex, turn.playerId, movementBusy])
 
   // Event spaces are fixed by their physical board location. There is no Event roulette:
   // Garage-Gate Event spaces always trigger the gate switch, and the back Boost-Boulder
@@ -708,7 +710,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
       {partyRoulette && !movementBusy && (
         <div className="party-roulette-overlay">
           <div className="game-modal-card selection-roulette">
-            <RouletteReel
+            {partyRoulette.phase === 'luck' ? <PartyLuckRoulette title={partyRoulette.title} options={partyRoulette.options} winner={partyRoulette.winner} seed={partyRoulette.seed} onComplete={()=>completePartyRoulette(partyRoulette)} canContinue={isMyTurn}/> : <RouletteReel
               key={`${partyRoulette.phase}-${partyRoulette.winner}`}
               title={partyRoulette.title}
               options={partyRoulette.options}
@@ -717,7 +719,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
               canContinue={isMyTurn}
               autoContinue={!isMyTurn}
               waitingText={`Waiting for ${activePlayer?.name || 'the current player'} to continue…`}
-            />
+            />}
           </div>
         </div>
       )}

@@ -22,8 +22,7 @@ export function awardPartyBonuses(room, playerIds, categorySeed = Math.random(),
   const value = id => Number(room.partyStats?.[id]?.[key]) || 0
   const score = (direction === 'min' ? Math.min : Math.max)(...ids.map(value))
   const tied = ids.filter(id => value(id) === score)
-  const winner = tied[Math.min(tied.length - 1, Math.floor(Math.max(0, tieSeed) * tied.length))]
-  room.playerSetup[winner].trophies = (Number(room.playerSetup[winner].trophies) || 0) + 1
-  room.bonusResults = [{ key, name, description, score, winners: [winner], tiedPlayerIds: tied }]
+  for (const winner of tied) room.playerSetup[winner].trophies = (Number(room.playerSetup[winner].trophies) || 0) + 1
+  room.bonusResults = [{ key, name, description, score, winners: tied, tiedPlayerIds: tied }]
   return room.bonusResults
 }
