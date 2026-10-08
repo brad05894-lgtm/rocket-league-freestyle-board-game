@@ -300,6 +300,7 @@ function FinalPartyCinematic({ room, players, onLeave, isHost }) {
 }
 
 export default function PartyGame({ roomCode, room, clientId, onLeave, isHost }) {
+  const [bonusDevCategory, setBonusDevCategory] = useState(-1)
   const [actionBusy, setBusy] = useState(false)
   const [motionBusy, setMotionBusy] = useState(false)
   const [clockOffset, setClockOffset] = useState(0)
@@ -986,8 +987,9 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                 >
                   💀 Very Bad Luck Test
                 </button>
-                {Object.entries(board.boardEvents || {}).filter(([id])=>board.nodes.some(node=>node.special===id)).map(([id,event])=><button key={id} disabled={busy} onClick={()=>handlePrepareEventTest(id)}>{event.name} · {board.nodes.filter(node=>node.special===id).length} trigger(s)</button>)}
-                <label>Bonus Trophy preview<select defaultValue="" disabled={busy} onChange={e=>{if(e.target.value==='')return;runAction(()=>preparePartyBonusDevTest(roomCode,clientId,Number(e.target.value)));e.target.value=''}}><option value="">Choose a bonus test…</option><option value="-1">Random bonus + finale</option>{['Minigame Trophy','Rich Star','Eventful Star','Item Star','Sightseer Star','Slowpoke Star','Unlucky Star'].map((label,index)=><option key={label} value={index}>{label}</option>)}</select></label>
+                {Object.entries(board.boardEvents || {}).filter(([id])=>board.nodes.some(node=>node.special===id)).filter(([id],index,entries)=>!id.startsWith('gate-switch-')||entries.findIndex(([key])=>key.startsWith('gate-switch-'))===index).map(([id,event])=><button key={id} disabled={busy} onClick={()=>handlePrepareEventTest(id)}>{event.name} · {board.nodes.filter(node=>node.special===id).length} trigger(s)</button>)}
+                <label>Bonus Trophy category<select value={bonusDevCategory} disabled={busy} onChange={e=>setBonusDevCategory(Number(e.target.value))}><option value={-1}>Random bonus + finale</option>{['Minigame Trophy','Rich Star','Eventful Star','Item Star','Sightseer Star','Slowpoke Star','Unlucky Star'].map((label,index)=><option key={label} value={index}>{label}</option>)}</select></label>
+                <button type="button" disabled={busy} onClick={()=>runAction(()=>preparePartyBonusDevTest(roomCode,clientId,bonusDevCategory))}>🏆 Test Bonus Trophy</button>
                 <button type="button" onClick={() => handlePrepareServiceTest('Shop')} disabled={busy}>
                   🛒 Action Shop Test
                 </button>

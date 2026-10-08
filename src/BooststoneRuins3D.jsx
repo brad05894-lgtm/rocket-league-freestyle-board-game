@@ -53,7 +53,7 @@ function SpriteLabel({ text, y = 0.42, width = 1.05 }) {
   </sprite>
 }
 
-function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun, clockOffset }) {
+function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun, clockOffset, ballFocus }) {
   const invalidate = useThree((state) => state.invalidate)
   const gltf = useGLTF(MODEL_URL)
   const model = useMemo(() => {
@@ -222,51 +222,10 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
       model.ball.position.copy(model.ballRest)
       model.ball.quaternion.copy(model.ballRotation)
     }
+    model.ball.getWorldPosition(ballFocus.current)
     if (moving || (ballRun && elapsed < 0)) invalidate()
   })
   return <><primitive object={model.scene} dispose={null} /><SpaceMarkers board={board} room={room} model={model} finalStretch={finalFive}/></>
-}
-
-function TreasureChests({ effect, clockOffset }) {
-  const lidRefs = useRef([])
-  const invalidate = useThree((state) => state.invalidate)
-  const selected = Number.isInteger(effect?.selectedCrateIndex) ? effect.selectedCrateIndex : -1
-  const openedAt = Number(effect?.openedAt) || 0
-
-  useEffect(() => { invalidate() }, [effect?.id, effect?.selectedCrateIndex, effect?.openedAt, invalidate])
-  useFrame((_, dt) => {
-    if (!openedAt || selected < 0) return
-    const elapsed = Date.now() + clockOffset - openedAt
-    if (elapsed < -100 || elapsed > 1600) return
-    const lid = lidRefs.current[selected]
-    if (lid) {
-      const target = -Math.PI * 0.46
-      lid.rotation.x = THREE.MathUtils.damp(lid.rotation.x, target, 8, Math.min(dt, 0.1))
-    }
-    invalidate()
-  })
-
-  if (effect?.id !== 'supply-crates') return null
-  return <group>{TREASURE_CHEST_POSITIONS.map((position, index) => {
-    const isSelected = index === selected
-    return <group key={index} position={position}>
-      <mesh castShadow receiveShadow position={[0, 0.12, 0]}>
-        <boxGeometry args={[0.72, 0.28, 0.48]} />
-        <meshStandardMaterial color={isSelected ? '#b97924' : '#8a5a25'} roughness={0.78} metalness={0.05} />
-      </mesh>
-      <group ref={(value) => { lidRefs.current[index] = value }} position={[0, 0.29, -0.19]}>
-        <mesh castShadow position={[0, 0.08, 0.19]}>
-          <boxGeometry args={[0.74, 0.16, 0.5]} />
-          <meshStandardMaterial color={isSelected ? '#d59b3f' : '#a66d2d'} roughness={0.7} metalness={0.08} />
-        </mesh>
-      </group>
-      <mesh position={[0, 0.12, -0.252]}>
-        <boxGeometry args={[0.12, 0.18, 0.035]} />
-        <meshStandardMaterial color="#e4c66a" roughness={0.42} metalness={0.35} />
-      </mesh>
-      <SpriteLabel text={`${index + 1}`} y={0.72} width={0.42} />
-    </group>
-  })}</group>
 }
 
 function AnimatedPiece({ position, motion, playerId, clockOffset, followPoint, isActive, escape, treasure, children }) {
@@ -375,7 +334,7 @@ function PlayerTokens({ board, room, players, activePlayer, turnOrderPhase, turn
   })}</group>
 }
 
-function CameraControls({ resetKey, overview, followPoint, topDown, room, board, clockOffset, showcase }) {
+function CameraControls({ resetKey, overview, followPoint, topDown, room, board, clockOffset, showcase, ballFocus }) {
   const ref = useRef()
   const { camera, size, invalidate } = useThree()
   const fit = Math.max(8, Math.min(size.width / 18, size.height / 17))
@@ -398,7 +357,8 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
       const pose=showcase.camera;camera.position.fromArray(pose.position);ref.current.target.fromArray(pose.target)
       camera.zoom=(camera.top-camera.bottom)/pose.viewHeight;camera.updateProjectionMatrix();ref.current.update();return
     }
-    if (overview && previous.current === overview) { broadcast(); return }
+    const eventActive = Number(room.turnState?.eventEffect?.animationStartedAt) > 0 && Date.now()+clockOffset-Number(room.turnState.eventEffect.animationStartedAt) < 5000
+    if (overview && previous.current === overview && !eventActive) { broadcast(); return }
     let cinematicTarget = null
     const now = Date.now() + clockOffset
     const trophyCinema = room.turnState?.trophyCinematic
@@ -413,7 +373,7 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
         THREE.MathUtils.lerp(fromTrophy[1], toTrophy[1], smooth),
         THREE.MathUtils.lerp(fromTrophy[2], toTrophy[2], smooth)
       )
-    } else if (!overview) {
+    } else if (!overview || eventActive) {
       const effect = room.turnState?.eventEffect
       const startedAt = Number(effect?.animationStartedAt) || 0
       if (effect?.id?.startsWith('gate-switch-') && startedAt) {
@@ -439,12 +399,9 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
         const animationStart = Math.max(startedAt, moveEnd)
         const elapsed = (now - animationStart) / 1000
         if (elapsed >= 0 && elapsed < BALL_DURATION) {
-          const t = Math.pow(elapsed / BALL_DURATION, 1.35)
-          const distance = ((1102 - 288) / 80) * t
-          const ball = new THREE.Vector3(...(layout.nodes.n58 || TARGET))
-          ball.x += distance
-          ball.y = Math.max(ball.y, 0.4)
-          cinematicTarget = ball
+          cinematicTarget = ballFocus.current.clone()
+        } else if (elapsed >= BALL_DURATION && elapsed < BALL_DURATION + 1.5) {
+          cinematicTarget = new THREE.Vector3(...(layout.nodes[effect.resetTo || 'n57'] || TARGET))
         }
       }
     }
@@ -487,6 +444,7 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
   finalFive = false, closedGarageGateIds = [], turnOrderPhase = false, turnOrderRolls = {}, overview = false, quality = 'low', topDown = false, highlightNodeIds = [], showcase = null }) {
   const [clockOffset, setClockOffset] = useState(0)
   const followPoint = useRef(new THREE.Vector3(...TARGET))
+  const ballFocus = useRef(new THREE.Vector3(...TARGET))
   useEffect(() => onValue(databaseRef(db, '.info/serverTimeOffset'), (snapshot) => setClockOffset(Number(snapshot.val()) || 0)), [])
   const [resetKey, setResetKey] = useState(0)
   const [ballRun, setBallRun] = useState(null)
@@ -494,7 +452,7 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
   const seenEvent = useRef('')
   const effect = room.turnState?.eventEffect
   const eventKey = effect?.id === 'reactor-trigger-c'
-    ? `${room.startedAt}:${room.currentRound}:${room.turnIndex}:${room.turnState?.playerId}:${effect.id}` : ''
+    ? `${room.startedAt}:${room.currentRound}:${room.turnIndex}:${room.turnState?.playerId}:${effect.id}:${effect.animationStartedAt}` : ''
   useEffect(() => {
     if (!eventKey) seenEvent.current = ''
     if (eventKey && eventKey !== seenEvent.current) {
@@ -546,13 +504,12 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
         <directionalLight position={[6, 6, -8]} color="#9cc9db" intensity={0.8} />
         <Suspense fallback={<Html center><div style={{ color: '#fff', whiteSpace: 'nowrap' }}>Loading your board…</div></Html>}>
           <BoardModel board={board} room={room} finalFive={finalFive} closedGarageGateIds={effectiveClosedGarageGateIds}
-            ballRun={ballRun} clockOffset={clockOffset} />
+            ballRun={ballRun} clockOffset={clockOffset} ballFocus={ballFocus} />
           <DestinationHighlights nodeIds={highlightNodeIds} />
-          <TreasureChests effect={effect} clockOffset={clockOffset} />
           <PlayerTokens board={board} room={room} players={players} activePlayer={activePlayer}
             turnOrderPhase={turnOrderPhase} turnOrderRolls={turnOrderRolls} ballRun={ballRun} clockOffset={clockOffset} followPoint={followPoint} />
         </Suspense>
-        <CameraControls showcase={showcase} topDown={topDown} resetKey={resetKey} overview={overview || turnOrderPhase} followPoint={followPoint} room={room} board={board} clockOffset={clockOffset} />
+        <CameraControls ballFocus={ballFocus} showcase={showcase} topDown={topDown} resetKey={resetKey} overview={overview || turnOrderPhase} followPoint={followPoint} room={room} board={board} clockOffset={clockOffset} />
       </Canvas>
     </ModelErrorBoundary>
   </div>

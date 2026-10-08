@@ -447,7 +447,7 @@ export const BOOSTSTONE_RUINS = {
       oneUse: false,
       affectedNodes: ['n58', 'n13', 'n14', 'n15', 'n21', 'n22', 'n23', 'n24', 'n25', 'n26', 'n27', 'n28'],
       resetTo: 'n57',
-      description: 'Launches the Boost Boulder down the full horizontal lane. Any player caught on its lane loses up to 5 Tokens and is knocked back toward the safe blue space below the right-side trigger.',
+      description: 'Launches the Boost Boulder down the full horizontal lane. Any player caught on its lane loses up to 6 Tokens and is knocked back toward the safe blue space below the right-side trigger.',
     },
     'gate-switch-bridge-east': {
       name: 'Garage Gate Switch',

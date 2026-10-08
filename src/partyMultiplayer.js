@@ -1065,13 +1065,13 @@ function applyPartyEventLanding(room, turn, playerId, nodeId, seed = 0) {
       for (const id of affectedIds) {
         const affectedSetup = room.playerSetup?.[id]
         const before = Math.max(0, Number(affectedSetup?.tokens) || 0)
-        const loss = Math.min(5, before)
+        const loss = Math.min(6, before)
         if (affectedSetup) affectedSetup.tokens = before - loss
         effect.tokenChanges[id] = -loss
       }
       const names = affectedIds.map((id) => room.players?.[id]?.name || 'Player')
       effect.publicMessage = names.length
-        ? `${event.name} fired! ${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} hit by the Boost Boulder, lost up to 5 Tokens, and got knocked back to the safe space before the back lane.`
+        ? `${event.name} fired! ${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} hit by the Boost Boulder, lost up to 6 Tokens, and got knocked back to the safe space before the back lane.`
         : `${event.name} fired, but nobody was caught in that reactor lane.`
       effect.privateMessage = effect.publicMessage
     }
@@ -4037,13 +4037,8 @@ export async function preparePartyEventDevTest(roomCode, requesterId, eventId = 
     delete room.devBattleTest
     delete room.devSpaceTest
 
-    room.boardState = {
-      closedGarageGateIds: Object.fromEntries(
-        (BOOSTSTONE_RUINS.garageGatePairs || []).map((pair) => [pair.id, pair.defaultClosedGateId])
-      ),
-      closedGarageGateId: (BOOSTSTONE_RUINS.garageGatePairs || [])[0]?.defaultClosedGateId || '',
-      usedBoardEvents: {},
-    }
+    ensurePartyBoardState(room)
+    delete room.boardMotion
 
     order.forEach((id, index) => {
       const playerSetup = room.playerSetup?.[id]
