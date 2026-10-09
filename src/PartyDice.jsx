@@ -23,8 +23,8 @@ export default function PartyDice({animation,room,clientId,onStop,busy,isHost,on
  <h2>{animation.purpose==='turn-order'?'Turn-Order Die':precise?'Precision Dice':animation.kind==='special'?`${car?.name||'Car'} Special Die`:'Normal Die'}</h2>
  <div className="party-dice-stage"><div ref={ref} className={'party-cube'+(precise?' is-gold':'')} style={precise||stopped?{transform:STOP_ROTATIONS[result||0]}:undefined}>{faces.map((f,i)=><div key={i} className="party-cube-face" style={{transform:FACE_ROTATIONS[i]+' translateZ(60px)'}}>{formatPartyDieFace(f)}</div>)}</div></div>
  <p aria-live="polite">{stopped?`Result: ${formatPartyDieFace(faces[result||0])}`:precise?`Showing ${face} — stop on the number you want.`:'Press Stop when you’re ready.'}</p>
- {!stopped&&animation.playerId===clientId?<button disabled={busy} onClick={()=>onStop(precise?face:undefined)}>Stop</button>:!stopped?<p>{room.players?.[animation.playerId]?.name} is rolling…</p>:null}
+ {!stopped&&animation.playerId===clientId?<button disabled={busy} onClick={()=>onStop(precise?face:undefined)}>{busy?'Saving…':'Stop'}</button>:!stopped?<p>{room.players?.[animation.playerId]?.name} is rolling…</p>:null}
  {error&&<p role="alert">{error}</p>}
- {isHost&&!stopped&&<button className="party-small-recovery" disabled={busy} onClick={onRecover}>Cancel roll (recovery)</button>}
+ {(isHost||animation.playerId===clientId)&&!stopped&&<button className="party-small-recovery" disabled={busy} onClick={onRecover}>Cancel roll (recovery)</button>}
  </section></div>
 }

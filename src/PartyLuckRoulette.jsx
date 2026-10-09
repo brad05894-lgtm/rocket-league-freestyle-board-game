@@ -9,12 +9,11 @@ export function luckOptions(labels, winner, seed) {
   const others=shuffle([...new Set(labels)].filter(label=>label&&label!==winner))
   return shuffle([winner,...others.slice(0,5)]).map(label=>({value:label,label}))
 }
-export default function PartyLuckRoulette({title,options,winner,seed,onComplete,canContinue,startedAt:sharedStart}) {
+export default function PartyLuckRoulette({title,options,winner,seed,onComplete,canContinue,startedAt:sharedStart,description,busy,error}) {
   const [startedAt]=useState(()=>Number(sharedStart)||challengeNow())
+  const [now,setNow]=useState(challengeNow())
   const choices=useMemo(()=>luckOptions(options,winner,seed),[options,winner,seed])
-  useEffect(()=>{
-    const id=setTimeout(onComplete,Math.max(0,startedAt+ROULETTE_MS+1000-challengeNow()))
-    return()=>clearTimeout(id)
-  },[canContinue,onComplete,startedAt])
-  return <PartyBattleRoulette title={title} options={choices} winner={winner} startedAt={startedAt} host={canContinue} busy={false} onContinue={onComplete}/>
+  useEffect(()=>{const id=setInterval(()=>setNow(challengeNow()),80);return()=>clearInterval(id)},[])
+  if(now>=startedAt+ROULETTE_MS)return <div className="bc-roulette party-luck-result" role="dialog" aria-label="Luck result"><p className="bc-eyebrow">Your result</p><h2>{winner}</h2><p>{description}</p>{error&&<p role="alert">{error}</p>}{canContinue?<button disabled={busy} onClick={onComplete}>Continue</button>:<p>Waiting for the current player to continue…</p>}</div>
+  return <PartyBattleRoulette title={title} options={choices} winner={winner} startedAt={startedAt} host={false} busy={busy} onContinue={onComplete}/>
 }

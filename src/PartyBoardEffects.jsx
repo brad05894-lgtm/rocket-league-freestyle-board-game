@@ -33,7 +33,7 @@ export function RewardParticles({room,clockOffset}) {
 export function BoardServices(){
  const wing=useMemo(()=>{const s=new THREE.Shape();s.moveTo(0,0);s.lineTo(.12,.12);s.lineTo(.28,.15);s.lineTo(.22,.04);s.lineTo(.10,-.03);s.closePath();return s},[])
  const transport=layout.nodes.n17,steal=layout.nodes.n32
- return <group><group position={[transport[0]-.40,transport[1],transport[2]-.55]}>
+ return <group><group position={[transport[0]+.15,transport[1]-.10,transport[2]-.85]}>
  <mesh position={[0,.20,0]}><boxGeometry args={[.58,.055,.22]}/><meshStandardMaterial color="#78968d"/></mesh><mesh position={[0,.37,-.09]}><boxGeometry args={[.58,.22,.045]}/><meshStandardMaterial color="#78968d"/></mesh>{[-.21,.21].map(x=><mesh key={x} position={[x,.10,0]}><boxGeometry args={[.045,.2,.18]}/><meshStandardMaterial color="#354b48"/></mesh>)}
  <mesh position={[.42,.44,0]}><cylinderGeometry args={[.022,.022,.88,8]}/><meshStandardMaterial color="#bbc7bd"/></mesh><mesh position={[.42,.83,0]}><boxGeometry args={[.6,.36,.045]}/><meshStandardMaterial color="#314c50"/></mesh>{[-1,1].map(sign=><mesh key={sign} position={[.42,.81,.027]} scale={[sign,1,1]}><shapeGeometry args={[wing]}/><meshBasicMaterial color="#f1f5ee" side={THREE.DoubleSide}/></mesh>)}</group>
  <group position={[steal[0],steal[1]+.58,steal[2]]}>{[[-.18,0,.12],[0,.07,.18],[.18,0,.13],[0,-.03,.16]].map(([x,y,r],i)=><mesh key={i} position={[x,y,0]}><sphereGeometry args={[r,14,10]}/><meshStandardMaterial color="#e1e8e5" roughness={.85}/></mesh>)}{[-.06,.06].map(x=><mesh key={x} position={[x,.06,.166]}><sphereGeometry args={[.018,8,6]}/><meshBasicMaterial color="#223839"/></mesh>)}</group></group>

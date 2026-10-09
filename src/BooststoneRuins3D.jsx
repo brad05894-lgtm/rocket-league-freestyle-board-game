@@ -1,3 +1,4 @@
+import {chestOpenAmount, chestCloseDelay} from './partyEventTiming'
 import {RewardParticles,HiddenGiftOnBoard,BoardServices,chestWalkPoint,rewardPoint} from './PartyBoardEffects'
 import {presentationBeat} from './partyPresentation'
 import { onValue, ref as databaseRef } from 'firebase/database'
@@ -196,10 +197,9 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
     const sinceChest=Date.now()+clockOffset-Number(chestEvent?.openedAt||0)
     for(const lid of model.chestLids){
       const selected=chestEvent?.id==='supply-crates'&&chestEvent.selectedCrateIndex===lid.index&&chestEvent.openedAt
-      const delay=lid.index===1?0:700
-      const angle=selected ? -Math.PI*.46*Math.max(0,Math.min(1,(sinceChest-delay)/650)) : 0
+      const angle=selected ? -Math.PI*.46*chestOpenAmount(sinceChest,lid.index) : 0
       lid.object.quaternion.copy(lid.rotation).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),angle))
-      if(selected&&sinceChest<delay+800)moving=true
+      if(selected&&sinceChest<chestCloseDelay(lid.index)+700)moving=true
     }
 
     // Garage Gate Event: switch the right pair first, then the left pair when

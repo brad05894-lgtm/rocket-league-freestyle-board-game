@@ -3,7 +3,7 @@ export default function PartyRulesPanel(){
  const [open,setOpen]=useState(false)
  return <><button className="party-showcase-rules-button" aria-expanded={open} onClick={()=>setOpen(!open)}>📖 Rules</button>{open&&<aside className="party-showcase-rules" aria-label="Party rules"><header><strong>How to play</strong><button onClick={()=>setOpen(false)} aria-label="Minimize rules">✕</button></header><div>
  <h3>The goal</h3><p>Collect the most Trophies. Tokens break a tie. After the final round, one random bonus category awards a Trophy to every player tied for that category.</p>
- <h3>Your turn</h3><p>Everyone begins on the start deck. Roll a normal die to set turn order. On your turn, use an eligible Action Card, choose your normal or car’s special die, and press Stop. Each movement point advances one playable space. A zero or Token-only roll does not activate your current space again.</p>
+ <h3>Your turn</h3><p>Everyone begins on the start deck. Draw a random number from 1–10 to set turn order. On your turn, use an eligible Action Card, choose your normal or car’s special die, and press Stop. Each movement point advances one playable space. A zero or Token-only roll does not activate your current space again.</p>
  <h3>Spaces</h3><ul>
  <li><b>Blue — Mechanic:</b> Complete the displayed mechanic within its attempts and time limit to earn Tokens. The screen shows the difficulty and payout.</li>
  <li><b>Red — Danger Mechanic:</b> Complete the mechanic to avoid a penalty. Success gives no Tokens; missing costs the displayed amount. Balances never go below zero.</li>

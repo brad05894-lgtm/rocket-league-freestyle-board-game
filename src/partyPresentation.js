@@ -25,11 +25,12 @@ export function attachEconomyPresentation(room,before,now,retimeTrophy=false) {
  const diceEnd=Number(room.turnState?.diceAnimation?.stoppedAt||0)+1500
  const start=Math.max(now,moveEnd,eventEnd,luckEnd,diceEnd,Number(room.presentation?.endsAt)||0)
  room.presentation={id:`${now}-${(room.presentationSequence||0)+1}`,startedAt:start,beats,endsAt:start+beats.length*REWARD_BEAT_MS}
+ if(luck?.awaitingContinue){room.presentation.holdForLuck=true;room.presentation.startedAt=0;room.presentation.endsAt=0}
  room.presentationSequence=(room.presentationSequence||0)+1
  if(retimeTrophy&&room.turnState?.trophyCinematic&&beats.some(b=>b.kind==='trophies'&&b.amount>0))room.turnState.trophyCinematic.startedAt=room.presentation.endsAt
 }
 export function presentationBeat(room,now) {
- const p=room.presentation;if(!p||now<p.startedAt||now>=p.endsAt)return null
+ const p=room.presentation;if(!p||p.holdForLuck||now<p.startedAt||now>=p.endsAt)return null
  const index=Math.floor((now-p.startedAt)/REWARD_BEAT_MS)
  return p.beats?.[index]?{...p.beats[index],age:now-p.startedAt-index*REWARD_BEAT_MS,key:p.id+'-'+index}:null
 }

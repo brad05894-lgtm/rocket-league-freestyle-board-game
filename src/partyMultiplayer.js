@@ -608,7 +608,7 @@ function applyPartyLuckLanding(room, turn, playerId, spaceType, seed = 0, card =
     privateMessage = publicMessage
 
     turn.spaceEffect = {
-      rouletteSeed: seed, rouletteId: Date.now(),
+      rouletteSeed: seed, rouletteId: partyNow(), awaitingContinue: true,
       type: 'lucky', spaceType: effectiveSpaceType, id: outcome.id, kind: outcome.kind, name: outcome.name,
       resolved: false, awaitingTarget: true, amount: swipeAmount,
       targetPlayerIds,
@@ -737,7 +737,7 @@ function applyPartyLuckLanding(room, turn, playerId, spaceType, seed = 0, card =
   if (tokenChange > 0) addPartyStat(room, playerId, 'tokensCollected', tokenChange)
 
   turn.spaceEffect = {
-    rouletteSeed: seed, rouletteId: Date.now(),
+    rouletteSeed: seed, rouletteId: partyNow(), awaitingContinue: true,
     type: veryBad ? 'very-bad-luck' : isBadLuck ? 'bad-luck' : 'lucky',
     spaceType: effectiveSpaceType,
     id: outcome.id,
@@ -757,6 +757,22 @@ function applyPartyLuckLanding(room, turn, playerId, spaceType, seed = 0, card =
 
   addPartyActivity(room, playerId, publicMessage, veryBad ? 'very-bad-luck' : isBadLuck ? 'bad-luck' : 'lucky')
   return turn.spaceEffect
+}
+
+export async function continuePartyLuck(roomCode, playerId) {
+  requireOnlineIdentity(playerId)
+  await ensurePartyClock()
+  const now=partyNow()
+  const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(roomCode)}`),room=>{
+    const effect=room?.turnState?.spaceEffect
+    if(room?.phase!=='board'||room.turnState?.playerId!==playerId||!effect?.awaitingContinue||now<Number(effect.rouletteId)+4400)return
+    effect.awaitingContinue=false
+    effect.continuedAt=now
+    const p=room.presentation
+    if(p?.holdForLuck){p.holdForLuck=false;p.startedAt=now;p.endsAt=now+p.beats.length*2200}
+    return room
+  })
+  if(!result.committed)throw Error('Wait for the roulette to finish; only the current player can continue.')
 }
 
 export async function resolvePartyLuckyTokenSteal(roomCode, playerId, targetId = '') {
@@ -787,7 +803,7 @@ export async function resolvePartyLuckyTokenSteal(roomCode, playerId, targetId =
       return
     }
 
-    if (!effect || effect.id !== 'token-swipe' || effect.resolved || !effect.awaitingTarget) {
+    if (!effect || effect.id !== 'token-swipe' || effect.resolved || effect.awaitingContinue || !effect.awaitingTarget) {
       failureReason = 'There is no Token Swipe target waiting.'
       return
     }
@@ -1568,7 +1584,6 @@ export async function confirmPartyBoardSelection(roomCode, playerId, mapId) {
 export async function rollPartyTurnOrder(roomCode, playerId) {
   requireOnlineIdentity(playerId)
   await ensurePartyClock()
-  const stoppedAt = partyNow()
   const code = normalizeCode(roomCode)
   const roomRef = ref(db, `securePartyRooms/${code}`)
   const rollSeed = Math.random()
@@ -1596,22 +1611,18 @@ export async function rollPartyTurnOrder(roomCode, playerId) {
     }
 
     if (Number(room.turnOrderRolls[playerId]) > 0) {
-      failureReason = 'You already rolled for turn order.'
+      failureReason = 'You already drew your turn-order number.'
       return
     }
 
-    if (room.turnOrderDice && (room.turnOrderDice.playerId !== playerId || room.turnOrderDice.stoppedAt)) {
-      failureReason = 'Wait for your own turn-order die.'
-      return
-    }
-    const roll = Math.floor(rollSeed * 6) + 1
-    if (room.turnOrderDice) room.turnOrderDice = {...room.turnOrderDice, stoppedAt, faceIndex: roll - 1}
+    const roll = Math.floor(rollSeed * 10) + 1
+    delete room.turnOrderDice
     room.turnOrderTieBreak ||= {}
     room.turnOrderTieBreak[playerId] = tieSeed
     room.turnOrderRolls[playerId] = roll
 
     const playerName = room.players[playerId]?.name || 'Player'
-    addPartyActivity(room, playerId, `${playerName} rolled a ${roll} for turn order.`, 'roll')
+    addPartyActivity(room, playerId, `${playerName} drew ${roll} for turn order.`, 'roll')
 
     const playerIds = Object.keys(room.players || {})
     const everyoneRolled = playerIds.every((id) => Number(room.turnOrderRolls[id]) > 0)
@@ -1641,7 +1652,7 @@ export async function rollPartyTurnOrder(roomCode, playerId) {
   })
 
   if (!result.committed) {
-    throw new Error(failureReason || 'Could not roll for turn order. Try again.')
+    throw new Error(failureReason || 'Could not draw a turn-order number. Try again.')
   }
 }
 
@@ -2524,6 +2535,10 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
   }
 }
 
+export async function stopPartyPrecisionDie(roomCode, playerId, value) {
+  return usePartyCard(roomCode, playerId, -1, {value, stopPrecision:true})
+}
+
 export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) {
   requireOnlineIdentity(playerId)
   await ensurePartyClock()
@@ -2574,6 +2589,14 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
     }
 
     const cards = normalizePartyCards(setup.cards)
+    if(options.stopPrecision){
+      const dice=turn.diceAnimation
+      if(!dice||dice.kind!=='precision'||dice.playerId!==playerId||dice.stoppedAt||turn.rolled){failureReason='This Golden Die is no longer waiting for a result.';return}
+      // Read the card from the current transaction, not a stale UI index.
+      const stored=Number(dice.cardIndex)
+      cardIndex=Number.isInteger(stored)&&cards[stored]==='precision-dice'?stored:cards.indexOf('precision-dice')
+    }
+
     if (!Number.isInteger(cardIndex) || cardIndex < 0 || cardIndex >= cards.length) {
       failureReason = 'That Card is no longer in your inventory.'
       return
@@ -4303,7 +4326,7 @@ export async function endPartyTurn(roomCode, playerId) {
       return
     }
 
-    if (room.turnState?.spaceEffect && !room.turnState.spaceEffect.resolved) {
+    if (room.turnState?.spaceEffect && (!room.turnState.spaceEffect.resolved || room.turnState.spaceEffect.awaitingContinue)) {
       failureReason = 'Resolve the Lucky / Bad Luck result first.'
       return
     }
@@ -4732,15 +4755,10 @@ export async function beginPartyDie(code,uid,kind,cardIndex=null) {
  await ensurePartyClock()
  const now=partyNow()
  const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
-  if(room?.status==='playing' && room.phase==='turn-order'){
-   if(kind!=='normal'||!room.players?.[uid]||room.turnOrderComplete||Number(room.turnOrderRolls?.[uid])>0)return
-   if(room.turnOrderDice&&(!room.turnOrderDice.stoppedAt||now<room.turnOrderDice.stoppedAt+1500))return
-   room.turnOrderDice={kind:'normal',purpose:'turn-order',playerId:uid,startedAt:now}
-   return room
-  }
   const t=room?.turnState
   if(room?.phase!=='board'||t?.playerId!==uid||t.rolled||t.awaitingTrophy||t.battle?.status==='active')return
   if(!['normal','special','precision'].includes(kind))return
+  if(kind==='precision'&&t.cardUsedThisTurn)return
   if(kind==='precision'&&normalizePartyCards(room.playerSetup[uid].cards)[cardIndex]!=='precision-dice')return
   if(t.diceAnimation&&!t.diceAnimation.stoppedAt)return
   t.diceAnimation={kind,playerId:uid,startedAt:now,...(room.devDiceTest?.carId?{carId:room.devDiceTest.carId}:{}),...(kind==='precision'?{cardIndex}:{})}
@@ -4763,7 +4781,14 @@ export async function restorePartyDevCheckpoint(code,uid){requireOnlineIdentity(
  return room
 })}
 export async function recoverPartyPresentation(code,uid){requireOnlineIdentity(uid);await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
- if(!room||room.hostId!==uid)return
+ if(!room)return
+ if(room.hostId!==uid){
+   const dice=room.turnState?.diceAnimation
+   if(dice?.playerId!==uid||dice.stoppedAt)return
+   delete room.turnState.diceAnimation
+   return room
+ }
+ if(room.turnState?.spaceEffect?.awaitingContinue){room.turnState.spaceEffect.awaitingContinue=false;room.turnState.spaceEffect.continuedAt=partyNow()}
  delete room.turnOrderDice;delete room.presentation;delete room.turnState?.trophyCinematic;delete room.turnState?.diceAnimation
  if(room.turnState?.eventEffect){room.turnState.eventEffect.animationStartedAt=0;if(room.turnState.eventEffect.openedAt)room.turnState.eventEffect.openedAt=1}
  return room
@@ -4847,4 +4872,29 @@ export async function configurePartyShopDev(code,uid,cardId,fullHand=false){
   room.playerSetup[uid].cards=fullHand?['shield','shield','shield']:[]
   return room
  })
+}
+
+export async function adjustPartyPlayerDev(code,uid,targetId,kind,delta=0,cardId='') {
+ requireOnlineIdentity(uid)
+ if(!['tokens','trophies','add-card','remove-card'].includes(kind))throw Error('Choose Tokens, Trophies or an Action Card.')
+ if(['tokens','trophies'].includes(kind)&&(!Number.isInteger(delta)||Math.abs(delta)>9999))throw Error('Use a whole-number adjustment between -9999 and 9999.')
+ const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(!room||room.hostId!==uid||!room.players?.[targetId]||!room.playerSetup?.[targetId])return
+  devCheckpoint(room)
+  const setup=room.playerSetup[targetId]
+  if(kind==='tokens'||kind==='trophies')setup[kind]=Math.max(0,(Number(setup[kind])||0)+delta)
+  else{
+   if(room.turnState?.diceAnimation?.playerId===targetId&&!room.turnState.diceAnimation.stoppedAt)return
+   const card=getPartyCard(cardId);if(!card||card.enabled===false)return
+   const cards=normalizePartyCards(setup.cards)
+   if(kind==='add-card'){if(cards.length>=3)return;cards.push(cardId)}
+   else{const index=cards.indexOf(cardId);if(index<0)return;cards.splice(index,1)}
+   setup.cards=cards
+  }
+  // Manual corrections don't count toward bonus statistics or start a cinematic.
+  room.presentationSequence=(room.presentationSequence||0)+1
+  addPartyActivity(room,uid,`DEV adjusted ${room.players[targetId].name}'s ${kind.includes('card')?'Cards':kind}.`,'system')
+  return room
+ })
+ if(!result.committed)throw Error('Host only. Check the player, hand limit, and selected Card. Close that player’s dice before editing Cards.')
 }

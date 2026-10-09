@@ -1,3 +1,4 @@
+import PartyEventAudio from './PartyEventAudio'
 import PartyBoardDev from './PartyBoardDev'
 import PartyDice from './PartyDice'
 import PartyHiddenGift from './PartyHiddenGift'
@@ -17,7 +18,7 @@ import { formatPartyDieFace, getPartyCar, getPartyCarImageUrl, getPartyCarImageF
 import { getEnabledPartyCards, getPartyCard, getPartyCardShopPrice, normalizePartyCards } from './partyCards'
 import {
   beginNextPartyRound,
-  beginPartyDie, checkPartyHiddenGift, collectPartyHiddenGift, skipPartyHiddenGift, preparePartyTrophyDevTest, recoverPartyPresentation, savePartyDevCheckpoint, restorePartyDevCheckpoint,
+  stopPartyPrecisionDie, continuePartyLuck, beginPartyDie, checkPartyHiddenGift, collectPartyHiddenGift, skipPartyHiddenGift, preparePartyTrophyDevTest, recoverPartyPresentation, savePartyDevCheckpoint, restorePartyDevCheckpoint,
   resolvePartyService,
   PARTY_SERVICE_PRICES,
   choosePartyMechanicChoice,
@@ -325,9 +326,9 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const carStillMoving = Boolean(roomMotion?.playerId) && Date.now() + clockOffset < roomMoveEnd
   const rewardBusy=presentationNow+clockOffset<Number(room.presentation?.endsAt||0)
   const giftBusy=Boolean(room.turnState?.hiddenGiftCheck||(room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed))
-  const dice=room.phase==='turn-order'?room.turnOrderDice:room.turnState?.diceAnimation
+  const dice=room.phase==='board'?room.turnState?.diceAnimation:null
   const diceVisible=dice&&(!dice.stoppedAt||presentationNow+clockOffset<dice.stoppedAt+1500)
-  const movementBusy = motionBusy || carStillMoving || rewardBusy || giftBusy || Boolean(diceVisible)
+  const movementBusy = Boolean(room.turnState?.spaceEffect?.awaitingContinue) || motionBusy || carStillMoving || rewardBusy || giftBusy || Boolean(diceVisible)
   const busy = actionBusy || movementBusy
   useEffect(() => onValue(databaseRef(db, '.info/serverTimeOffset'), (snapshot) => setClockOffset(Number(snapshot.val()) || 0)), [])
   useEffect(() => {
@@ -462,9 +463,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
     .map((player) => room.playerSetup?.[player.id]?.boardNodeId)
     .filter(Boolean))]
 
-  useEffect(() => {
-    if (turn.awaitingService?.type === 'Paratroopa') setOverview(true)
-  }, [turn.awaitingService?.type, turn.awaitingService?.nodeId])
+  // Transportation temporarily widens the view without changing the user's mode.
+  const cameraOverview = overview || turn.awaitingService?.type === 'Paratroopa'
 
   useEffect(() => {
     // Never start the Battle selection overlay while the car is still visibly moving.
@@ -488,6 +488,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
 
   useEffect(() => {
     const effect = turn.spaceEffect
+    if (effect?.continuedAt) { setPartyRoulette(current=>current?.phase==='luck'?null:current); return }
     if (motionBusy || carStillMoving || !effect?.id) return
     const key = `luck-${room.currentRound}-${room.turnIndex}-${turn.playerId}-${effect.type}-${effect.id}-${effect.rouletteId||0}`
     if (seenLuckRouletteKeyRef.current === key) return
@@ -499,13 +500,14 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
         : PARTY_LUCKY_OUTCOMES
     setPartyRoulette({
       phase: 'luck', startedAt:effect.rouletteId,
+      description: (isMyTurn || openHands) ? (effect.privateMessage || effect.publicMessage) : effect.publicMessage,
       title: effect.type === 'very-bad-luck' ? 'Very Bad Luck Roulette' : effect.type === 'bad-luck' ? 'Bad Luck Roulette' : 'Lucky Roulette',
       winner: effect.name,
       options: pool.map((entry) => entry.name),
       seed: effect.rouletteSeed ?? 0.5,
       opponentOptions: [],
     })
-  }, [turn.spaceEffect?.rouletteId, turn.spaceEffect?.id, turn.spaceEffect?.type, turn.spaceEffect?.name, room.currentRound, room.turnIndex, turn.playerId, movementBusy])
+  }, [turn.spaceEffect?.continuedAt, turn.spaceEffect?.rouletteId, turn.spaceEffect?.id, turn.spaceEffect?.type, turn.spaceEffect?.name, room.currentRound, room.turnIndex, turn.playerId, movementBusy])
 
   // Event spaces are fixed by their physical board location. There is no Event roulette:
   // Garage-Gate Event spaces always trigger the gate switch, and the back Boost-Boulder
@@ -563,7 +565,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   }
 
   async function handleTurnOrderRoll() {
-    await runAction(() => beginPartyDie(roomCode, clientId, 'normal'))
+    await runAction(() => rollPartyTurnOrder(roomCode, clientId))
   }
 
   async function handleRoll(dieType) {
@@ -728,7 +730,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const battleLocked=battle?.status==='active'||room.phase==='round-complete'||orderResults
   return (
     <div ref={immersiveRef} className="game party-game-screen party-immersive" data-route={Boolean(routeDecision)} data-panel={hudPanel||'none'}>
-      {diceVisible&&<PartyDice isHost={isHost} error={error} onRecover={()=>runAction(()=>recoverPartyPresentation(roomCode,clientId),true)} animation={dice} room={room} clientId={clientId} busy={actionBusy} onStop={value=>runAction(()=>isTurnOrderPhase?rollPartyTurnOrder(roomCode,clientId):dice.kind==='precision'?usePartyCard(roomCode,clientId,dice.cardIndex,{value}):rollPartyDie(roomCode,clientId,dice.kind),true)}/>}
+      <PartyEventAudio room={room} clockOffset={clockOffset}/>
+      {diceVisible&&<PartyDice isHost={isHost} error={error} onRecover={()=>runAction(()=>recoverPartyPresentation(roomCode,clientId),true)} animation={dice} room={room} clientId={clientId} busy={actionBusy} onStop={value=>runAction(()=>isTurnOrderPhase?rollPartyTurnOrder(roomCode,clientId):dice.kind==='precision'?stopPartyPrecisionDie(roomCode,clientId,value):rollPartyDie(roomCode,clientId,dice.kind),true)}/>}
       {room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed&&<PartyHiddenGift gift={room.turnState.hiddenGiftResult} name={room.players?.[room.turnState.playerId]?.name||'Player'} canCollect={room.turnState.playerId===clientId} isHost={isHost} busy={actionBusy} onCollect={()=>runAction(()=>collectPartyHiddenGift(roomCode,clientId),true)} onRecover={()=>runAction(()=>skipPartyHiddenGift(roomCode,clientId),true)}/>}
       {room.turnState?.hiddenGiftCheck&&<div className="party-reward-banner"><span>Checking this landing…</span>{isHost&&<button onClick={()=>runAction(()=>skipPartyHiddenGift(roomCode,clientId),true)}>Skip check (recovery)</button>}</div>}
       {(()=>{const beat=presentationBeat(room,presentationNow+clockOffset);return beat&&<div className="party-reward-banner" role="status"><strong>{room.players?.[beat.playerId]?.name}</strong><span>{beat.kind==='trophies'?(beat.amount>0?'🏆 Got a Trophy!':'🏆 Trophy taken'): `${beat.amount>0?'+':''}${beat.amount} Tokens`}</span></div>})()}
@@ -736,7 +739,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
       {partyRoulette && !motionBusy && !carStillMoving && !giftBusy && !diceVisible && (!rewardBusy || presentationNow+clockOffset<room.presentation?.startedAt) && (
         <div className="party-roulette-overlay">
           <div className={`game-modal-card selection-roulette ${partyRoulette.phase==='luck'?'party-luck-fit':''}`}>
-            {partyRoulette.phase === 'luck' ? <PartyLuckRoulette startedAt={partyRoulette.startedAt} title={partyRoulette.title} options={partyRoulette.options} winner={partyRoulette.winner} seed={partyRoulette.seed} onComplete={()=>completePartyRoulette(partyRoulette)} canContinue={isMyTurn}/> : <RouletteReel
+            {partyRoulette.phase === 'luck' ? <PartyLuckRoulette startedAt={partyRoulette.startedAt} description={partyRoulette.description} busy={actionBusy} error={error} title={partyRoulette.title} options={partyRoulette.options} winner={partyRoulette.winner} seed={partyRoulette.seed} onComplete={()=>turn.spaceEffect?.awaitingContinue?runAction(()=>continuePartyLuck(roomCode,clientId),true):completePartyRoulette(partyRoulette)} canContinue={isMyTurn}/> : <RouletteReel
               key={`${partyRoulette.phase}-${partyRoulette.winner}`}
               title={partyRoulette.title}
               options={partyRoulette.options}
@@ -774,13 +777,13 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
         </div>
       )}
 
-      {orderResults&&<div className="bc-backdrop"><section className="bc-dialog party-order-results" role="dialog" aria-modal="true" aria-label="Turn order results"><button onClick={onLeave}>{isHost?'End game':'Leave game'}</button><h1>Turn order is set!</h1><p>Everyone starts on the deck. Your first movement point reaches the first blue Mechanic space.</p><ol>{players.map((player,index)=><li key={player.id}><strong>{player.name}</strong><span>🎲 {turnOrderRolls[player.id]}</span><small>{index===0?'Goes first':'Turn order locked'}</small></li>)}</ol><p>Equal rolls use a random tiebreak. Only the player going first needs to continue.</p>{players[0]?.id===clientId?<button disabled={actionBusy} onClick={()=>runAction(()=>confirmPartyTurnOrder(roomCode,clientId))}>Continue to Board</button>:<p>Waiting for <strong>{players[0]?.name||'the first player'}</strong> to continue…</p>}{error&&<p role="alert">{error}</p>}</section></div>}
+      {orderResults&&<div className="bc-backdrop"><section className="bc-dialog party-order-results" role="dialog" aria-modal="true" aria-label="Turn order results"><button onClick={onLeave}>{isHost?'End game':'Leave game'}</button><h1>Turn order is set!</h1><p>Everyone starts on the deck. Your first movement point reaches the first blue Mechanic space.</p><ol>{players.map((player,index)=><li key={player.id}><strong>{player.name}</strong><span>#{turnOrderRolls[player.id]}</span><small>{index===0?'Goes first':'Turn order locked'}</small></li>)}</ol><p>Equal numbers use a random tiebreak. Only the player going first needs to continue.</p>{players[0]?.id===clientId?<button disabled={actionBusy} onClick={()=>runAction(()=>confirmPartyTurnOrder(roomCode,clientId))}>Continue to Board</button>:<p>Waiting for <strong>{players[0]?.name||'the first player'}</strong> to continue…</p>}{error&&<p role="alert">{error}</p>}</section></div>}
       {!movementBusy&&(battle?.status==='active'||room.phase==='round-complete')&&<PartyChallenge room={room} roomCode={roomCode} clientId={clientId} onLeave={onLeave} onNextRound={handleNextRound}/>}
       <div className="party-game-layout">
         <section className="party-game-board-card party-game-board-card--ruins">
           {true && (
             <BooststoneRuins3D
-              overview={overview} topDown={boardView==='2d'} quality={quality}
+              overview={cameraOverview} topDown={boardView==='2d'} quality={quality}
               board={board}
               room={room}
               players={players}
@@ -889,15 +892,15 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           {isTurnOrderPhase && (
             <div className="party-turn-panel__section party-turn-order-panel">
               <p className="home-mode-card__eyebrow">Starting Deck</p>
-              <h2>Roll for turn order</h2>
-              <p>Everyone rolls a normal 1–6 die. Highest goes first; equal rolls use a random tiebreak.</p>
+              <h2>Decide turn order</h2>
+              <p>Everyone draws a random number from 1–10. Highest goes first; ties use a random tiebreak.</p>
               <div className="party-turn-order-list">
                 {players.map((player) => {
                   const roll = Number(turnOrderRolls[player.id]) || 0
                   return (
                     <div key={`turn-order-${player.id}`} className={player.id === clientId ? 'party-turn-order-row party-turn-order-row--me' : 'party-turn-order-row'}>
                       <strong>{player.name}</strong>
-                      <span>{roll > 0 ? `🎲 ${roll}` : 'Waiting to roll…'}</span>
+                      <span>{roll > 0 ? `#${roll}` : 'Waiting to draw…'}</span>
                     </div>
                   )
                 })}
@@ -908,9 +911,9 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                 onClick={handleTurnOrderRoll}
                 disabled={busy || myTurnOrderRoll > 0}
               >
-                {myTurnOrderRoll > 0 ? `You rolled ${myTurnOrderRoll}` : 'Roll Turn-Order Die'}
+                {myTurnOrderRoll > 0 ? `Your number: ${myTurnOrderRoll}` : 'Draw Number (1–10)'}
               </button>
-              <small>After everyone rolls, review the order. The player going first presses Continue to begin.</small>
+              <small>After everyone draws, review the order. The player going first presses Continue to begin.</small>
             </div>
           )}
 
@@ -969,7 +972,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           {isHost && !isTurnOrderPhase && (
             <details className="party-turn-panel__section party-dev-panel" open>
               <summary style={{ cursor: 'pointer', fontWeight: 900 }}>DEV Test Lab</summary>
-              <PartyBoardDev room={room} roomCode={roomCode} clientId={clientId} runAction={runAction} busy={busy}/>
+              <PartyBoardDev room={room} roomCode={roomCode} clientId={clientId} runAction={(fn,allow)=>runAction(fn,allow)} busy={busy} actionBusy={actionBusy}/>
               <div className="menu">
                 <button
                   type="button"
