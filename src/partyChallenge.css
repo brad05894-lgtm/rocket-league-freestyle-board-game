@@ -28,3 +28,15 @@
 .bc-tie{border:2px solid #fbbf24;border-radius:14px;padding:16px}
 @media(max-width:700px){.bc-backdrop{padding:max(8px,env(safe-area-inset-top)) 8px max(8px,env(safe-area-inset-bottom));box-sizing:border-box}.bc-dialog{width:100%!important;max-width:100%!important;max-height:calc(100dvh - 24px)!important;margin:auto!important;padding:14px!important;box-sizing:border-box}.bc h2{font-size:26px!important;line-height:1.15!important}.bc h3{font-size:20px!important}.bc-grid{grid-template-columns:1fr!important}.bc input,.bc select{font-size:16px!important;max-width:100%;box-sizing:border-box}.bc-inline{flex-wrap:wrap}.bc-inline label{flex:1 1 150px;min-width:0}.bc-controls button{white-space:normal}.bc-rules li{line-height:1.5;margin-bottom:9px}.bc-scoreboard{grid-template-columns:repeat(2,minmax(0,1fr))}.bc-teams{flex-wrap:wrap}}
 .bc-turn-order{padding:10px 12px;margin:10px 0;border:1px solid #52687d;border-radius:12px;background:#102334}.bc-turn-order ol{display:flex;gap:8px;flex-wrap:wrap;list-style:none;margin:8px 0 0;padding:0}.bc-turn-order li{display:flex;align-items:center;gap:6px;padding:6px 9px;border:1px solid #40596e;border-radius:8px;font-size:13px}.bc-turn-order li.is-current{background:#604229;border-color:#f8c778;color:#fff}.bc-turn-order b,.bc-turn-order small{font-size:10px;font-weight:800}
+
+/* Keep fields reachable while iOS/Android display the on-screen keyboard. */
+.bc-backdrop .bc-dialog{max-height:calc(var(--bc-visible-height,100dvh) - 24px)!important;min-height:0;scroll-padding:16px}
+.bc-dialog input,.bc-dialog textarea,.bc-dialog select{pointer-events:auto;touch-action:manipulation;font-size:16px;min-height:44px;scroll-margin:16px}
+.bc-dialog input,.bc-dialog textarea{user-select:text;-webkit-user-select:text}
+.bc-dialog .bc-draft-count{display:flex;align-items:end;gap:8px;margin:12px 0;padding:10px;background:#ffffff08;border-radius:10px;text-align:left}
+.bc-draft-count label{flex:1;min-width:0;margin:0}
+.bc-draft-count label>span{display:block;overflow-wrap:anywhere}
+.bc-dialog .bc-draft-count input{display:block;width:100%;max-width:130px;margin:6px 0 0;text-align:center}
+.bc-count-buttons{display:flex;gap:6px;flex-shrink:0}
+.bc-dialog .bc-count-buttons button{width:44px;min-height:44px;padding:6px;margin:0;font-size:24px}
+@media(max-width:700px){.bc-dialog .bc{padding:10px}.bc-dialog .bc-match,.bc-dialog .bc-controls{padding:10px}.bc-inline label{display:flex;flex-direction:column;align-items:center}.bc-inline input{width:100%;max-width:220px;margin:5px 0}.bc-dialog .bc-draft-count{padding:8px;gap:6px}}
