@@ -1,3 +1,5 @@
+import {RewardParticles,HiddenGiftOnBoard,BoardServices,chestWalkPoint,rewardPoint} from './PartyBoardEffects'
+import {presentationBeat} from './partyPresentation'
 import { onValue, ref as databaseRef } from 'firebase/database'
 import { db } from './firebase'
 import { Component, Suspense, useEffect, useMemo, useRef, useState } from 'react'
@@ -67,6 +69,18 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
       if (role === 'ball') ball = o
       if (role === 'chest-lid') chestLids.push({object:o,index:Number(o.userData.chestIndex),rotation:o.quaternion.clone()})
     })
+    if(!chestLids.length){
+      const lids=[]
+      scene.traverse(o=>{if(o.isMesh&&String(o.userData.sourceName||o.name).replace(/^WEB_/, '').startsWith('Crate gold lid'))lids.push(o)})
+      scene.updateMatrixWorld(true)
+      lids.sort((a,b)=>a.getWorldPosition(new THREE.Vector3()).x-b.getWorldPosition(new THREE.Vector3()).x)
+      lids.forEach((lid,index)=>{
+        const box=new THREE.Box3().setFromObject(lid),pivot=new THREE.Group()
+        pivot.position.set((box.min.x+box.max.x)/2,(box.min.y+box.max.y)/2,box.min.z)
+        scene.add(pivot);pivot.updateMatrixWorld(true);pivot.attach(lid)
+        chestLids.push({object:pivot,index,rotation:pivot.quaternion.clone()})
+      })
+    }
     // Only Bad Luck materials need private copies for final-five recoloring.
     for (const node of board.nodes) {
       if (node.type !== 'Bad Luck') continue
@@ -142,7 +156,7 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
 
   useEffect(() => {
     invalidate()
-  }, [invalidate, model, closedGateKey, room.activeTrophyNodeId, room.boardMotion, room.turnState?.eventEffect, room.turnState?.trophyCinematic, finalFive, ballRun])
+  }, [invalidate, model, closedGateKey, room.activeTrophyNodeId, room.boardMotion, room.turnState?.eventEffect, room.turnState?.trophyCinematic, room.presentation, finalFive, ballRun])
 
   useFrame((_, dt) => {
     let moving = false
@@ -158,6 +172,7 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
     const trophyStartedAt = Number(trophyCinema?.startedAt) || 0
     const fromTrophy = layout.nodes[trophyCinema?.fromNodeId]
     const toTrophy = layout.nodes[trophyCinema?.toNodeId]
+    if(trophyStartedAt && Date.now()+clockOffset<trophyStartedAt){model.trophy.visible=false;moving=true}
     if (trophyStartedAt && fromTrophy && toTrophy) {
       const elapsedTrophy = Date.now() + clockOffset - trophyStartedAt
       if (elapsedTrophy >= -250 && elapsedTrophy < 3300) {
@@ -248,13 +263,11 @@ function AnimatedPiece({ position, motion, playerId, clockOffset, followPoint, i
       const age=now-Number(treasure.startedAt||0),since=now-Number(treasure.openedAt||0)
       const blend=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*Math.max(0,Math.min(1,t)))
       let point
-      if(!treasure.openedAt) {
-        const stair=[to[0],from[1],from[2]]
-        point=age<500?blend(from,stair,age/500):blend(stair,to,(age-500)/700)
-      } else if(since<700) point=blend(to,chosen,since/700)
-      else if(since<2100) point=chosen
-      else if(since<2800) point=blend(chosen,to,(since-2100)/700)
-      else if(since<4000) point=blend(to,from,(since-2800)/1200)
+      if(!treasure.openedAt) point=chestWalkPoint(age/2400)
+      else if(since<700) point=blend(to,chosen,since/700)
+      else if(since<2400) point=chosen
+      else if(since<3100) point=blend(chosen,to,(since-2400)/700)
+      else if(since<5500) point=chestWalkPoint(1-(since-3100)/2400)
       if(point){ref.current.position.set(point[0],point[1]+.17,point[2]);if(isActive)followPoint.current.copy(ref.current.position);invalidate();return}
     }
 
@@ -346,7 +359,9 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
       camera.zoom=(camera.top-camera.bottom)/pose.viewHeight;camera.updateProjectionMatrix();ref.current.update();return
     }
     const eventActive = Number(room.turnState?.eventEffect?.animationStartedAt) > 0 && Date.now()+clockOffset-Number(room.turnState.eventEffect.animationStartedAt) < 5000
-    if (overview && previous.current === overview && !eventActive) { broadcast(); return }
+    const reward=presentationBeat(room,Date.now()+clockOffset)
+    const trophyActive=Number(room.turnState?.trophyCinematic?.startedAt)>0&&Date.now()+clockOffset-Number(room.turnState.trophyCinematic.startedAt)<3300
+    if (overview && previous.current === overview && !eventActive && !reward && !trophyActive && !(room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed)) { broadcast(); return }
     let cinematicTarget = null
     let gateLocked = false
     const now = Date.now() + clockOffset
@@ -378,8 +393,8 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
           cinematicTarget = new THREE.Vector3(...TREASURE_CENTER)
         } else if (openedAt) {
           const sinceOpen = now - openedAt
-          if (sinceOpen >= 0 && sinceOpen < 4000) {
-            const back = Math.max(0, Math.min(1, (sinceOpen - 2800) / 1200))
+          if (sinceOpen >= 0 && sinceOpen < 5500) {
+            const back = Math.max(0, Math.min(1, (sinceOpen - 3100) / 2400))
             const chest = new THREE.Vector3(...TREASURE_CENTER)
             const returnPoint = new THREE.Vector3(...(layout.nodes.n19 || TREASURE_CENTER))
             cinematicTarget = chest.lerp(returnPoint, back * back * (3 - 2 * back))
@@ -397,6 +412,10 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
         }
       }
     }
+    if(reward&&rewardPoint(reward))cinematicTarget=new THREE.Vector3(...rewardPoint(reward))
+    if(reward)invalidate()
+    const gift=room.turnState?.hiddenGiftResult
+    if(gift&&!gift.dismissed){const p=layout.nodes[room.playerSetup?.[gift.playerId]?.boardNodeId];if(p){cinematicTarget=new THREE.Vector3(...p);invalidate()}}
     const desired = cinematicTarget || (overview ? new THREE.Vector3(...TARGET) : followPoint.current)
     if (!desired) return
     const factor = gateLocked ? 1 : 1 - Math.exp(-8 * Math.min(dt, .1))
@@ -497,6 +516,7 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
         <Suspense fallback={<Html center><div style={{ color: '#fff', whiteSpace: 'nowrap' }}>Loading your board…</div></Html>}>
           <BoardModel board={board} room={room} finalFive={finalFive} closedGarageGateIds={effectiveClosedGarageGateIds}
             ballRun={ballRun} clockOffset={clockOffset} ballFocus={ballFocus} />
+          <BoardServices/><HiddenGiftOnBoard room={room} clockOffset={clockOffset}/><RewardParticles room={room} clockOffset={clockOffset}/>
           <DestinationHighlights nodeIds={highlightNodeIds} />
           <PlayerTokens board={board} room={room} players={players} activePlayer={activePlayer}
             turnOrderPhase={turnOrderPhase} turnOrderRolls={turnOrderRolls} ballRun={ballRun} clockOffset={clockOffset} followPoint={followPoint} />

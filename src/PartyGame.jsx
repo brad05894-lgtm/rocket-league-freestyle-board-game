@@ -1,3 +1,7 @@
+import PartyBoardDev from './PartyBoardDev'
+import PartyDice from './PartyDice'
+import PartyHiddenGift from './PartyHiddenGift'
+import { presentationBeat } from './partyPresentation'
 import PartyFinale from './PartyFinale'
 import TokenIcon from './TokenIcon'
 import './partyImmersive.css'
@@ -13,6 +17,7 @@ import { formatPartyDieFace, getPartyCar, getPartyCarImageUrl, getPartyCarImageF
 import { getEnabledPartyCards, getPartyCard, getPartyCardShopPrice, normalizePartyCards } from './partyCards'
 import {
   beginNextPartyRound,
+  beginPartyDie, checkPartyHiddenGift, collectPartyHiddenGift, skipPartyHiddenGift, preparePartyTrophyDevTest, recoverPartyPresentation, savePartyDevCheckpoint, restorePartyDevCheckpoint,
   resolvePartyService,
   PARTY_SERVICE_PRICES,
   choosePartyMechanicChoice,
@@ -301,14 +306,28 @@ function FinalPartyCinematic({ room, players, onLeave, isHost }) {
 }
 
 export default function PartyGame({ roomCode, room, clientId, onLeave, isHost }) {
+  const [presentationNow,setPresentationNow]=useState(Date.now())
+  const giftCheckBusy=useRef(false)
+  useEffect(()=>{if(!isHost||!room.turnState?.hiddenGiftCheck||giftCheckBusy.current)return;giftCheckBusy.current=true;checkPartyHiddenGift(roomCode,clientId).catch(e=>setError(e.message)).finally(()=>{giftCheckBusy.current=false})},[isHost,room.turnState?.hiddenGiftCheck?.landingId,roomCode,clientId])
   const [bonusDevCategory, setBonusDevCategory] = useState(-1)
   const [actionBusy, setBusy] = useState(false)
   const [motionBusy, setMotionBusy] = useState(false)
   const [clockOffset, setClockOffset] = useState(0)
+  useEffect(()=>{
+    setPresentationNow(Date.now())
+    const end=Math.max(Number(room.presentation?.endsAt||0),Number(room.turnState?.diceAnimation?.stoppedAt||0)+1500)
+    if(Date.now()+clockOffset>=end)return
+    const timer=setInterval(()=>{setPresentationNow(Date.now());if(Date.now()+clockOffset>=end)clearInterval(timer)},80)
+    return()=>clearInterval(timer)
+  },[room.presentation,room.turnState?.diceAnimation,clockOffset])
   const roomMotion = room.boardMotion
   const roomMoveEnd = Number(roomMotion?.startedAt || 0) + Math.max(0, (roomMotion?.path?.length || 1) - 1) * (roomMotion?.stepMs || 280)
   const carStillMoving = Boolean(roomMotion?.playerId) && Date.now() + clockOffset < roomMoveEnd
-  const movementBusy = motionBusy || carStillMoving
+  const rewardBusy=presentationNow+clockOffset<Number(room.presentation?.endsAt||0)
+  const giftBusy=Boolean(room.turnState?.hiddenGiftCheck||(room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed))
+  const dice=room.turnState?.diceAnimation
+  const diceVisible=dice&&(!dice.stoppedAt||presentationNow+clockOffset<dice.stoppedAt+1500)
+  const movementBusy = motionBusy || carStillMoving || rewardBusy || giftBusy || Boolean(diceVisible)
   const busy = actionBusy || movementBusy
   useEffect(() => onValue(databaseRef(db, '.info/serverTimeOffset'), (snapshot) => setClockOffset(Number(snapshot.val()) || 0)), [])
   useEffect(() => {
@@ -319,15 +338,15 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
     const ballEnd = event?.id === 'reactor-trigger-c' && eventStartedAt
       ? Math.max(eventStartedAt, moveEnd) + 3200 : 0
     const gateEnd = event?.id?.startsWith('gate-switch-') && eventStartedAt ? eventStartedAt + 4800 : 0
-    const chestApproachEnd = event?.id === 'supply-crates' && eventStartedAt && !event.resolved ? eventStartedAt + 1200 : 0
+    const chestApproachEnd = event?.id === 'supply-crates' && eventStartedAt && !event.resolved ? eventStartedAt + 2400 : 0
     const chestOpenedAt = Number(event?.openedAt) || 0
-    const chestReturnEnd = event?.id === 'supply-crates' && chestOpenedAt ? chestOpenedAt + 4000 : 0
+    const chestReturnEnd = event?.id === 'supply-crates' && chestOpenedAt ? chestOpenedAt + 5500 : 0
     const trophyStartedAt = Number(room.turnState?.trophyCinematic?.startedAt) || 0
     const trophyEnd = trophyStartedAt ? trophyStartedAt + 3300 : 0
     const remaining = Math.max(moveEnd, ballEnd, gateEnd, chestApproachEnd, chestReturnEnd, trophyEnd) - Date.now() - clockOffset
     setMotionBusy(remaining > 0)
     if (remaining <= 0) return undefined
-    const timer = window.setTimeout(() => setMotionBusy(false), Math.min(remaining, 15000))
+    const timer = window.setTimeout(() => setMotionBusy(false), remaining)
     return () => window.clearTimeout(timer)
   }, [room.boardMotion, room.turnState?.eventEffect, room.turnState?.trophyCinematic, clockOffset])
   const [error, setError] = useState('')
@@ -387,7 +406,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
 
   const activePlayer = players[room.turnIndex || 0] || null
   const currentPlayer = room.players?.[clientId] || null
-  const currentCar = getPartyCar(currentPlayer?.carId)
+  const currentCar = getPartyCar((room.devDiceTest?.playerId===clientId&&room.devDiceTest.carId)||currentPlayer?.carId)
   const activeCar = getPartyCar(activePlayer?.carId)
   const turn = room.turnState || {}
   const isTurnOrderPhase = room.phase === 'turn-order'
@@ -469,7 +488,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
 
   useEffect(() => {
     const effect = turn.spaceEffect
-    if (movementBusy || !effect?.id) return
+    if (motionBusy || carStillMoving || !effect?.id) return
     const key = `luck-${room.currentRound}-${room.turnIndex}-${turn.playerId}-${effect.type}-${effect.id}-${effect.rouletteId||0}`
     if (seenLuckRouletteKeyRef.current === key) return
     seenLuckRouletteKeyRef.current = key
@@ -479,7 +498,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
         ? PARTY_BAD_LUCK_OUTCOMES
         : PARTY_LUCKY_OUTCOMES
     setPartyRoulette({
-      phase: 'luck',
+      phase: 'luck', startedAt:effect.rouletteId,
       title: effect.type === 'very-bad-luck' ? 'Very Bad Luck Roulette' : effect.type === 'bad-luck' ? 'Bad Luck Roulette' : 'Lucky Roulette',
       winner: effect.name,
       options: pool.map((entry) => entry.name),
@@ -548,9 +567,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   }
 
   async function handleRoll(dieType) {
-    setRollingDieType(dieType)
-    window.setTimeout(() => setRollingDieType(''), 720)
-    await runAction(() => rollPartyDie(roomCode, clientId, dieType))
+    await runAction(() => beginPartyDie(roomCode, clientId, dieType))
   }
 
   async function handleMove(chosenNextId = '') {
@@ -607,19 +624,19 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   async function handlePrepareCardTest(cardId) {
     setSelectedCardIndex(null)
     setSelectedStealTargetId('')
-    await runAction(() => preparePartyCardDevTest(roomCode, clientId, cardId))
+    await runAction(async () => {await savePartyDevCheckpoint(roomCode,clientId);await preparePartyCardDevTest(roomCode, clientId, cardId)})
   }
 
   async function handlePrepareBattleTest() {
     setSelectedCardIndex(null)
     setSelectedStealTargetId('')
-    await runAction(() => preparePartyBattleDevTest(roomCode, clientId))
+    await runAction(async () => {await savePartyDevCheckpoint(roomCode,clientId);await preparePartyBattleDevTest(roomCode, clientId)})
   }
 
   async function handlePrepareLuckTest(spaceType) {
     setSelectedCardIndex(null)
     setSelectedStealTargetId('')
-    await runAction(() => preparePartyLuckDevTest(roomCode, clientId, spaceType))
+    await runAction(async () => {await savePartyDevCheckpoint(roomCode,clientId);await preparePartyLuckDevTest(roomCode, clientId, spaceType)})
   }
 
   async function handleLuckyTokenSteal(targetId = '') {
@@ -637,13 +654,13 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   async function handlePrepareEventTest(eventId) {
     setSelectedCardIndex(null)
     setSelectedStealTargetId('')
-    await runAction(() => preparePartyEventDevTest(roomCode, clientId, eventId))
+    await runAction(async () => {await savePartyDevCheckpoint(roomCode,clientId);await preparePartyEventDevTest(roomCode, clientId, eventId)})
   }
 
   async function handlePrepareServiceTest(serviceType) {
     setSelectedCardIndex(null)
     setSelectedStealTargetId('')
-    await runAction(() => preparePartyServiceDevTest(roomCode, clientId, serviceType))
+    await runAction(async () => {await savePartyDevCheckpoint(roomCode,clientId);await preparePartyServiceDevTest(roomCode, clientId, serviceType)})
   }
 
   async function handleSkipEvent() {
@@ -689,6 +706,11 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
     runAction(() => resolvePartyPendingLanding(roomCode, clientId))
   }, [isMyTurn, movementBusy, actionBusy, turn.pendingLanding?.nodeId, roomCode, clientId])
 
+  useEffect(()=>{
+    if(!isMyTurn||movementBusy||actionBusy||!dice?.stoppedAt||!turn.rolled||turn.movementStarted||!(turn.movementRemaining>0)||turn.awaitingChoice||turn.awaitingGate||turn.awaitingTrophy||turn.awaitingService)return
+    runAction(()=>continuePartyMovement(roomCode,clientId))
+  },[isMyTurn,movementBusy,actionBusy,dice?.stoppedAt,turn.rolled,turn.movementStarted])
+
   const [mapCenter, setMapCenter] = useState({x:activeNode?.x||board.width/2,y:activeNode?.y||board.height/2})
   const promptKey = JSON.stringify([room.phase,turn.playerId,turn.rolled,turn.awaitingChoice,turn.awaitingTrophy,turn.awaitingGate,turn.awaitingService,turn.awaitingJackpotDecision,turn.landingEffect?.resolved,turn.spaceEffect?.resolved,turn.eventEffect?.resolved,turn.pendingLanding?.nodeId,turn.readyToEnd])
   useEffect(() => { if(movementBusy)setHudPanel(null);else if (battle?.status!=='active' && room.phase!=='round-complete') setHudPanel('turn') }, [promptKey,movementBusy,battle?.status])
@@ -706,11 +728,15 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const battleLocked=battle?.status==='active'||room.phase==='round-complete'||orderResults
   return (
     <div ref={immersiveRef} className="game party-game-screen party-immersive" data-route={Boolean(routeDecision)} data-panel={hudPanel||'none'}>
+      {diceVisible&&<PartyDice isHost={isHost} onRecover={()=>runAction(()=>recoverPartyPresentation(roomCode,clientId))} animation={dice} room={room} clientId={clientId} busy={actionBusy} onStop={value=>runAction(()=>dice.kind==='precision'?usePartyCard(roomCode,clientId,dice.cardIndex,{value}):rollPartyDie(roomCode,clientId,dice.kind))}/>}
+      {room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed&&<PartyHiddenGift gift={room.turnState.hiddenGiftResult} name={room.players?.[room.turnState.playerId]?.name||'Player'} canCollect={room.turnState.playerId===clientId} isHost={isHost} busy={actionBusy} onCollect={()=>runAction(()=>collectPartyHiddenGift(roomCode,clientId))} onRecover={()=>runAction(()=>skipPartyHiddenGift(roomCode,clientId))}/>}
+      {room.turnState?.hiddenGiftCheck&&<div className="party-reward-banner"><span>Checking this landing…</span>{isHost&&<button onClick={()=>runAction(()=>skipPartyHiddenGift(roomCode,clientId))}>Skip check (recovery)</button>}</div>}
+      {(()=>{const beat=presentationBeat(room,presentationNow+clockOffset);return beat&&<div className="party-reward-banner" role="status"><strong>{room.players?.[beat.playerId]?.name}</strong><span>{beat.kind==='trophies'?(beat.amount>0?'🏆 Got a Trophy!':'🏆 Trophy taken'): `${beat.amount>0?'+':''}${beat.amount} Tokens`}</span></div>})()}
       {room.phase === 'party-complete-test' && <FinalPartyCinematic room={room} players={players} onLeave={onLeave} isHost={isHost} />}
-      {partyRoulette && !movementBusy && (
+      {partyRoulette && !motionBusy && !carStillMoving && !giftBusy && !diceVisible && (!rewardBusy || presentationNow+clockOffset<room.presentation?.startedAt) && (
         <div className="party-roulette-overlay">
-          <div className="game-modal-card selection-roulette">
-            {partyRoulette.phase === 'luck' ? <PartyLuckRoulette title={partyRoulette.title} options={partyRoulette.options} winner={partyRoulette.winner} seed={partyRoulette.seed} onComplete={()=>completePartyRoulette(partyRoulette)} canContinue={isMyTurn}/> : <RouletteReel
+          <div className={`game-modal-card selection-roulette ${partyRoulette.phase==='luck'?'party-luck-fit':''}`}>
+            {partyRoulette.phase === 'luck' ? <PartyLuckRoulette startedAt={partyRoulette.startedAt} title={partyRoulette.title} options={partyRoulette.options} winner={partyRoulette.winner} seed={partyRoulette.seed} onComplete={()=>completePartyRoulette(partyRoulette)} canContinue={isMyTurn}/> : <RouletteReel
               key={`${partyRoulette.phase}-${partyRoulette.winner}`}
               title={partyRoulette.title}
               options={partyRoulette.options}
@@ -736,6 +762,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           <button onClick={()=>setHudPanel(hudPanel==='settings'?null:'settings')}>Settings</button>
           <button onClick={onLeave}>{isHost?'End game':'Leave'}</button>
           {isHost&&<button onClick={()=>setHudPanel(hudPanel==='dev'?null:'dev')}>Dev</button>}
+          {isHost&&room.devBoardCheckpoint&&<button onClick={()=>runAction(()=>restorePartyDevCheckpoint(roomCode,clientId))}>Restore test checkpoint</button>}
         </nav>
         <footer className="party-hud-footer"><strong>{activePlayer?.name||'Players'}{movementBusy?' is moving…':isMyTurn?' · Your turn':' · Current turn'}</strong><span>🏆 Trophy: {activeTrophyNode?'Active on board':'Relocating…'} · {trophyPrice} Tokens</span></footer>
       </div>
@@ -942,21 +969,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           {isHost && !isTurnOrderPhase && (
             <details className="party-turn-panel__section party-dev-panel" open>
               <summary style={{ cursor: 'pointer', fontWeight: 900 }}>DEV Test Lab</summary>
-              <p style={{ marginTop: 12 }}>
-                Click any working Card. The room will instantly reset into the exact timing/prerequisite setup needed to test that Card.
-              </p>
+              <PartyBoardDev room={room} roomCode={roomCode} clientId={clientId} runAction={runAction} busy={busy}/>
               <div className="menu">
-                {devCards.map((card) => (
-                  <button
-                    type="button"
-                    key={`dev-card-${card.id}`}
-                    onClick={() => handlePrepareCardTest(card.id)}
-                    disabled={busy}
-                    title={card.description}
-                  >
-                    {card.name}
-                  </button>
-                ))}
                 <button
                   type="button"
                   onClick={handlePrepareBattleTest}
@@ -990,7 +1004,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                   💀 Very Bad Luck Test
                 </button>
                 {Object.entries(board.boardEvents || {}).filter(([id])=>board.nodes.some(node=>node.special===id)).filter(([id],index,entries)=>!id.startsWith('gate-switch-')||entries.findIndex(([key])=>key.startsWith('gate-switch-'))===index).map(([id,event])=><button key={id} disabled={busy} onClick={()=>handlePrepareEventTest(id)}>{event.name} · {board.nodes.filter(node=>node.special===id).length} trigger(s)</button>)}
-                <label>Bonus Trophy category<select value={bonusDevCategory} disabled={busy} onChange={e=>setBonusDevCategory(Number(e.target.value))}><option value={-1}>Random bonus + finale</option>{['Minigame Trophy','Rich Star','Eventful Star','Item Star','Sightseer Star','Slowpoke Star','Unlucky Star'].map((label,index)=><option key={label} value={index}>{label}</option>)}</select></label>
+                <button disabled={busy} onClick={()=>runAction(async()=>{await savePartyDevCheckpoint(roomCode,clientId);await preparePartyTrophyDevTest(roomCode,clientId)})}>🏆 Test Trophy Collection (+1)</button><label>Bonus Trophy category<select value={bonusDevCategory} disabled={busy} onChange={e=>setBonusDevCategory(Number(e.target.value))}><option value={-1}>Random bonus + finale</option>{['Minigame Trophy','Rich Star','Eventful Star','Item Star','Sightseer Star','Slowpoke Star','Unlucky Star'].map((label,index)=><option key={label} value={index}>{label}</option>)}</select></label>
                 <button type="button" disabled={busy} onClick={()=>runAction(()=>preparePartyBonusDevTest(roomCode,clientId,bonusDevCategory))}>🏆 Test Bonus Trophy</button>
                 <button type="button" onClick={() => handlePrepareServiceTest('Shop')} disabled={busy}>
                   🛒 Action Shop Test
@@ -1008,7 +1022,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                   <span>{room.devCardTest.instructions}</span>
                 </div>
               )}
-              {isHost && <ChallengeDev room={room} roomCode={roomCode} clientId={clientId} runAction={runAction} busy={busy} />}
+              {isHost && <ChallengeDev room={room} roomCode={roomCode} clientId={clientId} runAction={fn=>runAction(async()=>{await savePartyDevCheckpoint(roomCode,clientId);await fn()})} busy={busy} />}
 
               {room.devBattleTest && (
                 <div className="party-private-card-message" style={{ marginTop: 12 }}>
@@ -1177,13 +1191,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                 </div>
 
                 {selectedCard.effect === 'precision-die' ? (
-                  <div className="party-card-choice-grid">
-                    {[1, 2, 3, 4, 5, 6].map((value) => (
-                      <button key={value} type="button" onClick={() => handleUseCard({ value })} disabled={busy}>
-                        {value}
-                      </button>
-                    ))}
-                  </div>
+                  <button disabled={busy} onClick={()=>runAction(()=>beginPartyDie(roomCode,clientId,'precision',selectedCardIndex))}>Use Golden Precision Die</button>
                 ) : selectedCard.requiresTarget ? (
                   <div className="party-card-target-list">
                     {cardTargets.length > 1 && (
@@ -1288,18 +1296,18 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           {room.phase === 'board' && isMyTurn && !turn.rolled && !turn.awaitingTrophy && battle?.status !== 'active' && (
             <div className="party-turn-panel__section party-dice-choice">
               <h3>Choose Your Die</h3>
-              {rollingDieType && (
+              {false && (
                 <div className="party-die-rolling" aria-live="polite">
                   <span className="party-die-rolling__icon" aria-hidden="true">🎲</span>
                   <span>Rolling {rollingDieType === 'special' ? `${currentCar?.name || 'Car'} Special Die` : 'Normal Die'}…</span>
                 </div>
               )}
               <button type="button" className="party-die-button" onClick={() => handleRoll('normal')} disabled={busy}>
-                <strong>Roll Normal Die</strong>
+                <strong>Choose Normal Die</strong>
                 <span>1 • 2 • 3 • 4 • 5 • 6</span>
               </button>
               <button type="button" className="party-die-button" onClick={() => handleRoll('special')} disabled={busy || !currentCar}>
-                <strong>Roll {currentCar?.name || 'Car'} Special Die</strong>
+                <strong>Choose {currentCar?.name || 'Car'} Special Die</strong>
                 <span>{currentCar?.specialDie.map(formatPartyDieFace).join(' • ')}</span>
               </button>
             </div>

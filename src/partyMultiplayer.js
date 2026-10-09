@@ -1,9 +1,11 @@
+import { economySnapshot, attachEconomyPresentation } from './partyPresentation'
+import { identityKey, seal, unseal } from './partyChallengeSecrets'
 import { ensurePartyClock, partyNow } from './partyClock'
 import { createBattle } from './partyChallengeEngine'
 import { PARTY_CHALLENGES } from './partyChallengeCatalog'
 import { awardPartyBonuses, addPartyStat } from './partyProgress'
 import { joinProtectedRoom, requireOnlineIdentity, normalizeRoomCode, cleanPlayerName, randomRoomCode } from './onlineIdentity'
-import { ref, set, get, onValue, update, runTransaction, serverTimestamp } from 'firebase/database'
+import { ref, set, get, onValue, update, runTransaction as firebaseTransaction, serverTimestamp } from 'firebase/database'
 import { db } from './firebase'
 import { BOOSTSTONE_RUINS } from './booststoneRuins'
 import { getPartyCar, formatPartyDieFace } from './partyCars'
@@ -168,7 +170,7 @@ function eligibleTrophySpots(room = {}, excludeNodeId = '') {
     .filter((setup) => setup && setup.onStartDeck !== true)
     .map((setup) => setup.boardNodeId || BOOSTSTONE_RUINS.startId))
   return (BOOSTSTONE_RUINS.trophySpots || []).filter((id) =>
-    id !== excludeNodeId && !occupied.has(id)
+    id !== excludeNodeId && !occupied.has(id) && BOARD_NODE_BY_ID[id] && !['Junction','Event','Start','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[id].type)
   )
 }
 
@@ -320,6 +322,7 @@ function attachLandingEffect(room, turn, playerId, nodeId, mechanic) {
 
   }
 
+  if(turn.hiddenGiftCheck || turn.trophyCinematic) delete effect.deadlineAt
   turn.landingEffect = effect
 }
 
@@ -1202,6 +1205,7 @@ function finishLanding(room, turn, playerId, nodeId, mechanic, card, battleOptio
   const landedNode = BOARD_NODE_BY_ID[nodeId]
   const setup = room.playerSetup?.[playerId]
   const hasJackpot = normalizePartyCards(setup?.cards).includes('jackpot')
+  if(landedNode?.type==='Mechanic' && room.hiddenGift) turn.hiddenGiftCheck={nodeId,landingId:`${room.currentRound}-${room.turnIndex}-${room.motionSequence||0}-${nodeId}`}
   if (landedNode?.type === 'Danger Mechanic') addPartyStat(room, playerId, 'unluckySpaces')
 
   if (landedNode?.type === 'Event') {
@@ -1500,6 +1504,8 @@ export async function startPartyRoom(roomCode, requesterId) {
   )
 
   const activeTrophyNodeId = pickTrophySpot('', { playerSetup })
+  const giftKeys=await identityKey(requesterId)
+  const hiddenGift={hostId:requesterId,version:1,packet:await seal(giftKeys.publicKey,{nodeId:pickHiddenGiftSpot({playerSetup})})}
 
   await update(roomRef, {
     status: 'playing',
@@ -1522,6 +1528,8 @@ export async function startPartyRoom(roomCode, requesterId) {
     turnOrderReady: {},
     playerSetup,
     activeTrophyNodeId,
+    hiddenGift,
+    presentation: null,
     boardState: {
       closedGarageGateIds: Object.fromEntries(
         (BOOSTSTONE_RUINS.garageGatePairs || []).map((pair) => [pair.id, pair.defaultClosedGateId])
@@ -1651,6 +1659,7 @@ export async function confirmPartyTurnOrder(roomCode, playerId) {
 
 export async function rollPartyDie(roomCode, playerId, dieType) {
   requireOnlineIdentity(playerId)
+  await ensurePartyClock()
   const code = normalizeCode(roomCode)
   const roomRef = ref(db, `securePartyRooms/${code}`)
   const randomFaceIndex = Math.floor(Math.random() * 6)
@@ -1691,13 +1700,14 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
       return
     }
 
-    let face = normalRoll
-    let movement = normalRoll
+    const faceIndex=room.devDiceTest?.playerId===playerId&&Number.isInteger(room.devDiceTest.faceIndex)?room.devDiceTest.faceIndex:randomFaceIndex
+    let face = faceIndex+1
+    let movement = faceIndex+1
     let tokenChange = 0
     let selectedCar = null
 
     if (dieType === 'special') {
-      selectedCar = getPartyCar(room.players?.[playerId]?.carId)
+      selectedCar = getPartyCar((room.devDiceTest?.playerId===playerId&&room.devDiceTest.carId)||room.players?.[playerId]?.carId)
 
       const car = selectedCar
 
@@ -1706,7 +1716,7 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
         return
       }
 
-      face = car.specialDie[randomFaceIndex]
+      face = car.specialDie[faceIndex]
 
       if (typeof face === 'number') {
         movement = face
@@ -1742,6 +1752,8 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
       movementSpacesTaken: 0,
       dieType,
       faceLabel: formatPartyDieFace(face),
+      faceIndex,
+      diceAnimation: previousTurn.diceAnimation ? {...previousTurn.diceAnimation,stoppedAt:partyNow(),faceIndex} : null,
       baseMovement: movement,
       movementRemaining: totalMovement,
       movementStarted: false,
@@ -2698,6 +2710,8 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
 
       turn.rolled = true
       turn.dieType = 'precision'
+      turn.movementStartNodeId=setup.onStartDeck?'start-deck':setup.boardNodeId
+      turn.movementSpacesTaken=0
       turn.faceLabel = String(value)
       turn.baseMovement = value
       turn.movementRemaining = value
@@ -2711,6 +2725,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       delete turn.landedType
       delete turn.landingEffect
 
+      if(turn.diceAnimation)turn.diceAnimation={...turn.diceAnimation,stoppedAt:partyNow(),faceIndex:value-1}
       privateMessage = `Precision Dice set your movement to ${value}.`
       publicMessage = `${playerName} chose ${value} movement with a Card instead of rolling.`
       publicType = 'roll'
@@ -3395,7 +3410,7 @@ export async function startPartyMechanicTimer(roomCode,playerId){
   requireOnlineIdentity(playerId);await ensurePartyClock();const now=partyNow()
   await runTransaction(ref(db,`securePartyRooms/${normalizeCode(roomCode)}`),room=>{
     const effect=room?.turnState?.landingEffect
-    if(room?.phase!=='board'||room.turnState?.playerId!==playerId||!effect||effect.resolved||effect.deadlineAt)return
+    if(room?.phase!=='board'||room.turnState?.playerId!==playerId||!effect||effect.resolved||effect.deadlineAt||room.turnState.hiddenGiftCheck||(room.turnState.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed)||partyNow()<Number(room.presentation?.endsAt||0))return
     if(!['mechanic','danger-mechanic'].includes(effect.type))return
     effect.deadlineAt=now+90000
     return room
@@ -3886,7 +3901,7 @@ export async function preparePartyBattleDevTest(roomCode, requesterId) {
   }
 }
 
-export async function preparePartyLuckDevTest(roomCode, requesterId, spaceType = 'Lucky') {
+export async function preparePartyLuckDevTest(roomCode, requesterId, spaceType = 'Lucky', outcomeId = '') {
   requireOnlineIdentity(requesterId)
   const code = normalizeCode(roomCode)
   const roomRef = ref(db, `securePartyRooms/${code}`)
@@ -3896,7 +3911,9 @@ export async function preparePartyLuckDevTest(roomCode, requesterId, spaceType =
       ? 'Bad Luck'
       : 'Lucky'
   const landingNodeType = normalizedType === 'Very Bad Luck' ? 'Bad Luck' : normalizedType
-  const outcomeSeed = Math.random()
+  const outcomePool=normalizedType==='Lucky'?PARTY_LUCKY_OUTCOMES:normalizedType==='Very Bad Luck'?PARTY_VERY_BAD_LUCK_OUTCOMES:PARTY_BAD_LUCK_OUTCOMES
+  const forcedIndex=outcomePool.findIndex(o=>o.id===outcomeId)
+  const outcomeSeed = forcedIndex>=0?(forcedIndex+.5)/(outcomePool.length*9973):Math.random()
   const landingCard = pickPartyCard()
   let failureReason = ''
 
@@ -3956,6 +3973,7 @@ export async function preparePartyLuckDevTest(roomCode, requesterId, spaceType =
 
     const setup = room.playerSetup[requesterId]
     setup.boardNodeId = targetNode.id
+    setup.onStartDeck = false
     setup.cards = normalizedType === 'Lucky'
       ? []
       : ['boost-canister', 'shield', 'precision-die'].filter((id) => Boolean(getPartyCard(id)))
@@ -3971,6 +3989,7 @@ export async function preparePartyLuckDevTest(roomCode, requesterId, spaceType =
     turn.landedType = landingNodeType
     turn.landedNodeId = targetNode.id
     addLandingActivity(room, requesterId, targetNode.id)
+    const devBefore=economySnapshot(room)
     const effect = applyPartyLuckLanding(
       room,
       turn,
@@ -3981,6 +4000,7 @@ export async function preparePartyLuckDevTest(roomCode, requesterId, spaceType =
     )
 
     room.turnState = turn
+    attachEconomyPresentation(room,devBefore,partyNow())
     room.devSpaceTest = {
       spaceType: normalizedType,
       outcomeName: effect?.name || 'Unknown outcome',
@@ -4060,6 +4080,7 @@ export async function preparePartyEventDevTest(roomCode, requesterId, eventId = 
       const otherId = order.find((id) => id !== requesterId && room.playerSetup?.[id])
       if (otherId && affectedNodes.length > 1) {
         room.playerSetup[otherId].boardNodeId = affectedNodes[1]
+        room.playerSetup[otherId].onStartDeck = false
       }
     }
 
@@ -4074,8 +4095,10 @@ export async function preparePartyEventDevTest(roomCode, requesterId, eventId = 
     turn.landedType = 'Event'
     turn.landedNodeId = targetNode.id
     addLandingActivity(room, requesterId, targetNode.id)
+    const devBefore=economySnapshot(room)
     const effect = applyPartyEventLanding(room, turn, requesterId, targetNode.id, seed)
     room.turnState = turn
+    attachEconomyPresentation(room,devBefore,partyNow())
 
     room.devEventTest = {
       eventId,
@@ -4128,6 +4151,7 @@ export async function skipPartyEvent(roomCode, requesterId) {
 
 export async function preparePartyServiceDevTest(roomCode, requesterId, serviceType = 'Shop') {
   requireOnlineIdentity(requesterId)
+  const stockSeed=Math.random()
   const code = normalizeCode(roomCode)
   const roomRef = ref(db, `securePartyRooms/${code}`)
   const normalizedType = serviceType === 'Paratroopa' ? 'Paratroopa' : serviceType === 'Lakitu' ? 'Lakitu' : 'Shop'
@@ -4157,7 +4181,7 @@ export async function preparePartyServiceDevTest(roomCode, requesterId, serviceT
     const boardState = ensurePartyBoardState(room)
     if (normalizedType === 'Shop') {
       delete boardState.pendingActionShopRefills?.[node.id]
-      boardState.actionShopStocks[node.id] = pickPartyActionShopStock([], 3, Math.random())
+      boardState.actionShopStocks[node.id] = pickPartyActionShopStock([], 3, stockSeed)
     }
 
     const testerSetup = room.playerSetup[requesterId]
@@ -4233,6 +4257,7 @@ export async function endPartyTurn(roomCode, playerId) {
       return
     }
 
+    if (room.turnState?.hiddenGiftCheck || (room.turnState?.hiddenGiftResult && !room.turnState.hiddenGiftResult.dismissed)) { failureReason = 'Finish the Hidden Gift first.'; return }
     if (room.turnState?.awaitingService) { failureReason = 'Resolve this stop first.'; return }
 
     if (room.turnState?.pendingLanding) {
@@ -4513,6 +4538,7 @@ export async function resolvePartyService(roomCode, playerId, action = 'skip', t
       if ((setup.tokens || 0) < cost) { failure = 'Not enough Tokens.'; return }
       if (action === 'trophy') {
         if (!(target.trophies > 0)) { failure = 'That player has no Trophy.'; return }
+        room.rewardBeats=[{playerId:targetId,kind:'trophies',amount:-1},{playerId,kind:'tokens',amount:-cost},{playerId,kind:'trophies',amount:1}]
         target.trophies -= 1
         setup.trophies = (setup.trophies || 0) + 1
         message = `${room.players[playerId].name} paid ${cost} Tokens to steal 1 Trophy from ${room.players[targetId].name}.`
@@ -4520,6 +4546,7 @@ export async function resolvePartyService(roomCode, playerId, action = 'skip', t
         const requested = randomPartyInt(tokenStealSeed, 5, 15)
         const amount = Math.min(requested, Math.max(0, Number(target.tokens) || 0))
         if (!amount) { failure = 'That player has no Tokens.'; return }
+        room.rewardBeats=[{playerId:targetId,kind:'tokens',amount:-amount},{playerId,kind:'tokens',amount:-cost},{playerId,kind:'tokens',amount}]
         target.tokens -= amount
         setup.tokens = (setup.tokens || 0) + amount
         addPartyStat(room, playerId, 'tokensCollected', amount)
@@ -4605,4 +4632,204 @@ export async function closePartyBonusDevTest(roomCode, playerId) {
     return room
   })
   if(!result.committed)throw new Error('Only the host can close the bonus preview.')
+}
+
+function runTransaction(reference, reduce, options) {
+ const now=partyNow()
+ return firebaseTransaction(reference,room=>{
+  const before=economySnapshot(room),priorTrophy=JSON.stringify(room?.turnState?.trophyCinematic||null),priorPresentationSequence=room?.presentationSequence,phase=room?.phase,battle=JSON.stringify(room?.turnState?.battle||null)
+  const dev=JSON.stringify([room?.devVisualTest,room?.devBoardCheckpoint,room?.devCardTest,room?.devEventTest,room?.devSpaceTest,room?.devServiceTest,room?.devBattleTest])
+  const precisionIndex=room?.turnState?.diceAnimation?.cardIndex,oldCards=JSON.stringify(room?.playerSetup?.[room?.turnState?.playerId]?.cards)
+  const next=reduce(room)
+  if(next&&Number.isInteger(precisionIndex)&&next.turnState?.diceAnimation&&!next.turnState.rolled&&oldCards!==JSON.stringify(next.playerSetup?.[next.turnState.playerId]?.cards))delete next.turnState.diceAnimation
+  if(next&&next.presentationSequence===priorPresentationSequence&&phase==='board'&&next.phase==='board'&&battle===JSON.stringify(next.turnState?.battle||null)&&dev===JSON.stringify([next.devVisualTest,next.devBoardCheckpoint,next.devCardTest,next.devEventTest,next.devSpaceTest,next.devServiceTest,next.devBattleTest])) attachEconomyPresentation(next,before,now,priorTrophy!==JSON.stringify(next.turnState?.trophyCinematic||null))
+  return next
+ },options)
+}
+
+export function hiddenGiftRank(room,playerId) {
+ const a=room.playerSetup[playerId]
+ return 1+orderedPlayerIds(room).filter(id=>id!==playerId).filter(id=>{
+  const b=room.playerSetup[id];return (b.trophies||0)>(a.trophies||0)||((b.trophies||0)===(a.trophies||0)&&(b.tokens||0)>(a.tokens||0))
+ }).length
+}
+export function hiddenGiftOutcome(rank,seed,amountSeed,finalStretch) {
+ const trophy=seed<([.05,.10,.30,.50][Math.min(3,Math.max(0,rank-1))])
+ return {kind:trophy?'trophies':'tokens',amount:trophy?1:(finalStretch?15:10)+Math.min(5,Math.floor(amountSeed*6))}
+}
+function pickHiddenGiftSpot(room,exclude='') {
+ const occupied=new Set(Object.values(room.playerSetup||{}).filter(s=>!s.onStartDeck).map(s=>s.boardNodeId))
+ const pool=BOOSTSTONE_RUINS.nodes.filter(n=>n.type==='Mechanic'&&n.id!==exclude&&n.id!==room.activeTrophyNodeId&&!occupied.has(n.id))
+ return pool[Math.floor(Math.random()*pool.length)]?.id||''
+}
+export async function checkPartyHiddenGift(code,uid) {
+ requireOnlineIdentity(uid)
+ const roomRef=ref(db,`securePartyRooms/${normalizeCode(code)}`),initial=(await get(roomRef)).val()
+ if(!initial||initial.hostId!==uid||!initial.turnState?.hiddenGiftCheck)return
+ const check=initial.turnState.hiddenGiftCheck,playerId=initial.turnState.playerId
+ let secret
+ try{secret=await unseal(uid,initial.hiddenGift?.packet)}catch{secret=null}
+ const found=secret?.nodeId===check.nodeId
+ const keys=await identityKey(uid)
+ const nextPacket=(found||!secret)?await seal(keys.publicKey,{nodeId:pickHiddenGiftSpot(initial,check.nodeId)}):null
+ const reward=hiddenGiftOutcome(hiddenGiftRank(initial,playerId),Math.random(),Math.random(),isPartyFinalThree(initial))
+ const now=partyNow()
+ await runTransaction(roomRef,room=>{
+  if(!room||room.hostId!==uid||room.hiddenGift?.version!==initial.hiddenGift?.version||room.turnState?.hiddenGiftCheck?.landingId!==check.landingId)return
+  delete room.turnState.hiddenGiftCheck
+  if(nextPacket)room.hiddenGift={hostId:uid,version:(room.hiddenGift?.version||0)+1,packet:nextPacket}
+  if(found){
+   room.turnState.hiddenGiftResult={id:check.landingId,playerId,kind:reward.kind,amount:reward.amount,startedAt:now,dismissed:false}
+  }
+  return room
+ })
+}
+export async function collectPartyHiddenGift(code,uid) {
+ requireOnlineIdentity(uid)
+ await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  const g=room?.turnState?.hiddenGiftResult
+  if(!g||g.dismissed||g.playerId!==uid||partyNow()<g.startedAt+5200)return
+  room.playerSetup[uid][g.kind]=(Number(room.playerSetup[uid][g.kind])||0)+g.amount
+  if(g.kind==='tokens')addPartyStat(room,uid,'tokensCollected',g.amount)
+  g.dismissed=true
+  addPartyActivity(room,uid,`${room.players[uid].name} found a Hidden Gift: +${g.amount} ${g.kind==='tokens'?'Tokens':'Trophy'}!`,'event')
+  return room
+ })
+}
+export async function skipPartyHiddenGift(code,uid) {
+ requireOnlineIdentity(uid)
+ await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(!room||room.hostId!==uid)return
+  delete room.turnState.hiddenGiftCheck
+  if(room.turnState.hiddenGiftResult)room.turnState.hiddenGiftResult.dismissed=true
+  return room
+ })
+}
+export async function preparePartyTrophyDevTest(code,uid) {
+ requireOnlineIdentity(uid)
+ const seed=Math.random()
+ await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(!room||room.hostId!==uid||room.phase!=='board'||room.turnState?.battle?.status==='active')return
+  const before=economySnapshot(room)
+  const moved=relocatePartyTrophy(room,seed)
+  room.playerSetup[uid].trophies=(room.playerSetup[uid].trophies||0)+1
+  room.turnState.trophyCinematic={playerId:uid,fromNodeId:moved.from,toNodeId:moved.to,startedAt:partyNow()}
+  return room
+ })
+}
+
+export async function beginPartyDie(code,uid,kind,cardIndex=null) {
+ requireOnlineIdentity(uid)
+ await ensurePartyClock()
+ const now=partyNow()
+ const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  const t=room?.turnState
+  if(room?.phase!=='board'||t?.playerId!==uid||t.rolled||t.awaitingTrophy||t.battle?.status==='active')return
+  if(!['normal','special','precision'].includes(kind))return
+  if(kind==='precision'&&normalizePartyCards(room.playerSetup[uid].cards)[cardIndex]!=='precision-dice')return
+  if(t.diceAnimation&&!t.diceAnimation.stoppedAt)return
+  t.diceAnimation={kind,playerId:uid,startedAt:now,...(room.devDiceTest?.carId?{carId:room.devDiceTest.carId}:{}),...(kind==='precision'?{cardIndex}:{})}
+  return room
+ })
+ if(!result.committed)throw Error('The dice cannot be opened right now.')
+}
+
+const DEV_BOARD_FIELDS=['phase','status','turnIndex','currentRound','turnDirection','roundTakenPlayerIds','playerSetup','partyStats','turnState','boardState','activeTrophyNodeId','boardMotion','presentation','presentationSequence','devDiceTest','roundBattle','temporaryTrophyPriceMultiplier','temporaryTrophyPriceUntil','hiddenGift','devBonusPreview','turnOrderComplete','turnOrderRolls','turnOrderReady','showcaseCamera']
+function devCheckpoint(room){if(!room.devBoardCheckpoint)room.devBoardCheckpoint=Object.fromEntries(DEV_BOARD_FIELDS.map(k=>[k,room[k]===undefined?null:JSON.parse(JSON.stringify(room[k]))]))}
+export async function savePartyDevCheckpoint(code,uid){requireOnlineIdentity(uid);await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{if(!room||room.hostId!==uid)return;devCheckpoint(room);return room})}
+export async function restorePartyDevCheckpoint(code,uid){requireOnlineIdentity(uid);await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+ if(!room||room.hostId!==uid||!room.devBoardCheckpoint)return
+ const checkpoint=room.devBoardCheckpoint
+ for(const key of DEV_BOARD_FIELDS){if(checkpoint[key]===null)delete room[key];else room[key]=checkpoint[key]}
+ // Don't replay elapsed presentation or a timer that expired during a test.
+ delete room.presentation;delete room.boardMotion;delete room.turnState?.diceAnimation;delete room.turnState?.trophyCinematic
+ if(room.turnState?.landingEffect&&!room.turnState.landingEffect.resolved)room.turnState.landingEffect.deadlineAt=partyNow()+90000
+ for(const key of ['devBoardCheckpoint','devCardTest','devSpaceTest','devEventTest','devServiceTest','devBattleTest','devVisualTest'])delete room[key]
+ return room
+})}
+export async function recoverPartyPresentation(code,uid){requireOnlineIdentity(uid);await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+ if(!room||room.hostId!==uid)return
+ delete room.presentation;delete room.turnState?.trophyCinematic;delete room.turnState?.diceAnimation
+ if(room.turnState?.eventEffect){room.turnState.eventEffect.animationStartedAt=0;if(room.turnState.eventEffect.openedAt)room.turnState.eventEffect.openedAt=1}
+ return room
+})}
+export async function preparePartyVisualDevTest(code,uid,scenario,options={}) {
+ requireOnlineIdentity(uid)
+ const now=partyNow(),seed=Math.random(),mechanic=PARTY_MECHANICS.find(m=>m.difficulty===(options.difficulty||'Easy'))||PARTY_MECHANICS[0]
+ const allowed=['dice','precision','gain','loss','trophy-loss','gift-tokens','gift-trophy','mechanic','danger','trophy-offer','gate-choice','showcase','turn-order','bonus-tie','position']
+ if(!allowed.includes(scenario))throw Error('Choose a supported Dev test.')
+ const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(!room||room.hostId!==uid||!room.playerSetup?.[uid])return
+  devCheckpoint(room)
+  room.phase='board';room.status='playing';room.turnIndex=orderedPlayerIds(room).indexOf(uid)
+  room.turnState=makeTurnState(uid)
+  for(const key of ['presentation','boardMotion','devDiceTest','devBonusPreview','devCardTest','devSpaceTest','devEventTest','devServiceTest','devBattleTest'])delete room[key]
+  const setup=room.playerSetup[uid]
+  setup.boardNodeId='n01';setup.onStartDeck=false
+  setup.tokens=Math.max(0,Math.min(999,Number(options.balance??20)||0))
+  if(scenario==='dice'){
+   if(options.carId){if(!getPartyCar(options.carId))return;room.devDiceTest={playerId:uid,carId:options.carId}}
+   else room.devDiceTest={playerId:uid}
+   if(Number.isInteger(options.faceIndex)&&options.faceIndex>=0&&options.faceIndex<6)room.devDiceTest.faceIndex=options.faceIndex
+  }else if(scenario==='precision'){setup.cards=['precision-dice'];delete setup.lockoutActive;room.turnState.diceAnimation={kind:'precision',playerId:uid,cardIndex:0,startedAt:now}}
+  else if(scenario==='gain'||scenario==='loss'||scenario==='trophy-loss'){
+   if(scenario==='trophy-loss')setup.trophies=Math.max(1,setup.trophies||0)
+   const before=economySnapshot(room),amount=Math.max(1,Math.min(100,Number(options.amount)||6))
+   if(scenario==='trophy-loss')setup.trophies--
+   else setup.tokens=scenario==='gain'?setup.tokens+amount:Math.max(0,setup.tokens-amount)
+   room.turnState.rolled=true;room.turnState.readyToEnd=true
+   attachEconomyPresentation(room,before,now)
+  }else if(scenario.startsWith('gift-')){
+   if(options.finalStretch)room.currentRound=Math.max(1,(room.settings?.rounds||10)-2)
+   room.turnState.rolled=true;room.turnState.readyToEnd=true
+   room.turnState.hiddenGiftResult={id:`dev-gift-${now}`,playerId:uid,kind:scenario==='gift-trophy'?'trophies':'tokens',amount:scenario==='gift-trophy'?1:randomPartyInt(seed,options.finalStretch?15:10,options.finalStretch?20:15),startedAt:now,dismissed:false}
+  }else if(scenario==='mechanic'||scenario==='danger'){
+   if(options.finalStretch)room.currentRound=Math.max(1,(room.settings?.rounds||10)-2);else room.currentRound=1
+   const node=BOOSTSTONE_RUINS.nodes.find(n=>n.type===(scenario==='danger'?'Danger Mechanic':'Mechanic'))
+   setup.boardNodeId=node.id;room.turnState.rolled=true;room.turnState.readyToEnd=true;room.turnState.landedNodeId=node.id
+   attachLandingEffect(room,room.turnState,uid,node.id,mechanic)
+  }else if(scenario==='trophy-offer'){
+   const node=room.activeTrophyNodeId||'n01';setup.boardNodeId=node
+   room.turnState.rolled=true;room.turnState.awaitingTrophy=true;room.turnState.trophyNodeId=node;room.turnState.trophyPrice=getPartyEffectiveTrophyPrice(room)
+  }else if(scenario==='gate-choice'){
+   setup.boardNodeId='n05';room.turnState.rolled=true;room.turnState.movementRemaining=3;room.turnState.movementStartNodeId='n04';room.turnState.movementSpacesTaken=1
+   room.turnState.awaitingChoice=true;room.turnState.lastLandableNodeId='n04';room.turnState.choiceNodeId='n05';room.turnState.choices=BOARD_NODE_BY_ID.n05.next
+  }else if(scenario==='position'){
+   const node=BOARD_NODE_BY_ID[options.nodeId];if(!node)return
+   setup.boardNodeId=node.id;setup.onStartDeck=Boolean(options.onDeck)
+   room.turnState.rolled=true;room.turnState.baseMovement=Math.max(1,Math.min(20,Number(options.moves)||1));room.turnState.movementRemaining=room.turnState.baseMovement;room.turnState.movementStartNodeId=setup.onStartDeck?'start-deck':node.id
+  }else if(scenario==='showcase'){room.phase='showcase';delete room.showcaseCamera}
+  else if(scenario==='turn-order'){
+   room.phase='turn-order';room.turnOrderComplete=false;room.turnOrderRolls={};room.turnOrderReady={}
+   for(const player of Object.values(room.playerSetup))player.onStartDeck=true
+  }else if(scenario==='bonus-tie'){
+   const ids=orderedPlayerIds(room),preview={players:JSON.parse(JSON.stringify(room.players)),playerSetup:JSON.parse(JSON.stringify(room.playerSetup)),partyStats:{},finaleStartedAt:now}
+   const category=Math.max(0,Math.min(6,Number(options.category)||0));awardPartyBonuses(preview,ids,(category+.5)/7,seed);room.devBonusPreview=preview
+  }
+  room.devVisualTest={scenario,preparedAt:now}
+  return room
+ })
+ if(!result.committed)throw Error('Only the host can prepare this test in an active room.')
+}
+export async function configurePartyChestDev(code,uid,rewardId){
+ requireOnlineIdentity(uid)
+ if(!PARTY_SUPPLY_CRATE_REWARDS.some(r=>r.id===rewardId))throw Error('Choose an available chest reward.')
+ await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(room?.hostId!==uid||room.turnState?.eventEffect?.id!=='supply-crates'||!room.turnState.eventEffect.awaitingCrateChoice)return
+  room.turnState.eventEffect.crateRewardIds=[rewardId,rewardId,rewardId];return room
+ })
+}
+
+export async function configurePartyShopDev(code,uid,cardId,fullHand=false){
+ requireOnlineIdentity(uid)
+ const price=getPartyCardShopPrice(cardId)
+ if(price===null||!getPartyCard(cardId))throw Error('This Card is not stocked by the shop.')
+ await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  const stop=room?.turnState?.awaitingService
+  if(room?.hostId!==uid||stop?.type!=='Shop')return
+  const boardState=ensurePartyBoardState(room);boardState.actionShopStocks[stop.nodeId]=[cardId]
+  room.playerSetup[uid].tokens=Math.max(room.playerSetup[uid].tokens||0,price)
+  room.playerSetup[uid].cards=fullHand?['shield','shield','shield']:[]
+  return room
+ })
 }

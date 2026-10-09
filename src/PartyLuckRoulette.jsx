@@ -9,11 +9,10 @@ export function luckOptions(labels, winner, seed) {
   const others=shuffle([...new Set(labels)].filter(label=>label&&label!==winner))
   return shuffle([winner,...others.slice(0,5)]).map(label=>({value:label,label}))
 }
-export default function PartyLuckRoulette({title,options,winner,seed,onComplete,canContinue}) {
-  const [startedAt]=useState(()=>challengeNow())
+export default function PartyLuckRoulette({title,options,winner,seed,onComplete,canContinue,startedAt:sharedStart}) {
+  const [startedAt]=useState(()=>Number(sharedStart)||challengeNow())
   const choices=useMemo(()=>luckOptions(options,winner,seed),[options,winner,seed])
   useEffect(()=>{
-    if(canContinue)return
     const id=setTimeout(onComplete,Math.max(0,startedAt+ROULETTE_MS+1000-challengeNow()))
     return()=>clearTimeout(id)
   },[canContinue,onComplete,startedAt])
