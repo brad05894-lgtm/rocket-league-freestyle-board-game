@@ -231,30 +231,22 @@ export function reduceBattle(b,a,uid,seed,now){
   need(FORMAT_SIZES[a.format]<=b.participantIds.length,'Not enough players.');
   b.format=a.format;
 
-  // Challenge Glove: the card owner chooses ONLY the format. The browser
-  // secretly/randomly locks the remaining participants and team assignment
-  // before the random Challenge is drawn. The card owner always participates.
-  if(b.source==='challenge-glove'){
+  // Glove owners pick participants before the game is drawn. VS participants
+  // remain random, including the player who landed on the space.
+  if(b.source==='challenge-glove') b.stage='participants';
+  else {
    const needed=FORMAT_SIZES[b.format];
-   const others=shuffle(b.availableIds.filter(id=>id!==b.challengerId),r).slice(0,Math.max(0,needed-1));
-   const ids=[b.challengerId,...others];
-   need(ids.length===needed,'Not enough players for that format.');
-   const randomOrder=shuffle(ids,r);
-   const sides=b.format==='2v2'?[randomOrder.slice(0,2),randomOrder.slice(2)]
-    :b.format==='1v2'?[[randomOrder[0]],randomOrder.slice(1,3)]
-    :b.format==='1v3'?[[randomOrder[0]],randomOrder.slice(1,4)]
-    :randomOrder.map(id=>[id]);
-   b.participantIds=ids;
-   b.selectedSides=sides;
+   b.participantIds=[b.challengerId,...shuffle((b.availableIds||b.participantIds).filter(id=>id!==b.challengerId),r).slice(0,needed-1)];
+   need(b.participantIds.length===needed,'Not enough players for that format.');
+   delete b.selectedSides;
    b.stage='draw';
-  }else b.stage=b.chooseParticipants?'participants':'draw';
+  }
  }
  else if(a.type==='participants'){
-  need(host&&b.stage==='participants');const ids=a.sides?.flat();
+  need(host&&b.source==='challenge-glove'&&b.stage==='participants');
+  const ids=a.participantIds;
   need(Array.isArray(ids)&&ids.length===FORMAT_SIZES[b.format]&&new Set(ids).size===ids.length&&ids.includes(b.challengerId)&&ids.every(id=>b.availableIds.includes(id)),'Choose the required players, including yourself.');
-  const sizes=a.sides.map(side=>side.length);
-  need(b.format==='2v2'?sizes.join(',')==='2,2':b.format==='1v2'?sizes.join(',')==='1,2':b.format==='1v3'?sizes.join(',')==='1,3':sizes.every(x=>x===1),'Choose valid teams.');
-  b.selectedSides=a.sides;b.participantIds=ids;b.stage='draw';
+  b.participantIds=[...ids];delete b.selectedSides;b.stage='draw';
  }
  else if(a.type==='next'){
   need(host);b.revealStartedAt=now;

@@ -241,7 +241,7 @@ export const PARTY_CARDS = [
   {
     id: 'challenge-glove',
     name: 'Challenge Glove',
-    description: 'Before rolling, choose the Battle format. The browser then randomly locks the other participants and team/solo assignment before revealing the random game; then continue your normal turn.',
+    description: 'Before rolling, choose the Battle format and participants, including yourself. Teams and the game are random. Resolve the Battle, then continue your normal turn.',
     enabled: true,
     effect: 'challenge-glove',
     requiresTarget: false,

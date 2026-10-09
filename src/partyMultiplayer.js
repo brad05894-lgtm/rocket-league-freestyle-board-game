@@ -1567,6 +1567,8 @@ export async function confirmPartyBoardSelection(roomCode, playerId, mapId) {
 
 export async function rollPartyTurnOrder(roomCode, playerId) {
   requireOnlineIdentity(playerId)
+  await ensurePartyClock()
+  const stoppedAt = partyNow()
   const code = normalizeCode(roomCode)
   const roomRef = ref(db, `securePartyRooms/${code}`)
   const rollSeed = Math.random()
@@ -1598,7 +1600,12 @@ export async function rollPartyTurnOrder(roomCode, playerId) {
       return
     }
 
+    if (room.turnOrderDice && (room.turnOrderDice.playerId !== playerId || room.turnOrderDice.stoppedAt)) {
+      failureReason = 'Wait for your own turn-order die.'
+      return
+    }
     const roll = Math.floor(rollSeed * 6) + 1
+    if (room.turnOrderDice) room.turnOrderDice = {...room.turnOrderDice, stoppedAt, faceIndex: roll - 1}
     room.turnOrderTieBreak ||= {}
     room.turnOrderTieBreak[playerId] = tieSeed
     room.turnOrderRolls[playerId] = roll
@@ -1649,6 +1656,7 @@ export async function confirmPartyTurnOrder(roomCode, playerId) {
       return
     }
     room.phase = 'board'
+    delete room.turnOrderDice
     room.turnIndex = 0
     room.turnOrderReady = { [playerId]: true }
     room.turnState = makeTurnState(ids[0])
@@ -2382,7 +2390,7 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
     } else if (card.effect === 'top-corner' && targetSetup) {
       instructions = `Use Top Corner on ${targetName}. It should stay secret until their next Mechanic, which should require a top-corner finish.`
     } else if (card.effect === 'challenge-glove') {
-      instructions = 'Use Challenge Glove, choose the Battle format, then confirm the browser privately/randomly locks the other participants and team/solo assignment before revealing the random game. Resolve it, then confirm you can still roll normally afterward.'
+      instructions = 'Use Challenge Glove, choose the Battle format and participants (including yourself), then confirm teams and the game are random. Resolve it, then confirm you can still roll normally afterward.'
     } else if (card.effect === 'movement-boost') {
       instructions = `Use ${card.name}, then roll. The final movement should be the die movement plus ${card.amount || 0}.`
     } else if (card.effect === 'precision-die') {
@@ -2698,7 +2706,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
         return
       }
 
-      privateMessage = 'Choose the Battle format. The browser will then randomly lock the other participants and team/solo assignment before the game is revealed. You still get your normal roll afterward.'
+      privateMessage = 'Choose the Battle format and participants, including yourself. Teams and the game are random. You still get your normal roll afterward.'
       publicMessage = `${playerName} used Challenge Glove and is choosing the Battle format.`
       publicType = 'battle'
     } else if (card.effect === 'precision-die') {
@@ -4528,9 +4536,10 @@ export async function resolvePartyService(roomCode, playerId, action = 'skip', t
       if ((setup.tokens || 0) < cost) { failure = 'Not enough Tokens.'; return }
       setup.boardNodeId = targetSetup.boardNodeId
       setup.onStartDeck = Boolean(targetSetup.onStartDeck)
+      turn.movementRemaining = 0
       turn.transportTargetPlayerId = targetId
       turn.transportDestinationNodeId = targetSetup.boardNodeId
-      message = `${room.players[playerId].name} used Transportation for ${cost} Tokens and teleported to ${room.players[targetId].name}. The destination space does not activate.`
+      message = `${room.players[playerId].name} used Transportation for ${cost} Tokens and teleported to ${room.players[targetId].name}. Your movement ends here. The destination space does not activate.`
     } else if (['tokens', 'trophy'].includes(action) && stop.type === 'Lakitu') {
       const target = room.playerSetup?.[targetId]
       if (targetId === playerId || !room.players?.[targetId] || !target) return
@@ -4723,6 +4732,12 @@ export async function beginPartyDie(code,uid,kind,cardIndex=null) {
  await ensurePartyClock()
  const now=partyNow()
  const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(room?.status==='playing' && room.phase==='turn-order'){
+   if(kind!=='normal'||!room.players?.[uid]||room.turnOrderComplete||Number(room.turnOrderRolls?.[uid])>0)return
+   if(room.turnOrderDice&&(!room.turnOrderDice.stoppedAt||now<room.turnOrderDice.stoppedAt+1500))return
+   room.turnOrderDice={kind:'normal',purpose:'turn-order',playerId:uid,startedAt:now}
+   return room
+  }
   const t=room?.turnState
   if(room?.phase!=='board'||t?.playerId!==uid||t.rolled||t.awaitingTrophy||t.battle?.status==='active')return
   if(!['normal','special','precision'].includes(kind))return
@@ -4734,7 +4749,7 @@ export async function beginPartyDie(code,uid,kind,cardIndex=null) {
  if(!result.committed)throw Error('The dice cannot be opened right now.')
 }
 
-const DEV_BOARD_FIELDS=['phase','status','turnIndex','currentRound','turnDirection','roundTakenPlayerIds','playerSetup','partyStats','turnState','boardState','activeTrophyNodeId','boardMotion','presentation','presentationSequence','devDiceTest','roundBattle','temporaryTrophyPriceMultiplier','temporaryTrophyPriceUntil','hiddenGift','devBonusPreview','turnOrderComplete','turnOrderRolls','turnOrderReady','showcaseCamera']
+const DEV_BOARD_FIELDS=['phase','status','turnIndex','currentRound','turnDirection','roundTakenPlayerIds','playerSetup','partyStats','turnState','boardState','activeTrophyNodeId','boardMotion','presentation','presentationSequence','devDiceTest','roundBattle','temporaryTrophyPriceMultiplier','temporaryTrophyPriceUntil','hiddenGift','devBonusPreview','turnOrderDice','turnOrderComplete','turnOrderRolls','turnOrderReady','showcaseCamera']
 function devCheckpoint(room){if(!room.devBoardCheckpoint)room.devBoardCheckpoint=Object.fromEntries(DEV_BOARD_FIELDS.map(k=>[k,room[k]===undefined?null:JSON.parse(JSON.stringify(room[k]))]))}
 export async function savePartyDevCheckpoint(code,uid){requireOnlineIdentity(uid);await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{if(!room||room.hostId!==uid)return;devCheckpoint(room);return room})}
 export async function restorePartyDevCheckpoint(code,uid){requireOnlineIdentity(uid);await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
@@ -4749,7 +4764,7 @@ export async function restorePartyDevCheckpoint(code,uid){requireOnlineIdentity(
 })}
 export async function recoverPartyPresentation(code,uid){requireOnlineIdentity(uid);await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
  if(!room||room.hostId!==uid)return
- delete room.presentation;delete room.turnState?.trophyCinematic;delete room.turnState?.diceAnimation
+ delete room.turnOrderDice;delete room.presentation;delete room.turnState?.trophyCinematic;delete room.turnState?.diceAnimation
  if(room.turnState?.eventEffect){room.turnState.eventEffect.animationStartedAt=0;if(room.turnState.eventEffect.openedAt)room.turnState.eventEffect.openedAt=1}
  return room
 })}

@@ -315,17 +315,17 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const [clockOffset, setClockOffset] = useState(0)
   useEffect(()=>{
     setPresentationNow(Date.now())
-    const end=Math.max(Number(room.presentation?.endsAt||0),Number(room.turnState?.diceAnimation?.stoppedAt||0)+1500)
+    const end=Math.max(Number(room.presentation?.endsAt||0),Number((room.phase==='turn-order'?room.turnOrderDice:room.turnState?.diceAnimation)?.stoppedAt||0)+1500)
     if(Date.now()+clockOffset>=end)return
     const timer=setInterval(()=>{setPresentationNow(Date.now());if(Date.now()+clockOffset>=end)clearInterval(timer)},80)
     return()=>clearInterval(timer)
-  },[room.presentation,room.turnState?.diceAnimation,clockOffset])
+  },[room.presentation,room.turnState?.diceAnimation,room.turnOrderDice,room.phase,clockOffset])
   const roomMotion = room.boardMotion
   const roomMoveEnd = Number(roomMotion?.startedAt || 0) + Math.max(0, (roomMotion?.path?.length || 1) - 1) * (roomMotion?.stepMs || 280)
   const carStillMoving = Boolean(roomMotion?.playerId) && Date.now() + clockOffset < roomMoveEnd
   const rewardBusy=presentationNow+clockOffset<Number(room.presentation?.endsAt||0)
   const giftBusy=Boolean(room.turnState?.hiddenGiftCheck||(room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed))
-  const dice=room.turnState?.diceAnimation
+  const dice=room.phase==='turn-order'?room.turnOrderDice:room.turnState?.diceAnimation
   const diceVisible=dice&&(!dice.stoppedAt||presentationNow+clockOffset<dice.stoppedAt+1500)
   const movementBusy = motionBusy || carStillMoving || rewardBusy || giftBusy || Boolean(diceVisible)
   const busy = actionBusy || movementBusy
@@ -549,8 +549,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
     [room.activityFeed]
   )
 
-  async function runAction(action) {
-    if (busy) return
+  async function runAction(action, allowDuringPresentation = false) {
+    if (actionBusy || (!allowDuringPresentation && movementBusy)) return
     try {
       setBusy(true)
       setError('')
@@ -563,7 +563,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   }
 
   async function handleTurnOrderRoll() {
-    await runAction(() => rollPartyTurnOrder(roomCode, clientId))
+    await runAction(() => beginPartyDie(roomCode, clientId, 'normal'))
   }
 
   async function handleRoll(dieType) {
@@ -721,16 +721,16 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   },[room.boardMotion,activePlayer?.id,activeNode,motionBusy,clockOffset,nodeMap])
   const fullBox=board.viewBox||{x:0,y:0,width:board.width,height:board.height}
   const boardBox=overview?`${fullBox.x} ${fullBox.y} ${fullBox.width} ${fullBox.height}`:`${mapCenter.x-230} ${mapCenter.y-140} 460 280`
-  const orderResults = isTurnOrderPhase && room.turnOrderComplete
+  const orderResults = isTurnOrderPhase && room.turnOrderComplete && !diceVisible
   if(room.devBonusPreview)return <PartyFinale room={room.devBonusPreview} clockOffset={clockOffset} isHost={isHost} isPreview onLeave={()=>runAction(()=>closePartyBonusDevTest(roomCode,clientId))}/>
   if(room.phase==='party-complete-test')return <PartyFinale room={room} clockOffset={clockOffset} onLeave={onLeave} isHost={isHost}/>
   const routeDecision = room.phase==='board' && !movementBusy && (turn.awaitingChoice || turn.awaitingGate)
   const battleLocked=battle?.status==='active'||room.phase==='round-complete'||orderResults
   return (
     <div ref={immersiveRef} className="game party-game-screen party-immersive" data-route={Boolean(routeDecision)} data-panel={hudPanel||'none'}>
-      {diceVisible&&<PartyDice isHost={isHost} onRecover={()=>runAction(()=>recoverPartyPresentation(roomCode,clientId))} animation={dice} room={room} clientId={clientId} busy={actionBusy} onStop={value=>runAction(()=>dice.kind==='precision'?usePartyCard(roomCode,clientId,dice.cardIndex,{value}):rollPartyDie(roomCode,clientId,dice.kind))}/>}
-      {room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed&&<PartyHiddenGift gift={room.turnState.hiddenGiftResult} name={room.players?.[room.turnState.playerId]?.name||'Player'} canCollect={room.turnState.playerId===clientId} isHost={isHost} busy={actionBusy} onCollect={()=>runAction(()=>collectPartyHiddenGift(roomCode,clientId))} onRecover={()=>runAction(()=>skipPartyHiddenGift(roomCode,clientId))}/>}
-      {room.turnState?.hiddenGiftCheck&&<div className="party-reward-banner"><span>Checking this landing…</span>{isHost&&<button onClick={()=>runAction(()=>skipPartyHiddenGift(roomCode,clientId))}>Skip check (recovery)</button>}</div>}
+      {diceVisible&&<PartyDice isHost={isHost} error={error} onRecover={()=>runAction(()=>recoverPartyPresentation(roomCode,clientId),true)} animation={dice} room={room} clientId={clientId} busy={actionBusy} onStop={value=>runAction(()=>isTurnOrderPhase?rollPartyTurnOrder(roomCode,clientId):dice.kind==='precision'?usePartyCard(roomCode,clientId,dice.cardIndex,{value}):rollPartyDie(roomCode,clientId,dice.kind),true)}/>}
+      {room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed&&<PartyHiddenGift gift={room.turnState.hiddenGiftResult} name={room.players?.[room.turnState.playerId]?.name||'Player'} canCollect={room.turnState.playerId===clientId} isHost={isHost} busy={actionBusy} onCollect={()=>runAction(()=>collectPartyHiddenGift(roomCode,clientId),true)} onRecover={()=>runAction(()=>skipPartyHiddenGift(roomCode,clientId),true)}/>}
+      {room.turnState?.hiddenGiftCheck&&<div className="party-reward-banner"><span>Checking this landing…</span>{isHost&&<button onClick={()=>runAction(()=>skipPartyHiddenGift(roomCode,clientId),true)}>Skip check (recovery)</button>}</div>}
       {(()=>{const beat=presentationBeat(room,presentationNow+clockOffset);return beat&&<div className="party-reward-banner" role="status"><strong>{room.players?.[beat.playerId]?.name}</strong><span>{beat.kind==='trophies'?(beat.amount>0?'🏆 Got a Trophy!':'🏆 Trophy taken'): `${beat.amount>0?'+':''}${beat.amount} Tokens`}</span></div>})()}
       {room.phase === 'party-complete-test' && <FinalPartyCinematic room={room} players={players} onLeave={onLeave} isHost={isHost} />}
       {partyRoulette && !motionBusy && !carStillMoving && !giftBusy && !diceVisible && (!rewardBusy || presentationNow+clockOffset<room.presentation?.startedAt) && (
@@ -1737,7 +1737,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                 </>}
                 {turn.awaitingService.type === 'Paratroopa' && <>
                   <p>Fly for {PARTY_SERVICE_PRICES.transport} Tokens. The board zooms out and highlights every space currently occupied by another player.</p>
-                  <p><small>Choose a player to teleport onto their exact space. You may share that space; arriving by Transportation does not activate it.</small></p>
+                  <p><small>Choose a player to teleport onto their exact space. Your movement ends there, even if your roll had moves left. You may share that space; arriving by Transportation does not activate it.</small></p>
                   {transportTargetPlayers.map((player) => {
                     const targetSetup = room.playerSetup?.[player.id] || {}
                     const targetNode = nodeMap[targetSetup.boardNodeId]
