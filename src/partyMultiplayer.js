@@ -12,7 +12,7 @@ import { getPartyCar, formatPartyDieFace } from './partyCars'
 import { PARTY_MECHANICS, pickPartyMechanic } from './partyMechanics'
 import { getEnabledPartyCards, getPartyCard, normalizePartyCards, pickPartyCard, getPartyShopCards, getPartyCardShopPrice } from './partyCards'
 
-const PARTY_ROUNDS = [10, 15, 20]
+const validRoundCount = rounds => Number.isSafeInteger(rounds) && rounds >= 1 && rounds <= 999
 const PARTY_MAP_ID = 'booststone-ruins'
 const PARTY_BATTLE_WIN_REWARD = 8
 const PARTY_BATTLE_LOSS_PENALTY = 0
@@ -1380,8 +1380,8 @@ export async function updatePartyRounds(roomCode, requesterId, rounds) {
   requireOnlineIdentity(requesterId)
   const code = normalizeCode(roomCode)
 
-  if (!PARTY_ROUNDS.includes(rounds)) {
-    throw new Error('Rounds must be 10, 15, or 20.')
+  if (!validRoundCount(rounds)) {
+    throw new Error('Enter a whole number of rounds from 1 to 999.')
   }
 
   const roomRef = ref(db, `securePartyRooms/${code}`)
@@ -1496,8 +1496,8 @@ export async function startPartyRoom(roomCode, requesterId) {
 
   const rounds = room.settings?.rounds ?? 10
 
-  if (!PARTY_ROUNDS.includes(rounds)) {
-    throw new Error('Choose 10, 15, or 20 rounds before starting.')
+  if (!validRoundCount(rounds)) {
+    throw new Error('Choose a whole number of rounds from 1 to 999 before starting.')
   }
 
   const orderedPlayers = [...players].sort(
@@ -1889,11 +1889,13 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
 
     if (turn.awaitingService) { failureReason = 'Resolve this stop first.'; return }
     turn.movementStarted = true
+    delete turn.resumeMovement
 
     let currentNodeId = setup.boardNodeId || BOOSTSTONE_RUINS.startId
     let remaining = turn.movementRemaining || 0
     if (!['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[currentNodeId]?.type)) turn.lastLandableNodeId = currentNodeId
     let choiceUsed = false
+    let requestedNextId = chosenNextId
     const path = [setup.onStartDeck ? 'start-deck' : currentNodeId]
     let openGateId = ''
 
@@ -1911,20 +1913,20 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
       let nextId
 
       if (options.length > 1) {
-        chosenNextId = chosenNextId || turn.selectedRoute || ''
-        if (!chosenNextId || choiceUsed) {
+        requestedNextId = requestedNextId || turn.selectedRoute || ''
+        if (!requestedNextId || choiceUsed) {
           turn.awaitingChoice = true
           turn.choiceNodeId = currentNodeId
           turn.choices = options
           break
         }
 
-        if (!options.includes(chosenNextId)) {
+        if (!options.includes(requestedNextId)) {
           failureReason = 'That route is not available from this junction.'
           return
         }
 
-        nextId = chosenNextId
+        nextId = requestedNextId
         delete turn.selectedRoute
         choiceUsed = true
         turn.awaitingChoice = false
@@ -2061,6 +2063,12 @@ export async function resolvePartyPendingLanding(roomCode, playerId) {
     const nodeId = pending.nodeId
 
     delete turn.pendingLanding
+    if (['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[nodeId]?.type)) {
+      turn.readyToEnd = false
+      turn.movementRemaining = Math.max(1, Number(turn.movementRemaining) || 0)
+      turn.resumeMovement = true
+      return room
+    }
     finishLanding(room, turn, playerId, nodeId, mechanic, card, {
       battleSeed: pending.battleSeed,
       opponentSeed: pending.opponentSeed,
@@ -2576,6 +2584,9 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       failureReason = 'Resolve the current Battle before using another Card.'
       return
     }
+
+    if (turn?.diceAnimation && !turn.diceAnimation.stoppedAt && !options.stopPrecision) { failureReason = 'Close the dice before using a Card.'; return }
+    if (turn?.pendingLanding || turn?.awaitingService || turn?.awaitingGate || turn?.awaitingChoice || turn?.awaitingTrophy) { failureReason = 'Finish the current movement decision first.'; return }
 
     if (turn?.cardUsedThisTurn) {
       failureReason = 'You can only use one Card per turn.'
@@ -3901,6 +3912,7 @@ export async function preparePartyBattleDevTest(roomCode, requesterId) {
     turn.baseMovement = 0
     turn.movementRemaining = 0
     turn.movementStarted = true
+    delete turn.resumeMovement
     turn.readyToEnd = true
     turn.landedType = 'Battle'
     turn.landedNodeId = BOOSTSTONE_RUINS.nodes.find((node) => node.type === 'Battle')?.id || BOOSTSTONE_RUINS.startId
@@ -4016,6 +4028,7 @@ export async function preparePartyLuckDevTest(roomCode, requesterId, spaceType =
     turn.baseMovement = 0
     turn.movementRemaining = 0
     turn.movementStarted = true
+    delete turn.resumeMovement
     turn.readyToEnd = true
     turn.landedType = landingNodeType
     turn.landedNodeId = targetNode.id
@@ -4122,6 +4135,7 @@ export async function preparePartyEventDevTest(roomCode, requesterId, eventId = 
     turn.baseMovement = 0
     turn.movementRemaining = 0
     turn.movementStarted = true
+    delete turn.resumeMovement
     turn.readyToEnd = true
     turn.landedType = 'Event'
     turn.landedNodeId = targetNode.id
@@ -4235,6 +4249,7 @@ export async function preparePartyServiceDevTest(roomCode, requesterId, serviceT
     turn.faceLabel = 'DEV'
     turn.movementRemaining = 2
     turn.movementStarted = true
+    delete turn.resumeMovement
     turn.readyToEnd = false
     turn.landedNodeId = node.id
     turn.landedType = normalizedType
@@ -4254,6 +4269,63 @@ export async function preparePartyServiceDevTest(roomCode, requesterId, serviceT
   })
 
   if (!result.committed) throw new Error(failureReason || `Could not prepare the DEV ${normalizedType} test.`)
+}
+
+function advancePartyTurn(room, playerId, refillSeed) {
+  const order = orderedPlayerIds(room)
+  const activeIndex = Math.max(0, order.indexOf(playerId))
+  // Reverse is retired in Party Mode. Normalize any stale room created by an
+  // older build so turn progression always moves forward.
+  room.turnDirection = 1
+
+  // A bought Action Shop card leaves its slot visibly empty for the rest of
+  // this turn. Refill only now, so nobody sees the replacement early.
+  refillPendingPartyActionShops(room, refillSeed)
+
+  const priorTaken = Array.isArray(room.roundTakenPlayerIds)
+    ? room.roundTakenPlayerIds.filter(Boolean)
+    : room.roundTakenPlayerIds
+    ? Object.values(room.roundTakenPlayerIds).filter(Boolean)
+    : []
+  const taken = new Set(priorTaken)
+  taken.add(playerId)
+  room.roundTakenPlayerIds = [...taken]
+
+  if (order.some((id) => !taken.has(id))) {
+    room.turnDirection = 1
+    const direction = 1
+    let nextIndex = activeIndex
+    let foundNext = false
+
+    for (let step = 0; step < order.length; step += 1) {
+    nextIndex = (nextIndex + direction + order.length) % order.length
+    const candidateId = order[nextIndex]
+    if (!taken.has(candidateId)) {
+      foundNext = true
+      break
+    }
+    }
+
+    if (foundNext) {
+    room.turnIndex = nextIndex
+    room.turnState = makeTurnState(order[nextIndex])
+    return room
+    }
+  }
+
+  room.turnIndex = 0
+  room.roundTakenPlayerIds = []
+
+  room.phase = 'round-complete'
+  delete room.roundBattle
+  room.turnState = {
+    playerId: order[0],
+    rolled: false,
+    movementRemaining: 0,
+    awaitingChoice: false,
+    readyToEnd: false,
+  }
+  return room
 }
 
 export async function endPartyTurn(roomCode, playerId) {
@@ -4336,57 +4408,7 @@ export async function endPartyTurn(roomCode, playerId) {
       return
     }
 
-    // Reverse is retired in Party Mode. Normalize any stale room created by an
-    // older build so turn progression always moves forward.
-    room.turnDirection = 1
-
-    // A bought Action Shop card leaves its slot visibly empty for the rest of
-    // this turn. Refill only now, so nobody sees the replacement early.
-    refillPendingPartyActionShops(room, shopRefillSeed)
-
-    const priorTaken = Array.isArray(room.roundTakenPlayerIds)
-      ? room.roundTakenPlayerIds.filter(Boolean)
-      : room.roundTakenPlayerIds
-        ? Object.values(room.roundTakenPlayerIds).filter(Boolean)
-        : []
-    const taken = new Set(priorTaken)
-    taken.add(playerId)
-    room.roundTakenPlayerIds = [...taken]
-
-    if (order.some((id) => !taken.has(id))) {
-      room.turnDirection = 1
-      const direction = 1
-      let nextIndex = activeIndex
-      let foundNext = false
-
-      for (let step = 0; step < order.length; step += 1) {
-        nextIndex = (nextIndex + direction + order.length) % order.length
-        const candidateId = order[nextIndex]
-        if (!taken.has(candidateId)) {
-          foundNext = true
-          break
-        }
-      }
-
-      if (foundNext) {
-        room.turnIndex = nextIndex
-        room.turnState = makeTurnState(order[nextIndex])
-        return room
-      }
-    }
-
-    room.turnIndex = 0
-    room.roundTakenPlayerIds = []
-
-    room.phase = 'round-complete'
-    delete room.roundBattle
-    room.turnState = {
-      playerId: order[0],
-      rolled: false,
-      movementRemaining: 0,
-      awaitingChoice: false,
-      readyToEnd: false,
-    }
+    advancePartyTurn(room, playerId, shopRefillSeed)
     return room
   })
 
@@ -4441,6 +4463,76 @@ export async function beginNextPartyRound(roomCode, requesterId) {
   }
 }
 
+function removePartyPlayer(room, playerId, reason, now) {
+  const before = orderedPlayerIds(room)
+  const activeId = room.turnState?.playerId
+  const name = room.players[playerId].name
+  if (room.status === 'lobby') {
+    for (const [seat, occupant] of Object.entries(room.seats || {})) {
+    if (occupant === playerId) delete room.seats[seat]
+    }
+  }
+  delete room.players[playerId]
+  room.departedPlayers ||= {}
+  room.departedPlayers[playerId] = { leftAt: now, reason }
+  const order = before.filter((id) => id !== playerId)
+  room.playerOrder = order
+  delete room.playerSetup?.[playerId]
+  delete room.devBoardCheckpoint
+  room.roundTakenPlayerIds = Object.values(room.roundTakenPlayerIds || {}).filter(id => id !== playerId)
+  delete room.presentation
+  delete room.boardMotion
+  delete room.turnState?.diceAnimation
+  if (room.turnState?.spaceEffect?.awaitingTarget && !order.some(id=>id!==activeId && room.playerSetup?.[id]?.tokens>0)) {
+    room.turnState.spaceEffect.awaitingTarget=false; room.turnState.spaceEffect.resolved=true
+  }
+  if (room.phase === 'turn-order') {
+    if (room.turnOrderRolls) delete room.turnOrderRolls[playerId]
+    if (order.every((id) => Number(room.turnOrderRolls?.[id]) > 0)) {
+    order.sort((a,b) => room.turnOrderRolls[b] - room.turnOrderRolls[a])
+    room.turnOrderComplete = true
+    room.turnOrderReady = {}
+    room.turnIndex = 0
+    room.turnState = makeTurnState(order[0])
+    }
+  } else if (room.phase === 'board') {
+    if (activeId === playerId) {
+    const taken = new Set(Object.values(room.roundTakenPlayerIds || {}))
+    room.turnDirection = 1
+    const direction = 1
+    const start = before.indexOf(playerId)
+    let nextId
+    for (let step=1; step<=before.length; step++) {
+      const candidate = before[(start + direction*step + before.length*2) % before.length]
+      if (order.includes(candidate) && !taken.has(candidate)) { nextId=candidate; break }
+    }
+    if (!nextId) {
+      room.phase = 'round-complete'
+  delete room.roundBattle
+      room.roundTakenPlayerIds = []
+      nextId = order[0]
+    }
+    room.turnIndex = order.indexOf(nextId)
+    room.turnState = makeTurnState(nextId)
+    } else {
+    room.turnIndex = Math.max(0, order.indexOf(activeId))
+    const battle = room.turnState?.battle
+    if (battle?.status === 'active' && (Object.values(battle.availableIds || battle.participantIds || {}).includes(playerId) || battle.opponentId === playerId)) {
+      battle.status = 'resolved'
+      battle.resultMessage = 'Battle cancelled because a participant left. No Tokens changed.'
+      battle.resolvedAt = now
+      if (battle.source !== 'challenge-glove') room.turnState.readyToEnd = true
+    }
+    }
+  }
+  if (room.phase === 'round-complete' && room.roundBattle?.status === 'active' && room.roundBattle.participantIds?.includes(playerId)) {
+    room.roundBattle.status = 'resolved'
+    room.roundBattle.cancelled = true
+    room.roundBattle.resultMessage = 'Challenge cancelled because a participant left. No Tokens changed.'
+  }
+  addPartyActivity(room, playerId, `${name} ${reason === 'kicked' ? 'was removed from' : 'left'} the Party game.`, 'system')
+}
+
 export async function leavePartyRoom(roomCode, playerId) {
   requireOnlineIdentity(playerId)
   const roomRef = ref(db, `securePartyRooms/${normalizeCode(roomCode)}`)
@@ -4452,63 +4544,7 @@ export async function leavePartyRoom(roomCode, playerId) {
       room.endedBy = playerId
       return room
     }
-    const before = orderedPlayerIds(room)
-    const activeId = room.turnState?.playerId
-    const name = room.players[playerId].name
-    if (room.status === 'lobby') {
-      for (const [seat, occupant] of Object.entries(room.seats || {})) {
-        if (occupant === playerId) delete room.seats[seat]
-      }
-    }
-    delete room.players[playerId]
-    room.departedPlayers ||= {}
-    room.departedPlayers[playerId] = { leftAt: Date.now(), reason: 'left' }
-    const order = before.filter((id) => id !== playerId)
-    room.playerOrder = order
-    if (room.phase === 'turn-order') {
-      if (room.turnOrderRolls) delete room.turnOrderRolls[playerId]
-      if (order.every((id) => Number(room.turnOrderRolls?.[id]) > 0)) {
-        order.sort((a,b) => room.turnOrderRolls[b] - room.turnOrderRolls[a])
-        room.phase = 'board'
-        room.turnIndex = 0
-        room.turnState = makeTurnState(order[0])
-      }
-    } else if (room.phase === 'board') {
-      if (activeId === playerId) {
-        const taken = new Set(Object.values(room.roundTakenPlayerIds || {}))
-        room.turnDirection = 1
-        const direction = 1
-        const start = before.indexOf(playerId)
-        let nextId
-        for (let step=1; step<=before.length; step++) {
-          const candidate = before[(start + direction*step + before.length*2) % before.length]
-          if (order.includes(candidate) && !taken.has(candidate)) { nextId=candidate; break }
-        }
-        if (!nextId) {
-          room.phase = 'round-complete'
-    delete room.roundBattle
-          room.roundTakenPlayerIds = []
-          nextId = order[0]
-        }
-        room.turnIndex = order.indexOf(nextId)
-        room.turnState = makeTurnState(nextId)
-      } else {
-        room.turnIndex = Math.max(0, order.indexOf(activeId))
-        const battle = room.turnState?.battle
-        if (battle?.status === 'active' && (Object.values(battle.participantIds || {}).includes(playerId) || battle.opponentId === playerId)) {
-          battle.status = 'resolved'
-          battle.resultMessage = 'Battle cancelled because a participant left. No Tokens changed.'
-          battle.resolvedAt = Date.now()
-          if (battle.source !== 'challenge-glove') room.turnState.readyToEnd = true
-        }
-      }
-    }
-    if (room.phase === 'round-complete' && room.roundBattle?.status === 'active' && room.roundBattle.participantIds?.includes(playerId)) {
-      room.roundBattle.status = 'resolved'
-      room.roundBattle.cancelled = true
-      room.roundBattle.resultMessage = 'Challenge cancelled because a participant left. No Tokens changed.'
-    }
-    addPartyActivity(room, playerId, `${name} left the Party game.`, 'system')
+    removePartyPlayer(room, playerId, 'left', Date.now())
     return room
   })
   if (!result.committed) throw new Error('This Party room is no longer available.')
@@ -4588,6 +4624,11 @@ export async function resolvePartyService(roomCode, playerId, action = 'skip', t
 
     setup.tokens = Math.max(0, (setup.tokens || 0) - cost)
     delete turn.awaitingService
+    turn.resumeMovement = action !== 'transport'
+    if (action !== 'transport' && ['Shop','Paratroopa','Lakitu','Junction'].includes(BOARD_NODE_BY_ID[setup.boardNodeId]?.type)) {
+      turn.movementRemaining = Math.max(1, Number(turn.movementRemaining) || 0)
+      turn.readyToEnd = false
+    }
     if (!(turn.movementRemaining > 0)) {
       // Service teleports never activate the destination space. If movement is
       // already over, simply end the turn on the shared destination node.
@@ -4897,4 +4938,34 @@ export async function adjustPartyPlayerDev(code,uid,targetId,kind,delta=0,cardId
   return room
  })
  if(!result.committed)throw Error('Host only. Check the player, hand limit, and selected Card. Close that player’s dice before editing Cards.')
+}
+
+export async function skipPartyTurn(code, uid) {
+ requireOnlineIdentity(uid)
+ const seed=Math.random(),now=partyNow()
+ const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(!room||room.hostId!==uid||room.status!=='playing'||room.phase!=='board')return
+  const turn=room.turnState,id=turn?.playerId
+  if(!id||!room.players?.[id])return
+  const setup=room.playerSetup?.[id]
+  if(setup&&['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[setup.boardNodeId]?.type))setup.boardNodeId=turn.lastLandableNodeId||BOOSTSTONE_RUINS.startId
+  delete room.presentation;delete room.boardMotion;delete room.devBonusPreview
+  room.presentationSequence=(room.presentationSequence||0)+1
+  addPartyActivity(room,uid,`${room.players[id].name}'s turn was skipped by the host. Existing balances were kept.`, 'system')
+  advancePartyTurn(room,id,seed)
+  return room
+ })
+ if(!result.committed)throw Error('Only the host can skip the current board turn.')
+}
+export async function kickPartyPlayer(code, uid, targetId) {
+ requireOnlineIdentity(uid)
+ const now=partyNow()
+ const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(!room||room.hostId!==uid||targetId===uid||!room.players?.[targetId]||!['lobby','playing'].includes(room.status))return
+  room.kickedPlayers||={};room.kickedPlayers[targetId]={kickedBy:uid,kickedAt:now}
+  removePartyPlayer(room,targetId,'kicked',now)
+  room.presentationSequence=(room.presentationSequence||0)+1
+  return room
+ })
+ if(!result.committed)throw Error('Only the host can remove another current player.')
 }

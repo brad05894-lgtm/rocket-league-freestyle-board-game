@@ -1,3 +1,5 @@
+import PartyHostControls from './PartyHostControls'
+import { trophyPathChoices } from './partyRoutes'
 import PartyEventAudio from './PartyEventAudio'
 import PartyBoardDev from './PartyBoardDev'
 import PartyDice from './PartyDice'
@@ -156,6 +158,8 @@ function getPartyCardUseState(card, turn, isMyTurn, currentSetup, roomPhase, roo
   if (card.enabled === false) return { canUse: false, reason: card.comingSoon || 'Not active yet.' }
   if (roomPhase !== 'board' || !isMyTurn) return { canUse: false, reason: 'Use on your turn.' }
   if (turn.battle?.status === 'active') return { canUse: false, reason: 'Resolve the current Battle first.' }
+  if (turn.diceAnimation&&!turn.diceAnimation.stoppedAt) return {canUse:false,reason:'Close the dice before using a Card.'}
+  if (turn.pendingLanding||turn.awaitingService||turn.awaitingGate||turn.awaitingChoice) return {canUse:false,reason:'Finish the current movement decision first.'}
   if (turn.cardUsedThisTurn) return { canUse: false, reason: 'One Card already used this turn.' }
   if (turn.awaitingTrophy) return { canUse: false, reason: 'Resolve the Trophy decision first.' }
 
@@ -353,6 +357,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const [error, setError] = useState('')
   const [selectedCardIndex, setSelectedCardIndex] = useState(null)
   const [selectedStealTargetId, setSelectedStealTargetId] = useState('')
+  useEffect(()=>{if(selectedCardIndex!==null)document.querySelector('.party-card-use-panel')?.scrollIntoView({block:'nearest'})},[selectedCardIndex])
   const [boardView, setBoardView] = useState('3d')
   const [overview, setOverview] = useState(false)
   const [hudPanel, setHudPanel] = useState(null)
@@ -557,8 +562,10 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
       setBusy(true)
       setError('')
       await action()
+      return true
     } catch (actionError) {
       setError(actionError.message || 'Something went wrong.')
+      return false
     } finally {
       setBusy(false)
     }
@@ -596,7 +603,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
 
   async function handleUseCard(options = {}) {
     if (!Number.isInteger(selectedCardIndex)) return
-    await runAction(() => usePartyCard(roomCode, clientId, selectedCardIndex, options))
+    const used = await runAction(() => usePartyCard(roomCode, clientId, selectedCardIndex, options))
+    if (!used) return
     if(selectedCard?.effect === 'unlimited-attempts')setHudPanel('turn')
     setSelectedCardIndex(null)
     setSelectedStealTargetId('')
@@ -709,9 +717,9 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   }, [isMyTurn, movementBusy, actionBusy, turn.pendingLanding?.nodeId, roomCode, clientId])
 
   useEffect(()=>{
-    if(!isMyTurn||movementBusy||actionBusy||!dice?.stoppedAt||!turn.rolled||turn.movementStarted||!(turn.movementRemaining>0)||turn.awaitingChoice||turn.awaitingGate||turn.awaitingTrophy||turn.awaitingService)return
+    if(!isMyTurn||movementBusy||actionBusy||!dice?.stoppedAt||!turn.rolled||(turn.movementStarted&&!turn.resumeMovement)||!(turn.movementRemaining>0)||turn.awaitingChoice||turn.awaitingGate||turn.awaitingTrophy||turn.awaitingService)return
     runAction(()=>continuePartyMovement(roomCode,clientId))
-  },[isMyTurn,movementBusy,actionBusy,dice?.stoppedAt,turn.rolled,turn.movementStarted])
+  },[isMyTurn,movementBusy,actionBusy,dice?.stoppedAt,turn.rolled,turn.movementStarted,turn.resumeMovement,turn.awaitingService])
 
   const [mapCenter, setMapCenter] = useState({x:activeNode?.x||board.width/2,y:activeNode?.y||board.height/2})
   const promptKey = JSON.stringify([room.phase,turn.playerId,turn.rolled,turn.awaitingChoice,turn.awaitingTrophy,turn.awaitingGate,turn.awaitingService,turn.awaitingJackpotDecision,turn.landingEffect?.resolved,turn.spaceEffect?.resolved,turn.eventEffect?.resolved,turn.pendingLanding?.nodeId,turn.readyToEnd])
@@ -777,7 +785,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
         </div>
       )}
 
-      {orderResults&&<div className="bc-backdrop"><section className="bc-dialog party-order-results" role="dialog" aria-modal="true" aria-label="Turn order results"><button onClick={onLeave}>{isHost?'End game':'Leave game'}</button><h1>Turn order is set!</h1><p>Everyone starts on the deck. Your first movement point reaches the first blue Mechanic space.</p><ol>{players.map((player,index)=><li key={player.id}><strong>{player.name}</strong><span>{turnOrderRolls[player.id]}</span><small>{index===0?'Goes first':'Turn order locked'}</small></li>)}</ol><p>Equal numbers use a random tiebreak. Only the player going first needs to continue.</p>{players[0]?.id===clientId?<button disabled={actionBusy} onClick={()=>runAction(()=>confirmPartyTurnOrder(roomCode,clientId))}>Continue to Board</button>:<p>Waiting for <strong>{players[0]?.name||'the first player'}</strong> to continue…</p>}{error&&<p role="alert">{error}</p>}</section></div>}
+      {orderResults&&<div className="bc-backdrop"><section className="bc-dialog party-order-results" role="dialog" aria-modal="true" aria-label="Turn order results"><button onClick={onLeave}>{isHost?'End game':'Leave game'}</button><h1>Turn order is set!</h1>{isHost&&<PartyHostControls room={room} roomCode={roomCode} clientId={clientId}/>}<p>Everyone starts on the deck. Your first movement point reaches the first blue Mechanic space.</p><ol>{players.map((player,index)=><li key={player.id}><strong>{player.name}</strong><span>{turnOrderRolls[player.id]}</span><small>{index===0?'Goes first':'Turn order locked'}</small></li>)}</ol><p>Equal numbers use a random tiebreak. Only the player going first needs to continue.</p>{players[0]?.id===clientId?<button disabled={actionBusy} onClick={()=>runAction(()=>confirmPartyTurnOrder(roomCode,clientId))}>Continue to Board</button>:<p>Waiting for <strong>{players[0]?.name||'the first player'}</strong> to continue…</p>}{error&&<p role="alert">{error}</p>}</section></div>}
       {!movementBusy&&(battle?.status==='active'||room.phase==='round-complete')&&<PartyChallenge room={room} roomCode={roomCode} clientId={clientId} onLeave={onLeave} onNextRound={handleNextRound}/>}
       <div className="party-game-layout">
         <section className="party-game-board-card party-game-board-card--ruins">
@@ -803,6 +811,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           {routeDecision && hudPanel==='turn' ? <>
       {room.phase === 'board' && !movementBusy && turn.awaitingChoice && !turn.awaitingGate && battle?.status !== 'active' && (() => {
         const currentId = turn.choiceNodeId || activeSetup.boardNodeId
+        const trophyPaths=trophyPathChoices(board.nodes,currentId,turn.choices||[],room.activeTrophyNodeId)
         const motionPath = Array.isArray(room.boardMotion?.path) ? room.boardMotion.path : []
         const previousId = motionPath.at(-1) === currentId ? motionPath.at(-2) : ''
         return (
@@ -829,6 +838,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                     >
                       <span className="party-junction-arrow__symbol" aria-hidden="true">{direction.symbol}</span>
                       <strong>{direction.label}</strong>
+                      {trophyPaths.includes(nextId)&&<small className="party-trophy-path">🏆 Trophy path</small>}
                       <small>
                         {nextNode?.type === 'Bad Luck' && finalFive ? 'Very Bad Luck' : nextNode?.type || 'Board path'}
                       </small>
@@ -883,6 +893,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
 
           </> : <>
           <section className="party-settings-panel">
+              {isHost&&<PartyHostControls room={room} roomCode={roomCode} clientId={clientId}/>}
             <button onClick={enterFullscreen}>Enter fullscreen</button>{fullscreenError&&<p>{fullscreenError}</p>}
             <label>Board graphics<select value={boardView} onChange={e=>setBoardView(e.target.value)}><option value="3d">3D follow camera</option><option value="2d">Overhead view (same 3D board)</option></select></label>
             <label>3D quality<select value={quality} onChange={e=>setQuality(e.target.value)}><option value="low">Low (less GPU work)</option><option value="performance">Performance</option><option value="detail">Detailed shadows</option></select></label>

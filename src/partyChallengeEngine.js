@@ -41,7 +41,7 @@ function settleScores(g,values,now,{lower=false,ties=true,mode='sum',weighted=fa
 }
 export function createBattle({ids,hostId,source,challengerId,opponentId,seed,now}) {
  need(ids.length>=2&&ids.length<=4,'Challenges need 2–4 players.');const r=seeded(seed);
- const b={version:0,id:'battle-'+now+'-'+seed,status:'active',source,hostId:['battle-space','challenge-glove'].includes(source)?challengerId:hostId,challengerId,opponentId:opponentId||'',allPlayers:true,participantIds:ids,name:'Selecting Challenge',stage:'format',createdAt:now,seed};
+ const b={version:0,id:'battle-'+now+'-'+seed,status:'active',source,hostId,challengerId,opponentId:opponentId||'',allPlayers:true,participantIds:ids,name:'Selecting Challenge',stage:'format',createdAt:now,seed};
  if(['challenge-glove','battle-space'].includes(source)){b.chooseParticipants=true;b.availableIds=[...ids];b.stage='format'}
  else {b.format=pick(ids.length===2?['1v1']:ids.length===3?['1v2','1v1v1']:['1v3','2v2','1v1v1v1'],r);b.stage=ids.length===2?'draw':'formatReveal'}
  b.stage='intro';return b
@@ -223,6 +223,8 @@ export function rewardDistribution(b){
 }
 export function reduceBattle(b,a,uid,seed,now){
  b=clone(b);const r=seeded(seed),host=uid===b.hostId;
+ const actor=a.asPlayerId||uid;
+ need(!a.asPlayerId || (host && b.participantIds.includes(actor)), 'Only the room host can enter another player’s input.');
  need(b.status==='active','Battle is already complete.');
  need(b.participantIds.includes(uid)||host,'Not a Battle participant.');
 
@@ -270,7 +272,7 @@ export function reduceBattle(b,a,uid,seed,now){
  }
  else if(a.type==='game'){
   need(b.stage==='play'||b.stage==='rules'&&a.action.type==='reroll');
-  if(a.action.type==='tiebreak'){need(host);startTiebreak(b.game,r)}else gameAction(b.game,a.action,uid,host,r,now);
+  if(a.action.type==='tiebreak'){need(host);startTiebreak(b.game,r)}else gameAction(b.game,a.action,actor,host,r,now);
  }else throw Error('Unknown Battle action.');
  b.version++;return b
 }

@@ -158,3 +158,24 @@
 .party-dev-player-editor{display:grid;gap:10px;min-width:0;border:1px solid #688086;border-radius:10px;padding:12px}.party-dev-player-editor .menu{display:flex;flex-wrap:wrap}.party-dev-player-editor button{flex:1;min-width:100px}.party-dice-stage{pointer-events:none}.party-dice-overlay button{position:relative;z-index:2;touch-action:manipulation}.party-dice-overlay>section{max-height:calc(100dvh - 24px)}
 
 .party-dev-controls button,.party-dev-controls select,.party-dev-controls input[type=number]{min-height:44px}.party-dev-player-editor legend{max-width:100%;white-space:normal}
+
+/* Lift phone controls clear of the home indicator and browser toolbar. */
+@media(max-width:700px) and (orientation:portrait){
+ .party-immersive{--party-phone-lift:calc(20px + env(safe-area-inset-bottom,0px))}
+ .party-hud-menu{bottom:calc(8px + var(--party-phone-lift))}
+ .party-hud-footer{bottom:calc(112px + var(--party-phone-lift))}
+ .party-immersive .party-turn-panel{bottom:calc(112px + var(--party-phone-lift))!important;max-height:calc(100dvh - 225px - var(--party-phone-lift))!important;scroll-padding-bottom:20px}
+ .party-junction-overlay{bottom:calc(116px + var(--party-phone-lift))}
+ .party-event-cinematic-note{bottom:calc(112px + var(--party-phone-lift))}
+ .party-showcase-controls{bottom:calc(32px + env(safe-area-inset-bottom,0px))}
+ .party-board-select-card{bottom:calc(32px + env(safe-area-inset-bottom,0px))}
+}
+
+.party-immersive[data-panel=cards] .party-turn-panel>.party-card-use-panel,
+.party-immersive[data-panel=cards] .party-turn-panel>.party-card-turn-limit,
+.party-immersive[data-panel=cards] .party-turn-panel>.party-private-card-message,
+.party-immersive[data-panel=cards] .party-turn-panel>.party-card-statuses{display:block!important}
+.party-trophy-path{color:#f5d87b!important;font-weight:800}
+.party-host-controls{margin:10px 0;padding:10px;border:1px solid #67839a;border-radius:12px}
+.party-host-controls label{display:grid;gap:6px}.party-host-controls select{font-size:16px;max-width:100%;min-height:44px}.party-host-controls button{min-height:44px;white-space:normal}
+.bc-host-assist{padding:12px;border:1px solid #f3c873;border-radius:12px}.bc-host-assist small{display:block}

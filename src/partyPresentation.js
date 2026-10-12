@@ -17,13 +17,14 @@ export function attachEconomyPresentation(room,before,now,retimeTrophy=false) {
  beats.sort((a,b)=>(a.amount>0)-(b.amount>0))
  if(room.turnState?.eventEffect?.id==='supply-crates'&&room.turnState.eventEffect.openedAt)for(const b of beats)b.position=[-.8+.7*room.turnState.eventEffect.selectedCrateIndex,1.68,-2.60]
  if(!beats.length)return
- const motion=room.boardMotion,moveEnd=Number(motion?.startedAt||0)+Math.max(0,(motion?.path?.length||1)-1)*(motion?.stepMs||280)
+ const time=value=>{const n=Number(value);return Number.isFinite(n)?n:value?.['.sv']==='timestamp'?now:0}
+ const motion=room.boardMotion,moveEnd=time(motion?.startedAt)+Math.max(0,(motion?.path?.length||1)-1)*(motion?.stepMs||280)
  const event=room.turnState?.eventEffect
- const eventEnd=event?.id==='reactor-trigger-c'?Number(event.animationStartedAt||0)+4700:event?.id==='supply-crates'?Number(event.openedAt||0)+1400:0
+ const eventEnd=event?.id==='reactor-trigger-c'?time(event.animationStartedAt)+4700:event?.id==='supply-crates'?time(event.openedAt)+1400:0
  const luck=room.turnState?.spaceEffect
- const luckEnd=luck?.rouletteId&&!luck.awaitingTarget?Number(luck.rouletteId)+5500:0
- const diceEnd=Number(room.turnState?.diceAnimation?.stoppedAt||0)+1500
- const start=Math.max(now,moveEnd,eventEnd,luckEnd,diceEnd,Number(room.presentation?.endsAt)||0)
+ const luckEnd=luck?.rouletteId&&!luck.awaitingTarget?time(luck.rouletteId)+5500:0
+ const diceEnd=time(room.turnState?.diceAnimation?.stoppedAt)+1500
+ const start=Math.max(now,moveEnd,eventEnd,luckEnd,diceEnd,time(room.presentation?.endsAt))
  room.presentation={id:`${now}-${(room.presentationSequence||0)+1}`,startedAt:start,beats,endsAt:start+beats.length*REWARD_BEAT_MS}
  if(luck?.awaitingContinue){room.presentation.holdForLuck=true;room.presentation.startedAt=0;room.presentation.endsAt=0}
  room.presentationSequence=(room.presentationSequence||0)+1

@@ -1,3 +1,4 @@
+import PartyHostControls from './PartyHostControls'
 import PartyShowcase from './PartyShowcase'
 import './partyImmersive.css'
 import { initializeOnlineIdentity } from './onlineIdentity'
@@ -26,7 +27,7 @@ import {
   updatePartyRounds,
 } from './partyMultiplayer'
 
-const ROUND_OPTIONS = [10, 15, 20]
+
 
 function PartyMode({ onBack }) {
   const [screen, setScreen] = useState('home')
@@ -64,6 +65,8 @@ function PartyMode({ onBack }) {
 
   const isHost = room?.hostId === clientId
   const rounds = room?.settings?.rounds ?? 10
+  const [roundInput,setRoundInput]=useState('10')
+  useEffect(()=>setRoundInput(String(rounds)),[rounds])
   const cardVisibility = (
     room?.settings?.cardVisibility === 'open' ||
     room?.settings?.handVisibility === 'open' ||
@@ -323,19 +326,12 @@ function PartyMode({ onBack }) {
               <p><strong>Players:</strong> 2–4</p>
             </div>
 
-            <div className="party-round-picker" aria-label="Round count">
-              {ROUND_OPTIONS.map((option) => (
-                <button
-                  type="button"
-                  key={option}
-                  className={rounds === option ? 'party-round-option party-round-option--active' : 'party-round-option'}
-                  onClick={() => handleRoundsChange(option)}
-                  disabled={!isHost || loading}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
+            <form className="party-round-picker" onSubmit={e=>{e.preventDefault();handleRoundsChange(Number(roundInput))}}>
+              <label>Number of rounds<input type="text" inputMode="numeric" value={roundInput} onChange={e=>setRoundInput(e.target.value)} disabled={!isHost||loading} style={{fontSize:16,width:100,padding:10}} /></label>
+              {isHost&&<button type="submit" disabled={loading||!/^\d+$/.test(roundInput)||Number(roundInput)<1||Number(roundInput)>999}>Save rounds</button>}
+              <small>1–999 rounds. Current game setting: {rounds}.</small>
+            </form>
+            {isHost&&<PartyHostControls room={room} roomCode={roomCode} clientId={clientId}/>}
 
             <div style={{ marginTop: 18 }}>
               <p className="home-mode-card__eyebrow">Card Visibility</p>
@@ -566,7 +562,7 @@ function PartyMode({ onBack }) {
           <div>
             <p className="home-mode-card__eyebrow">Play Online</p>
             <h2>Create Party</h2>
-            <p>Create the room, choose 10 / 15 / 20 rounds, and wait for 1–3 other players.</p>
+            <p>Create the room, enter the number of rounds, and wait for 1–3 other players.</p>
           </div>
 
           <div className="menu home-mode-card__menu">
