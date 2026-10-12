@@ -14,7 +14,7 @@ export default function PartyHostControls({room, roomCode, clientId}) {
       <option value="">Choose player…</option>{Object.values(room.players||{}).filter(p=>p.id!==clientId).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
     </select></label>
     <button disabled={busy||!room.players?.[target]} onClick={()=>window.confirm(`Remove ${room.players[target]?.name}? An affected Battle will be cancelled without new rewards.`)&&run(()=>kickPartyPlayer(roomCode,clientId,target))}>Kick selected player</button>
-    {room.phase==='board'&&<button disabled={busy} onClick={()=>window.confirm('Skip the current turn? Existing balances stay; unfinished rewards are cancelled.')&&run(()=>skipPartyTurn(roomCode,clientId))}>Skip current turn</button>}
+    {room.phase==='board'&&room.mode!=='battle'&&<button disabled={busy} onClick={()=>window.confirm('Skip the current turn? Existing balances stay; unfinished rewards are cancelled.')&&run(()=>skipPartyTurn(roomCode,clientId))}>Skip current turn</button>}
     {error&&<p role="alert">{error}</p>}
   </details>
 }

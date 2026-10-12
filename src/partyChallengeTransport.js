@@ -31,6 +31,44 @@ export async function sendChallengeAction(code,uid,battleId,action){requireOnlin
  if(['deal','commit','reveal','actual','nextShot','targetReveal','bossChoose','finalGuess','verify'].includes(act?.type)&&((game?.secretRound||0)!==(currentGame?.secretRound||0)||game?.subphase!==currentGame?.subphase||game?.dealId!==currentGame?.dealId)){failure='This secret round changed. Check the current screen.';return}
  if(act?.type==='reveal'&&currentGame?.commits?.[actor]?.hash!==initialHash){failure='This locked input changed. Retry from the current screen.';return}
  try{if(action.type==='game'&&action.action?.type==='manualResult'&&action.action.override===true&&room.hostId===uid){gameAction(b.game,action.action,uid,true,seeded(seed),now);b.stage='play';b.version++;return room}const next=reduceBattle(b,action,uid,seed,now);if(room.phase==='round-complete')room.roundBattle=next;else room.turnState.battle=next;return room}catch(e){failure=e.message;return}},{applyLocally:false});if(!res.committed)throw Error(failure||'Battle changed; try again.')}
-export async function confirmChallengeRewards(code,uid,battleId){requireOnlineIdentity(uid);await clock();let error='';const res=await runTransaction(path(code),room=>{if(!room)return;const b=battleOf(room);if(!b||b.id!==battleId||room.hostId!==uid){error='Only a host can confirm rewards.';return}if(b.status==='resolved')return; if(!b.game?.result||challengeNow()<b.game.result.revealAt){error='Wait for the result reveal.';return}const rewards=rewardDistribution(b);for(const [id,amount] of Object.entries(rewards))if(room.playerSetup?.[id]){room.playerSetup[id].tokens=(Number(room.playerSetup[id].tokens)||0)+amount;if(amount>0){addPartyStat(room,id,'tokensCollected',amount);addPartyStat(room,id,'minigameTokens',amount)}}b.rewards=rewards;b.status='resolved';b.resultMessage='Challenge rewards confirmed.';b.resolvedAt=challengeNow();if(room.phase==='board'&&b.source!=='challenge-glove')room.turnState.readyToEnd=true;return room},{applyLocally:false});if(!res.committed&&error)throw Error(error)}
+export async function confirmChallengeRewards(code,uid,battleId){requireOnlineIdentity(uid);await clock();const now=challengeNow();let error='';const res=await runTransaction(path(code),room=>{if(!room)return;const b=battleOf(room);if(!b||b.id!==battleId||room.hostId!==uid){error='Only a host can confirm rewards.';return}if(b.status==='resolved')return; if(!b.game?.result||now<b.game.result.revealAt){error='Wait for the result reveal.';return}const rewards=rewardDistribution(b);for(const [id,amount] of Object.entries(rewards))if(room.playerSetup?.[id]){const field=b.source==='challenge-glove'?'trophies':'tokens';room.playerSetup[id][field]=(Number(room.playerSetup[id][field])||0)+amount;if(amount>0&&field==='tokens'){addPartyStat(room,id,'tokensCollected',amount);addPartyStat(room,id,'minigameTokens',amount)}}b.rewards=rewards;b.status='resolved';b.resultMessage='Challenge rewards confirmed.';b.resolvedAt=now;if(room.phase==='board'&&b.source!=='challenge-glove')room.turnState.readyToEnd=true;return room},{applyLocally:false});if(!res.committed&&error)throw Error(error)}
 export async function cancelChallenge(code,uid,battleId){requireOnlineIdentity(uid);let error='';const res=await runTransaction(path(code),room=>{if(!room)return;const b=battleOf(room);if(!b||b.id!==battleId||room.hostId!==uid){error='Only a host can cancel the Battle.';return}if(b.status!=='active')return;b.status='resolved';b.cancelled=true;b.resultMessage='Challenge cancelled. No Tokens changed.';if(room.phase==='board'&&b.source!=='challenge-glove')room.turnState.readyToEnd=true;return room},{applyLocally:false});if(!res.committed&&error)throw Error(error)}
 export async function launchChallengeDevTest(code,uid,challengeId,format){requireOnlineIdentity(uid);await clock();const { CHALLENGE_BY_ID, FORMAT_SIZES }=await import('./partyChallengeCatalog');const c=CHALLENGE_BY_ID[challengeId];if(!c?.formats.includes(format))throw Error('Unsupported test format.');const seed=crypto.getRandomValues(new Uint32Array(1))[0],now=challengeNow();let error='';const res=await runTransaction(path(code),room=>{if(!room)return;if(room.hostId!==uid){error='Only the room host can launch a test.';return}const all=idsOf(room);if(all.length<FORMAT_SIZES[format]){error='Invite enough players for this format.';return}const ids=[uid,...all.filter(id=>id!==uid)].slice(0,FORMAT_SIZES[format]);const b=createBattle({ids,hostId:uid,challengerId:uid,source:'dev',now,seed});Object.assign(b,{format,challengeId,name:c.name,stage:'intro',devSelected:true});room.phase='board';room.status='playing';room.turnIndex=(room.playerOrder||all).indexOf(uid);room.turnState={playerId:uid,rolled:true,movementRemaining:0,readyToEnd:false,battle:b};room.devBattleTest={battleName:c.name,instructions:'Use the Challenge Test Lab to choose another game and format.'};return room},{applyLocally:false});if(!res.committed)throw Error(error||'Could not launch Battle test.')}
+
+export async function startStandaloneBattle(code,uid,challengeId,format,participants){
+ requireOnlineIdentity(uid);await clock()
+ const {CHALLENGE_BY_ID,FORMAT_SIZES}=await import('./partyChallengeCatalog')
+ const c=CHALLENGE_BY_ID[challengeId],now=challengeNow(),seed=crypto.getRandomValues(new Uint32Array(1))[0]
+ if(!c?.formats.includes(format))throw Error('Choose an available format.')
+ let error=''
+ const result=await runTransaction(path(code),room=>{
+  error='';if(!room||room.mode!=='battle'||room.hostId!==uid){error='Only the Battle Mode host can start a battle.';return}
+  if(room.status==='ended'||room.turnState?.battle?.status==='active'){error='Finish or cancel the current battle first.';return}
+  if(!Array.isArray(participants)||participants.length!==FORMAT_SIZES[format]||new Set(participants).size!==participants.length||participants.some(id=>!room.players?.[id])){error='Choose the required number of current players.';return}
+  room.playerOrder=Object.keys(room.players);room.playerSetup||={}
+  for(const id of room.playerOrder)room.playerSetup[id]||={tokens:0,trophies:0,cards:[]}
+  const b=createBattle({ids:participants,hostId:uid,challengerId:participants[0],source:'standalone',now,seed})
+  Object.assign(b,{format,challengeId,name:c.name,stage:'intro',devSelected:true})
+  room.phase='board';room.status='playing';room.turnIndex=0;room.turnState={playerId:uid,rolled:true,movementRemaining:0,readyToEnd:false,battle:b}
+  return room
+ },{applyLocally:false})
+ if(!result.committed)throw Error(error||'Could not start this battle.')
+}
+export async function returnToBattleSelection(code,uid){
+ requireOnlineIdentity(uid)
+ const result=await runTransaction(path(code),room=>{
+  if(!room||room.mode!=='battle'||room.hostId!==uid||room.turnState?.battle?.status==='active')return
+  delete room.turnState;room.phase='battle-selection';return room
+ },{applyLocally:false})
+ if(!result.committed)throw Error('Finish or cancel the battle before returning to selection.')
+}
+
+export async function leaveStandaloneBattle(code,uid){
+ requireOnlineIdentity(uid)
+ const {get,update}=await import('firebase/database'),roomRef=path(code),room=(await get(roomRef)).val()
+ if(!room||room.mode!=='battle'||!room.players?.[uid])return
+ if(room.hostId===uid){await update(roomRef,{status:'ended',endedAt:challengeNow(),endedBy:uid});return}
+ const changes={[`players/${uid}`]:null,[`departedPlayers/${uid}`]:{leftAt:challengeNow(),reason:'left'}}
+ if(room.status==='lobby')for(const [seat,id] of Object.entries(room.seats||{}))if(id===uid)changes[`seats/${seat}`]=null
+ await update(roomRef,changes)
+}

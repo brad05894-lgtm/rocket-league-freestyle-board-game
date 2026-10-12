@@ -164,13 +164,23 @@ function applyGameAction(g,a,uid,host,r,now) {
 export function drawAllowed(g){const n=nOf(g);return [12,13,16,29,31,34,35,38,39,52].includes(n)||[2,4,15].includes(n)&&asymmetric(g)||n===14&&g.format==='1v2'||n===28}
 function validateGroups(g,groups,ties=true){need(Array.isArray(groups)&&groups.every(a=>Array.isArray(a)&&a.length));const all=groups.flat();need(all.length===g.ids.length&&new Set(all).size===g.ids.length&&all.every(id=>g.ids.includes(id)));if(!ties&&ffa(g))need(groups.every(a=>a.length===1),'Resolve event ties first.')}
 function finishNumeric(g,now){const n=nOf(g);
- if(n===55&&g.format==='1v1'){
-  const errors=g.ids.map(id=>Math.abs(g.entries[id][0]-g.target));g.roundWins||=Object.fromEntries(g.ids.map(id=>[id,0]));
-  if(errors[0]===errors[1]){g.phase='tiebreak';g.tieGroups=[g.ids];return}
-  const winner=g.ids[errors[0]<errors[1]?0:1];g.roundWins[winner]++;
-  if(g.roundWins[winner]>=2){sideWin(g,sideOf(g,winner),now);return}
-  g.phase='round-summary';g.roundWinner=winner;return
+ if(n===55){
+  const values=Object.fromEntries(g.ids.map(id=>[id,Math.abs((g.entries[id]?.[0]??g.target)-g.target)]));
+  if(!g.tieGroups){
+   g.closestTotals||=Object.fromEntries(g.ids.map(id=>[id,0]));
+   for(const id of g.ids)g.closestTotals[id]+=values[id];
+   g.closestHistory||=[];g.closestHistory.push({target:g.target,entries:clone(g.entries),errors:values});
+   if(g.closestHistory.length<3){g.phase='round-summary';return}
+   settleScores(g,g.closestTotals,now,{lower:true,ties:false,mode:asymmetric(g)?'average':'sum'});return
+  }
+  if(g.groups&&ffa(g)){
+   const groups=g.groups.flatMap(group=>group.length>1?groupsBy(group,values,true):[group]);
+   g.groups=groups;g.tieGroups=groups.filter(group=>group.length>1);
+   if(g.tieGroups.length)g.phase='tiebreak';else result(g,groups,now);return
+  }
+  settleScores(g,values,now,{lower:true,ties:false,mode:asymmetric(g)?'average':'sum'});return
  }
+
 let values=Object.fromEntries(g.ids.map(id=>[id,n===55?Math.abs((g.entries[id]?.[0]??g.target)-g.target):sum(g.entries[id]||[])]));if([61,62].includes(n)){values=Object.fromEntries(g.ids.map(id=>{const arr=g.entries[g.sides[sideOf(g,id)][0]];return [id,n===61?Math.max(...arr):sum(arr)]}))}
  if(g.groups&&ffa(g)){let groups=[];for(const group of g.groups)groups.push(...(group.length>1?groupsBy(group,values,n===55):[group]));g.groups=groups;g.tieGroups=groups.filter(a=>a.length>1);if(!g.tieGroups.length){result(g,groups,now);return}g.phase='tiebreak';return}
  settleScores(g,values,now,{lower:n===55,ties:n===65,mode:n===55&&asymmetric(g)?'average':[61,62].includes(n)?'max':'sum',weighted:[10,26].includes(n)});
@@ -215,6 +225,7 @@ export function rewardDistribution(b){
  const groups=b.game?.result?.placements||[],ids=b.participantIds||[]
  const rewards=Object.fromEntries(ids.map(id=>[id,0]));if(groups.length<=1)return rewards
  const ffa=['1v1v1','1v1v1v1'].includes(b.format||b.game?.format)
+ if(b.source==='challenge-glove'){if(groups[0].length===1)rewards[groups[0][0]]=1;return rewards}
  if(!ffa){for(const id of groups[0])rewards[id]=8;return rewards}
  const scale=ids.length===3?[8,4,0]:[8,4,2,0];let rank=0
  // Tied players each receive the lowest payout occupied by their tie group.
@@ -229,7 +240,7 @@ export function reduceBattle(b,a,uid,seed,now){
  need(b.participantIds.includes(uid)||host,'Not a Battle participant.');
 
  if(a.type==='format'){
-  need(host&&b.stage==='format');
+  need(uid===b.challengerId&&b.source==='battle-space'&&b.stage==='format','The player who landed on VS chooses the format.');
   need(FORMAT_SIZES[a.format]<=b.participantIds.length,'Not enough players.');
   b.format=a.format;
 
@@ -245,14 +256,16 @@ export function reduceBattle(b,a,uid,seed,now){
   }
  }
  else if(a.type==='participants'){
-  need(host&&b.source==='challenge-glove'&&b.stage==='participants');
+  need(uid===b.challengerId&&b.source==='challenge-glove'&&b.stage==='participants','The Glove user chooses their opponent.');
+  need(b.format==='1v1');
   const ids=a.participantIds;
   need(Array.isArray(ids)&&ids.length===FORMAT_SIZES[b.format]&&new Set(ids).size===ids.length&&ids.includes(b.challengerId)&&ids.every(id=>b.availableIds.includes(id)),'Choose the required players, including yourself.');
   b.participantIds=[...ids];delete b.selectedSides;b.stage='draw';
  }
  else if(a.type==='next'){
   need(host);b.revealStartedAt=now;
-  if(b.stage==='intro') b.stage=b.devSelected?'challengeReveal':b.chooseParticipants?'format':b.format==='1v1'?'draw':'formatReveal';
+  if(b.stage==='intro'&&b.source==='challenge-glove'){b.format='1v1';b.stage='participants'}
+  else if(b.stage==='intro') b.stage=b.devSelected?'challengeReveal':b.chooseParticipants?'format':b.format==='1v1'?'draw':'formatReveal';
   else if(b.stage==='formatReveal') b.stage='draw';
   else if(b.stage==='draw'){
    const c=pick(challengePool(b.format),r);b.challengeId=c.id;b.name=c.name;b.stage='challengeReveal';

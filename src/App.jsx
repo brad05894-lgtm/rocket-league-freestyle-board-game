@@ -5,6 +5,7 @@ import { endRoom, getClientId, kickPlayer, leaveRoom, listenToGame, listenToRoom
 import { generateBoard } from './boardGenerator'
 import GameBoard from './GameBoard'
 import PartyMode from './PartyMode'
+import BattleMode from './BattleMode'
 import { readPartySession } from './partySession'
 import RouletteReel from './RouletteReel'
 import { PARTY_MECHANICS } from './partyMechanics'
@@ -771,7 +772,7 @@ function movePlayerAndHandleFinish(player, newPosition, actionCardsAtFinish = nu
 }
 
 function App() {
-  const [screen, setScreen] = useState(() => readPartySession() ? 'party-mode' : 'home')
+  const [screen, setScreen] = useState(() => readPartySession() ? (readPartySession().mode==='battle'?'battle-mode':'party-mode') : 'home')
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false)
   const [leaveGameError, setLeaveGameError] = useState('')
   const [gameEndedNotice, setGameEndedNotice] = useState('')
@@ -8849,6 +8850,7 @@ if (specialState) {
       </div>
     )
   }
+if(screen==='battle-mode')return <BattleMode onBack={()=>setScreen('home')}/>
 if (screen === 'party-mode') {
   return (
     <PartyMode
@@ -8914,8 +8916,10 @@ if (screen === 'online-join') {
             <button onClick={() => setScreen('party-mode')}>
               Enter Party Mode
             </button>
+
           </div>
         </section>
+        <section className="home-mode-card"><div><h2>Battle Mode</h2><p>Play any Challenge with friends, without the board.</p></div><div className="menu"><button onClick={()=>setScreen('battle-mode')}>Enter Battle Mode</button></div></section>
       </div>
     </div>
   )

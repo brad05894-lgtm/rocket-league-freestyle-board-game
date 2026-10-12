@@ -241,7 +241,7 @@ export const PARTY_CARDS = [
   {
     id: 'challenge-glove',
     name: 'Challenge Glove',
-    description: 'Before rolling, choose the Battle format and participants, including yourself. Teams and the game are random. Resolve the Battle, then continue your normal turn.',
+    description: 'Before rolling, choose one opponent, then reveal a random 1v1 Battle. The winner earns 1 Trophy; the loser gets nothing. A draw awards nothing. Continue your normal turn afterward.',
     enabled: true,
     effect: 'challenge-glove',
     requiresTarget: false,
@@ -290,7 +290,7 @@ export const PARTY_CARD_SHOP_PRICES = Object.freeze({
   'teleport-pad': 4,
   'golden-teleporter': 8,
   shield: 2,
-  'double-payout': 2,
+  'double-payout': 4,
   'steal-card': 2,
   'swap-hands': 2,
   lockout: 2,
@@ -310,7 +310,7 @@ export const PARTY_CARD_SHOP_PRICES = Object.freeze({
   'difficulty-spike': 1,
   'difficulty-drop': 1,
   'free-pass': 3,
-  'challenge-glove': 2,
+  'challenge-glove': 6,
 })
 
 export function getPartyCardShopPrice(cardId) {

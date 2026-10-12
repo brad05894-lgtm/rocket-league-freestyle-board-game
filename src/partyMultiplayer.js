@@ -196,11 +196,8 @@ function findNodeOneSpaceBefore(targetNodeId) {
 }
 
 
-function mechanicDeadline(room){
-  const now=partyNow(),motion=room.boardMotion
-  const start=typeof motion?.startedAt==='number'?motion.startedAt:now
-  const end=start+Math.max(0,(motion?.path?.length||1)-1)*(motion?.stepMs||280)
-  return now+90000+Math.max(0,end-now)
+function mechanicDeadline(){
+  return partyNow()+90000
 }
 
 function makeLandingEffect(room, nodeId, mechanic) {
@@ -1333,14 +1330,15 @@ function makeTurnState(playerId) {
   }
 }
 
-export async function createPartyRoom(playerName) {
+export async function createPartyRoom(playerName, mode = 'party') {
+  if(!['party','battle'].includes(mode))throw Error('Unknown game mode.')
   requireOnlineIdentity()
   const playerId = requireOnlineIdentity()
   playerName = cleanPlayerName(playerName)
   const roomCode = randomRoomCode()
 
   await set(ref(db, `securePartyRooms/${roomCode}`), {
-    mode: 'party',
+    mode,
     status: 'lobby',
     hostId: playerId,
     seats: { 0: playerId },
@@ -2409,7 +2407,7 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
     } else if (card.effect === 'top-corner' && targetSetup) {
       instructions = `Use Top Corner on ${targetName}. It should stay secret until their next Mechanic, which should require a top-corner finish.`
     } else if (card.effect === 'challenge-glove') {
-      instructions = 'Use Challenge Glove, choose the Battle format and participants (including yourself), then confirm teams and the game are random. Resolve it, then confirm you can still roll normally afterward.'
+      instructions = 'Use Challenge Glove, choose one opponent before revealing a random 1v1, and verify that only the winner gets 1 Trophy and no Tokens. Then roll normally.'
     } else if (card.effect === 'movement-boost') {
       instructions = `Use ${card.name}, then roll. The final movement should be the die movement plus ${card.amount || 0}.`
     } else if (card.effect === 'precision-die') {
@@ -2585,7 +2583,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       return
     }
 
-    if (turn?.diceAnimation && !turn.diceAnimation.stoppedAt && !options.stopPrecision) { failureReason = 'Close the dice before using a Card.'; return }
+    // An uncommitted dice preview is not a roll; legal cards may replace it.
     if (turn?.pendingLanding || turn?.awaitingService || turn?.awaitingGate || turn?.awaitingChoice || turn?.awaitingTrophy) { failureReason = 'Finish the current movement decision first.'; return }
 
     if (turn?.cardUsedThisTurn) {
@@ -2613,6 +2611,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       return
     }
 
+    if(!turn.rolled&&!options.stopPrecision)delete turn.diceAnimation
     const cardId = cards[cardIndex]
     const card = getPartyCard(cardId)
     if (!card) {
@@ -2627,37 +2626,6 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
 
     const playerName = room.players?.[playerId]?.name || 'Player'
     const cardVisibility = room.settings?.cardVisibility === 'open' ? 'open' : 'hidden'
-
-    // Lockout is a trap, not a turn-long prohibition. The target can still try
-    // to play any otherwise-legal Card. That attempted Card is consumed with no
-    // effect, Lockout clears immediately, and the attempt uses their one Card
-    // play for the turn. Hidden Hands keeps the trap secret until it springs.
-    if (setup.lockoutActive) {
-      const lockoutSourcePlayerId = setup.lockoutSourcePlayerId
-
-      cards.splice(cardIndex, 1)
-      setup.cards = cards
-      setup.lockoutActive = false
-      delete setup.lockoutSourcePlayerId
-
-      turn.cardUsedThisTurn = true
-      turn.lastCardUserId = playerId
-      turn.lastPrivateCardMessage = `LOCKOUT! ${card.name} had no effect and was discarded. Lockout is now gone.`
-      room.turnState = turn
-
-      setNegativeCardResultNotice(
-        room,
-        lockoutSourcePlayerId,
-        `Your Lockout triggered on ${playerName}. ${card.name} was nullified and discarded with no effect.`
-      )
-
-      const lockoutActivity = cardVisibility === 'open'
-        ? `${playerName} tried to use ${card.name}, but Lockout nullified it. ${card.name} was discarded.`
-        : `${playerName} tried to use an Action Card, but Lockout nullified it. The Card was discarded.`
-
-      addPartyActivity(room, playerId, lockoutActivity, 'card')
-      return room
-    }
 
     if (card.timing === 'before-roll' && turn.rolled) {
       failureReason = `${card.name} must be used before you roll.`
@@ -2692,6 +2660,37 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
         failureReason = `${card.name} can only be used after missing Attempt 1 and before Attempt 2.`
         return
       }
+    }
+
+    // Lockout is a trap, not a turn-long prohibition. The target can still try
+    // to play any otherwise-legal Card. That attempted Card is consumed with no
+    // effect, Lockout clears immediately, and the attempt uses their one Card
+    // play for the turn. Hidden Hands keeps the trap secret until it springs.
+    if (setup.lockoutActive) {
+      const lockoutSourcePlayerId = setup.lockoutSourcePlayerId
+
+      cards.splice(cardIndex, 1)
+      setup.cards = cards
+      setup.lockoutActive = false
+      delete setup.lockoutSourcePlayerId
+
+      turn.cardUsedThisTurn = true
+      turn.lastCardUserId = playerId
+      turn.lastPrivateCardMessage = `LOCKOUT! ${card.name} had no effect and was discarded. Lockout is now gone.`
+      room.turnState = turn
+
+      setNegativeCardResultNotice(
+        room,
+        lockoutSourcePlayerId,
+        `Your Lockout triggered on ${playerName}. ${card.name} was nullified and discarded with no effect.`
+      )
+
+      const lockoutActivity = cardVisibility === 'open'
+        ? `${playerName} tried to use ${card.name}, but Lockout nullified it. ${card.name} was discarded.`
+        : `${playerName} tried to use an Action Card, but Lockout nullified it. The Card was discarded.`
+
+      addPartyActivity(room, playerId, lockoutActivity, 'card')
+      return room
     }
 
     let privateMessage = ''
@@ -2740,8 +2739,8 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
         return
       }
 
-      privateMessage = 'Choose the Battle format and participants, including yourself. Teams and the game are random. You still get your normal roll afterward.'
-      publicMessage = `${playerName} used Challenge Glove and is choosing the Battle format.`
+      privateMessage = 'Choose one opponent before the random 1v1 is revealed. The winner earns 1 Trophy. You still roll normally afterward.'
+      publicMessage = `${playerName} used Challenge Glove and is choosing an opponent for a Trophy duel.`
       publicType = 'battle'
     } else if (card.effect === 'precision-die') {
       const value = Number(options.value)
@@ -4800,8 +4799,8 @@ export async function beginPartyDie(code,uid,kind,cardIndex=null) {
   if(room?.phase!=='board'||t?.playerId!==uid||t.rolled||t.awaitingTrophy||t.battle?.status==='active')return
   if(!['normal','special','precision'].includes(kind))return
   if(kind==='precision'&&t.cardUsedThisTurn)return
-  if(kind==='precision'&&normalizePartyCards(room.playerSetup[uid].cards)[cardIndex]!=='precision-dice')return
-  if(t.diceAnimation&&!t.diceAnimation.stoppedAt)return
+  if(kind==='precision'){const cards=normalizePartyCards(room.playerSetup?.[uid]?.cards);if(cards[cardIndex]!=='precision-dice')cardIndex=cards.indexOf('precision-dice');if(cardIndex<0)return}
+  if(t.diceAnimation&&!t.diceAnimation.stoppedAt&&kind!=='precision')return
   t.diceAnimation={kind,playerId:uid,startedAt:now,...(room.devDiceTest?.carId?{carId:room.devDiceTest.carId}:{}),...(kind==='precision'?{cardIndex}:{})}
   return room
  })
