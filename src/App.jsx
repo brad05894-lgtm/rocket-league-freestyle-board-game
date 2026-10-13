@@ -5,8 +5,7 @@ import { endRoom, getClientId, kickPlayer, leaveRoom, listenToGame, listenToRoom
 import { generateBoard } from './boardGenerator'
 import GameBoard from './GameBoard'
 import PartyMode from './PartyMode'
-import BattleMode from './BattleMode'
-import { readPartySession } from './partySession'
+import BoardDesignLab from './BoardDesignLab'
 import RouletteReel from './RouletteReel'
 import { PARTY_MECHANICS } from './partyMechanics'
 import { PARTY_CARS, formatPartyDieFace, getPartyCar, getPartyCarImageFallback, getPartyCarImageUrl } from './partyCars'
@@ -772,7 +771,7 @@ function movePlayerAndHandleFinish(player, newPosition, actionCardsAtFinish = nu
 }
 
 function App() {
-  const [screen, setScreen] = useState(() => readPartySession() ? (readPartySession().mode==='battle'?'battle-mode':'party-mode') : 'home')
+  const [screen, setScreen] = useState('home')
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false)
   const [leaveGameError, setLeaveGameError] = useState('')
   const [gameEndedNotice, setGameEndedNotice] = useState('')
@@ -860,7 +859,6 @@ function App() {
   // Online multiplayer session. The actual game logic stays in this component;
   // Firebase simply mirrors the complete turn state between browsers.
   const [onlineSession, setOnlineSession] = useState(() => {
-    if (readPartySession()) return null
     try {
       const saved = window.localStorage.getItem(ONLINE_SESSION_STORAGE_KEY)
       const session = saved ? JSON.parse(saved) : null
@@ -1273,7 +1271,7 @@ function App() {
 
   // Restore a local/pass-and-play match after an accidental refresh.
   useEffect(() => {
-    if (readPartySession() || onlineSession?.roomCode) return
+    if (onlineSession?.roomCode) return
 
     try {
       const saved = JSON.parse(
@@ -8850,7 +8848,10 @@ if (specialState) {
       </div>
     )
   }
-if(screen==='battle-mode')return <BattleMode onBack={()=>setScreen('home')}/>
+if (screen === 'board-design-lab') {
+  return <BoardDesignLab onBack={() => setScreen('home')} />
+}
+
 if (screen === 'party-mode') {
   return (
     <PartyMode
@@ -8916,10 +8917,14 @@ if (screen === 'online-join') {
             <button onClick={() => setScreen('party-mode')}>
               Enter Party Mode
             </button>
-
           </div>
         </section>
-        <section className="home-mode-card"><div><h2>Battle Mode</h2><p>Play any Challenge with friends, without the board.</p></div><div className="menu"><button onClick={()=>setScreen('battle-mode')}>Enter Battle Mode</button></div></section>
+      </div>
+
+      <div className="menu" style={{ marginTop: '18px' }}>
+        <button onClick={() => setScreen('board-design-lab')}>
+          Temporary Board Layout Viewer
+        </button>
       </div>
     </div>
   )
