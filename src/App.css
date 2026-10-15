@@ -3396,3 +3396,9 @@ body.rl-online-spectator #root button:not([data-online-allowed="true"]) {
   .game-hud__identity { padding-right: 0; }
   .game-hud__players { grid-template-columns: 1fr; }
 }
+
+/* The three home modes get equal space without changing Party's own menus. */
+.home-mode-grid--main-menu { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.home-mode-card--battle { border-color: rgba(250, 204, 21, .5); background: linear-gradient(180deg,rgba(65,48,25,.92),rgba(17,30,47,.96)); }
+@media (max-width: 920px) and (min-width: 761px) { .home-mode-grid--main-menu { grid-template-columns: repeat(2, minmax(0, 1fr)); } .home-mode-grid--main-menu .home-mode-card--battle { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .home-mode-grid--main-menu { grid-template-columns: 1fr; } .home-mode-grid--main-menu .home-mode-card--battle { grid-column: auto; } }

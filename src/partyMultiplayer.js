@@ -7,6 +7,7 @@ import { awardPartyBonuses, addPartyStat } from './partyProgress'
 import { joinProtectedRoom, requireOnlineIdentity, normalizeRoomCode, cleanPlayerName, randomRoomCode } from './onlineIdentity'
 import { ref, set, get, onValue, update, runTransaction as firebaseTransaction, serverTimestamp } from 'firebase/database'
 import { db } from './firebase'
+import { calculatePartyMovement, clearPendingPartyMovementModifiers, pendingPartyMovementModifier } from './partyMovementModifiers'
 import { BOOSTSTONE_RUINS } from './booststoneRuins'
 import { getPartyCar, formatPartyDieFace } from './partyCars'
 import { PARTY_MECHANICS, pickPartyMechanic } from './partyMechanics'
@@ -1362,8 +1363,18 @@ export async function createPartyRoom(playerName, mode = 'party') {
   return roomCode
 }
 
-export async function joinPartyRoom(roomCode, playerName) {
-  return joinProtectedRoom('securePartyRooms', normalizeRoomCode(roomCode), playerName)
+export async function joinPartyRoom(roomCode, playerName, expectedMode = 'party') {
+  const code = normalizeRoomCode(roomCode)
+  const snapshot = await get(ref(db, `securePartyRooms/${code}`))
+  const room = snapshot.val()
+  if (!room || room.status === 'ended') throw Error('Room not found or closed.')
+  if ((room.mode || 'party') !== expectedMode) {
+    throw Error(expectedMode === 'battle' ? 'That code belongs to Party Mode, not Battle Mode.' : 'That code belongs to Battle Mode, not Party Mode.')
+  }
+  if (room.status !== 'lobby' && !room.players?.[requireOnlineIdentity()]) {
+    throw Error('That room has already started; ask the host to create a new room.')
+  }
+  return joinProtectedRoom('securePartyRooms', code, playerName)
 }
 
 export function listenToPartyRoom(roomCode, callback, onError = () => {}) {
@@ -1758,8 +1769,9 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
     }
 
     const previousTurn = room.turnState || makeTurnState(playerId)
-    const movementBonus = Math.max(0, Number(previousTurn.pendingMovementBonus) || 0)
-    const totalMovement = Math.max(0, movement + movementBonus)
+    const movementModifier = pendingPartyMovementModifier(previousTurn, setup)
+    const totalMovement = calculatePartyMovement(movement, movementModifier)
+    clearPendingPartyMovementModifiers(previousTurn, setup)
 
     room.turnState = {
       ...previousTurn,
@@ -1772,6 +1784,7 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
       faceIndex,
       diceAnimation: previousTurn.diceAnimation ? {...previousTurn.diceAnimation,stoppedAt:partyNow(),faceIndex} : null,
       baseMovement: movement,
+      rollMovementTotal: totalMovement,
       movementRemaining: totalMovement,
       movementStarted: false,
       awaitingChoice: false,
@@ -1782,12 +1795,15 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
       delete room.turnState.battle
     }
 
-    if (movementBonus > 0) {
-      room.turnState.movementBonusApplied = movementBonus
+    if (movementModifier !== 0) {
+      room.turnState.movementModifierApplied = movementModifier
+      // Keep the existing public boost field for older result panels.
+      if (movementModifier > 0) room.turnState.movementBonusApplied = movementModifier
+      else delete room.turnState.movementBonusApplied
     } else {
+      delete room.turnState.movementModifierApplied
       delete room.turnState.movementBonusApplied
     }
-    delete room.turnState.pendingMovementBonus
 
     if (tokenChange !== 0) {
       room.turnState.tokenChange = tokenChange
@@ -1810,8 +1826,8 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
     addPartyActivity(
       room,
       playerId,
-      movementBonus > 0
-        ? `${playerName} rolled ${formatPartyDieFace(face)} with the ${dieName} and has ${totalMovement} total movement after a +${movementBonus} Card boost.`
+      movementModifier !== 0
+        ? `${playerName} rolled ${formatPartyDieFace(face)} with the ${dieName}: ${movement} ${movementModifier > 0 ? '+' : '−'} ${Math.abs(movementModifier)} = ${totalMovement} movement.`
         : `${playerName} rolled ${formatPartyDieFace(face)} with the ${dieName}.`,
       'roll'
     )
@@ -2754,12 +2770,19 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       turn.movementStartNodeId=setup.onStartDeck?'start-deck':setup.boardNodeId
       turn.movementSpacesTaken=0
       turn.faceLabel = String(value)
+      const movementModifier = pendingPartyMovementModifier(turn, setup)
+      const movementTotal = calculatePartyMovement(value, movementModifier)
+      clearPendingPartyMovementModifiers(turn, setup)
       turn.baseMovement = value
-      turn.movementRemaining = value
+      turn.rollMovementTotal = movementTotal
+      turn.movementRemaining = movementTotal
+      if (movementModifier) turn.movementModifierApplied = movementModifier
+      else delete turn.movementModifierApplied
       turn.movementStarted = false
       turn.awaitingChoice = false
-      turn.readyToEnd = false
-      delete turn.pendingMovementBonus
+      turn.readyToEnd = movementTotal === 0
+      if (movementTotal === 0) turn.noMovement = true
+      else delete turn.noMovement
       delete turn.movementBonusApplied
       delete turn.tokenChange
       delete turn.landedNodeId
@@ -2767,8 +2790,8 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       delete turn.landingEffect
 
       if(turn.diceAnimation)turn.diceAnimation={...turn.diceAnimation,stoppedAt:partyNow(),faceIndex:value-1}
-      privateMessage = `Precision Dice set your movement to ${value}.`
-      publicMessage = `${playerName} chose ${value} movement with a Card instead of rolling.`
+      privateMessage = movementModifier ? `Precision Dice: ${value} ${movementModifier > 0 ? '+' : '−'} ${Math.abs(movementModifier)} = ${movementTotal} movement.` : `Precision Dice set your movement to ${value}.`
+      publicMessage = movementModifier ? `${playerName} used Precision Dice: ${value} ${movementModifier > 0 ? '+' : '−'} ${Math.abs(movementModifier)} = ${movementTotal} movement.` : `${playerName} chose ${value} movement with a Card instead of rolling.`
       publicType = 'roll'
     } else if (card.effect === 'movement-boost') {
       const amount = Number(card.amount) || 0

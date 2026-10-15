@@ -4,6 +4,7 @@ import { trophyPathChoices } from './partyRoutes'
 import PartyEventAudio from './PartyEventAudio'
 import PartyBoardDev from './PartyBoardDev'
 import PartyDice from './PartyDice'
+import { partyDiceRevealDuration } from './partyMovementModifiers'
 import PartyHiddenGift from './PartyHiddenGift'
 import { presentationBeat } from './partyPresentation'
 import PartyFinale from './PartyFinale'
@@ -223,7 +224,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const [clockOffset, setClockOffset] = useState(0)
   useEffect(()=>{
     setPresentationNow(Date.now())
-    const end=Math.max(Number(room.presentation?.endsAt||0),Number((room.phase==='turn-order'?room.turnOrderDice:room.turnState?.diceAnimation)?.stoppedAt||0)+1500)
+    const end=Math.max(Number(room.presentation?.endsAt||0),Number((room.phase==='turn-order'?room.turnOrderDice:room.turnState?.diceAnimation)?.stoppedAt||0)+partyDiceRevealDuration(room.turnState?.movementModifierApplied))
     if(Date.now()+clockOffset>=end)return
     const timer=setInterval(()=>{setPresentationNow(Date.now());if(Date.now()+clockOffset>=end)clearInterval(timer)},80)
     return()=>clearInterval(timer)
@@ -234,7 +235,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const rewardBusy=presentationNow+clockOffset<Number(room.presentation?.endsAt||0)
   const giftBusy=Boolean(room.turnState?.hiddenGiftCheck||(room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed))
   const dice=room.phase==='board'?room.turnState?.diceAnimation:null
-  const diceVisible=dice&&(!dice.stoppedAt||presentationNow+clockOffset<dice.stoppedAt+1500)
+  const diceVisible=dice&&(!dice.stoppedAt||presentationNow+clockOffset<dice.stoppedAt+partyDiceRevealDuration(room.turnState?.movementModifierApplied))
   const movementBusy = Boolean(room.turnState?.spaceEffect?.awaitingContinue) || motionBusy || carStillMoving || rewardBusy || giftBusy || Boolean(diceVisible)
   const busy = actionBusy || movementBusy
   useEffect(() => onValue(databaseRef(db, '.info/serverTimeOffset'), (snapshot) => setClockOffset(Number(snapshot.val()) || 0)), [])
@@ -1252,8 +1253,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
               {turn.tokenChange ? (
                 <p>{turn.tokenChange > 0 ? '+' : ''}{turn.tokenChange} Tokens applied to {activePlayer?.name || 'the player'}.</p>
               ) : null}
-              {turn.movementBonusApplied ? (
-                <p>Card boost: <strong>+{turn.movementBonusApplied}</strong> movement.</p>
+              {turn.movementModifierApplied ? (
+                <p>Movement modifier: <strong>{turn.movementModifierApplied > 0 ? '+' : '−'}{Math.abs(turn.movementModifierApplied)}</strong> · {turn.baseMovement} {turn.movementModifierApplied > 0 ? '+' : '−'} {Math.abs(turn.movementModifierApplied)} = <strong>{turn.rollMovementTotal}</strong> spaces.</p>
               ) : null}
               {turn.movementRemaining > 0 && (
                 <p><strong>{turn.movementRemaining}</strong> space{turn.movementRemaining === 1 ? '' : 's'} remaining.</p>

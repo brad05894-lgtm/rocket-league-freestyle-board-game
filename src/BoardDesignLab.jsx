@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { BOOSTSTONE_RUINS } from './booststoneRuins'
 import { DEMO_MINES } from './demoMines'
+import DemoMinesPreview from './DemoMinesPreview'
 
 const DEFAULT_COLORS = {
   Start: '#22c55e',
@@ -55,6 +56,61 @@ function nodeGlyph(type) {
   return ''
 }
 
+
+// Decorative-only art: the board's routes, node IDs and space types are unchanged.
+function DemoMineScenery({ foreground = false }) {
+  if (!foreground) return <g aria-hidden="true">
+    {/* The cavern wall stays behind the routes so circles remain legible. */}
+    <path d="M12 178L85 125L152 155L194 58L284 95L351 24H901L956 90L1080 66L1155 143L1228 135V835H12Z" fill="#5e2b1e" opacity=".55" />
+    <path d="M14 235L138 200L166 225L286 164L326 191L934 173L1046 199L1159 180L1226 207" stroke="#d67b43" strokeWidth="16" opacity=".18" fill="none" />
+    <path d="M14 350C50 376 52 432 36 472C6 522 30 572 20 659L170 658C177 584 133 542 152 482C176 409 128 363 110 336Z" fill="url(#mine-lava)" opacity=".9" />
+    <path d="M16 456C68 471 78 528 62 570M40 639Q74 619 112 632" fill="none" stroke="#ffde7d" strokeWidth="9" strokeLinecap="round" opacity=".65" />
+    <path d="M1058 585L1178 554L1216 585L1228 807L1062 812Z" fill="#14342a" stroke="#2c6548" strokeWidth="7" />
+    {/* Upper-left mine machinery: a ferris-style ore lift. */}
+    <g transform="translate(112 129)" stroke="#c68f50" fill="none" opacity=".8">
+      <circle r="53" strokeWidth="12" /> <circle r="37" strokeWidth="3" /> <circle r="12" fill="#5c4236" strokeWidth="6" />
+      {Array.from({ length: 8 }, (_, i) => <g key={i} transform={`rotate(${45 * i})`}><line y1="-12" y2="-54" strokeWidth="5"/><rect x="-10" y="-63" width="20" height="12" rx="2" fill="#503c2f" stroke="#f4bd65" strokeWidth="2" /></g>)}
+      <path d="M-33 46L-63 90M33 46L63 90M-73 90H73" strokeWidth="8" />
+    </g>
+    {/* Industrial ventilation pipes and overhead tubes. */}
+    <path d="M1035 112V44Q1035 25 1053 25H1122Q1142 25 1142 45V158" stroke="#172d2a" strokeWidth="32" fill="none" />
+    <path d="M1035 112V44Q1035 25 1053 25H1122Q1142 25 1142 45V158" stroke="#56826a" strokeWidth="19" fill="none" />
+    <rect x="1085" y="91" width="90" height="55" rx="12" fill="#29463a" stroke="#a17d46" strokeWidth="8" />
+  </g>
+  return <g aria-hidden="true">
+    {/* Side decks and the raised iron court have deeper walls. */}
+    <rect x="435" y="283" width="370" height="275" rx="14" fill="#121a19" stroke="#261a12" strokeWidth="20" opacity=".75" />
+    <rect x="444" y="289" width="352" height="255" rx="8" fill="url(#mine-court-grid)" stroke="#d2a348" strokeWidth="7" opacity=".45" />
+    <g fill="#67df60" stroke="#132d1b" strokeWidth="4" fontWeight="900" fontSize="23" textAnchor="middle">
+      {[[440,376],[800,376],[440,505],[800,505]].map(([x,y],i)=><g key={i}><rect x={x-23} y={y-23} width="46" height="46" rx="6" fill="#132a1c" stroke="#ba963e" /><text x={x} y={y+8} fill="#63e75c" stroke="none">5</text></g>)}
+    </g>
+    <path d="M468 282H772M468 543H772" stroke="#f3bd3f" strokeWidth="9" strokeDasharray="24 14" opacity=".52" />
+    {/* Grates on the lower-left and lower-right glow from below. */}
+    {[[154,610],[214,620],[273,640],[932,612],[1015,645],[1100,665]].map(([x,y],i)=><g key={i} transform={`translate(${x} ${y})`}>
+      <rect x="-21" y="-13" width="43" height="27" fill="#a14820" opacity=".5" />
+      <path d="M-20 -13H21M-20 0H21M-20 13H21M-18 -13V13M0 -13V13M20 -13V13" stroke="#e7a45a" strokeWidth="2" opacity=".7" />
+    </g>)}
+    {/* Crystals, distinct from game spaces. */}
+    {[[1110,740,1],[1175,701,.8],[1084,806,.75],[1210,785,1.1],[1134,834,.55],[1172,610,.6]].map(([x,y,k],i)=><g key={i} transform={`translate(${x} ${y}) scale(${k})`}>
+      <polygon points="0,-49 18,-12 10,27 -20,26 -26,-10" fill="url(#mine-crystal)" stroke="#84ffb8" strokeWidth="3" />
+      <polygon points="0,-49 0,26 -20,26 -26,-10" fill="#00773d" opacity=".54" />
+    </g>)}
+    {/* Ore haulers and a stretch of railway. */}
+    {[[115,785,0],[946,405,-8]].map(([x,y,r],i)=><g key={i} transform={`translate(${x} ${y}) rotate(${r})`}>
+      <path d="M-48 18H110M-48 36H110" stroke="#a7794c" strokeWidth="6" />
+      {Array.from({length:8},(_,j)=><line key={j} x1={-45+j*21} x2={-45+j*21} y1="15" y2="41" stroke="#57412b" strokeWidth="9" />)}
+      <path d="M-12 -12H55L43 15H-4Z" fill="#665042" stroke="#ebaf66" strokeWidth="4" />
+      <circle cx="4" cy="18" r="10" fill="#20201f" stroke="#d1a276" strokeWidth="3"/><circle cx="38" cy="18" r="10" fill="#20201f" stroke="#d1a276" strokeWidth="3" />
+      <polygon points="0,-12 16,-35 31,-12" fill="#d4aa45" />
+    </g>)}
+    <g fontWeight="900" fontSize="19" textAnchor="middle" letterSpacing="1">
+      <text x="96" y="330" fill="#ffce74">LAVA FALLS</text>
+      <text x="1131" y="876" fill="#7af5b5">CRYSTAL CAVERN</text>
+      <text x="612" y="873" fill="#f2c885" fontSize="17">MINE ENTRANCE</text>
+    </g>
+  </g>
+}
+
 function BoardSvg({ board }) {
   const nodeMap = useMemo(
     () => Object.fromEntries(board.nodes.map((node) => [node.id, node])),
@@ -93,15 +149,22 @@ function BoardSvg({ board }) {
         </filter>
         <marker
           id={`lab-arrow-${board.id}`}
-          markerWidth="8"
-          markerHeight="8"
-          refX="6"
-          refY="4"
+          markerUnits="userSpaceOnUse"
+          markerWidth="15"
+          markerHeight="15"
+          refX="13"
+          refY="7"
           orient="auto"
           markerUnits="strokeWidth"
         >
-          <path d="M0,0 L8,4 L0,8 Z" fill="rgba(255,255,255,.58)" />
+          <path d="M0,0 L14,7 L0,14 Z" fill="rgba(255,255,255,.65)" />
         </marker>
+        {isDemo && <>
+          <linearGradient id="mine-lava" x1="0" y1="0" x2=".5" y2="1"><stop offset="0" stopColor="#ffdf4f"/><stop offset=".42" stopColor="#fc6e16"/><stop offset="1" stopColor="#b6210e"/></linearGradient>
+          <linearGradient id="mine-crystal" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#b0ffc8"/><stop offset=".5" stopColor="#22c672"/><stop offset="1" stopColor="#06754d"/></linearGradient>
+          <pattern id="mine-court-grid" width="38" height="38" patternUnits="userSpaceOnUse"><rect width="38" height="38" fill="#27372f"/><path d="M0 0H38V38H0Z" fill="none" stroke="#8e9981" strokeWidth="2"/><circle cx="8" cy="8" r="2" fill="#8f9c88"/><circle cx="29" cy="29" r="2" fill="#8f9c88"/></pattern>
+          <pattern id="mine-steel" width="44" height="44" patternUnits="userSpaceOnUse"><rect width="44" height="44" fill="#6b6257"/><path d="M0 0H44V44H0Z" fill="none" stroke="#b3a493" strokeWidth="2"/><circle cx="6" cy="6" r="3" fill="#302b2a"/><circle cx="38" cy="38" r="3" fill="#302b2a"/></pattern>
+        </>}
         {isDemo && (
           <pattern id="demo-grate" width="20" height="20" patternUnits="userSpaceOnUse">
             <rect width="20" height="20" fill="#4a3429" />
@@ -112,34 +175,31 @@ function BoardSvg({ board }) {
 
       <rect x="8" y="8" width={board.width - 16} height={board.height - 16} rx="34" fill={`url(#lab-bg-${board.id})`} stroke="rgba(255,255,255,.15)" strokeWidth="4" />
 
+      {isDemo && <DemoMineScenery />}
+
       {(board.terrain || []).map((zone) => (
+        <g key={zone.id}>
+        {isDemo && <polygon points={zone.points} transform="translate(0 14)" fill="#1e1512" stroke="#170e0d" strokeWidth="12" opacity=".7" />}
         <polygon
-          key={zone.id}
           points={zone.points}
-          fill={zone.id?.includes('grate') && isDemo ? 'url(#demo-grate)' : (zone.fill || (isDemo ? '#4e4339' : '#173228'))}
+          fill={isDemo ? (zone.id?.includes('grate') ? 'url(#demo-grate)' : zone.id === 'king-court' ? 'url(#mine-court-grid)' : 'url(#mine-steel)') : (zone.fill || '#173228')}
           stroke={isDemo ? '#d29b6455' : '#7bbf9950'}
           strokeWidth={4 + Number(zone.elevation || 0)}
-          opacity={0.92}
+          opacity={0.95}
         />
+        </g>
       ))}
 
-      {isDemo && (
-        <>
-          <path d="M48 520 C78 430 90 350 62 255" fill="none" stroke="#ff6b1a" strokeWidth="26" opacity=".8" />
-          <path d="M1190 520 C1150 430 1152 325 1180 245" fill="none" stroke="#22c55e" strokeWidth="18" opacity=".22" />
-          <text x="75" y="215" fill="#ffbd74" fontSize="26" fontWeight="900">LAVA</text>
-          <text x="1080" y="790" fill="#86efac" fontSize="22" fontWeight="900">CRYSTAL MINE</text>
-        </>
-      )}
+      {isDemo && <DemoMineScenery foreground />}
 
-      {(board.transportLinks || []).map((link) => (
+      {(!isDemo ? (board.transportLinks || []) : []).map((link) => (
         <g key={link.id} opacity=".55">
           <line x1={link.from[0]} y1={link.from[1]} x2={link.to[0]} y2={link.to[1]} stroke="#fbbf24" strokeWidth="5" strokeDasharray="12 12" />
           <title>{link.label}</title>
         </g>
       ))}
 
-      <g fill="none" stroke="rgba(236,242,255,.38)" strokeWidth="9" strokeLinecap="round" strokeLinejoin="round">
+      <g fill="none" stroke={isDemo ? 'rgba(240,250,255,.7)' : 'rgba(236,242,255,.38)'} strokeWidth={isDemo ? 5 : 8} strokeLinecap="round" strokeLinejoin="round">
         {edges.map(({ id, from, to }) => (
           <polyline
             key={id}
@@ -151,17 +211,19 @@ function BoardSvg({ board }) {
 
       {(board.landmarks || []).map((landmark) => {
         if (landmark.kind === 'king-bobomb') {
-          return (
-            <g key={landmark.id} transform={`translate(${landmark.x} ${landmark.y})`} filter={`url(#lab-shadow-${board.id})`}>
-              <circle r={landmark.radius || 70} fill="#171717" stroke="#fbbf24" strokeWidth="8" />
-              <circle cy="-17" r="21" fill="#fbbf24" />
-              <circle cx="-22" cy="3" r="8" fill="white" />
-              <circle cx="22" cy="3" r="8" fill="white" />
-              <rect x="-25" y="48" width="50" height="34" rx="10" fill="#15803d" stroke="#86efac" strokeWidth="4" />
-              <text y="72" textAnchor="middle" fill="white" fontSize="30" fontWeight="900">{landmark.countdown || 5}</text>
-              <text y="-92" textAnchor="middle" fill="#ffe6b5" fontSize="22" fontWeight="900">{landmark.label}</text>
-            </g>
-          )
+          return <g key={landmark.id} transform={`translate(${landmark.x} ${landmark.y})`} filter={`url(#lab-shadow-${board.id})`}>
+            <ellipse cy="49" rx="67" ry="22" fill="#08140e" opacity=".6" />
+            {/* Cartoon bomb mascot, not an imported Mario asset. */}
+            <circle r="56" cy="-2" fill="#171820" stroke="#f6c453" strokeWidth="6" />
+            <path d="M-36 -44L-30 -72L-12 -59L0 -82L15 -61L34 -76L37 -43Z" fill="#ffcc35" stroke="#7d4b12" strokeWidth="5" />
+            <circle cx="-20" cy="-13" r="10" fill="white" /><circle cx="17" cy="-13" r="10" fill="white" />
+            <ellipse cx="-18" cy="-11" rx="3" ry="5" fill="#0c151c"/><ellipse cx="19" cy="-11" rx="3" ry="5" fill="#0c151c" />
+            <path d="M-17 28Q0 42 18 27" fill="none" stroke="#f9f6ed" strokeWidth="7" strokeLinecap="round" />
+            <circle cx="-61" cy="18" r="17" fill="#ecedea"/><circle cx="61" cy="18" r="17" fill="#ecedea" />
+            <rect x="-21" y="46" width="42" height="36" rx="6" fill="#0e713c" stroke="#b0f285" strokeWidth="4" />
+            <text y="73" textAnchor="middle" fill="white" fontSize="31" fontWeight="1000">{landmark.countdown || 5}</text>
+            <title>King Bob-omb countdown: {landmark.countdown || 5} (prototype only)</title>
+          </g>
         }
 
         if (landmark.kind === 'conveyor') {
@@ -192,7 +254,9 @@ function BoardSvg({ board }) {
             <g key={node.id} transform={`translate(${node.x} ${node.y})`} filter={`url(#lab-shadow-${board.id})`}>
               {node.trophySpot && <circle r="30" fill="none" stroke="#facc15" strokeWidth="5" strokeDasharray="5 4" />}
               {node.convertedFrom === 'Ally' && <circle r="26" fill="none" stroke="#f0abfc" strokeWidth="3" strokeDasharray="3 4" />}
-              <circle r={radius} fill={color} stroke="white" strokeWidth="4" />
+              <circle r={radius+7} fill="#06111b" stroke={isDemo ? '#c0a783' : '#d3e1e7'} strokeWidth="3" opacity=".9" />
+              <circle r={radius} fill={color} stroke="#f8f9fb" strokeWidth="3.5" />
+              {isDemo && <ellipse cy={-radius/3} rx={radius*.7} ry={radius*.25} fill="white" opacity=".2" />}
               {glyph && (
                 <text textAnchor="middle" y={node.type === 'Battle' ? 5 : 6} fill="white" fontSize={node.type === 'Battle' ? 10 : 14} fontWeight="1000">
                   {glyph}
@@ -273,15 +337,17 @@ export default function BoardDesignLab({ onBack }) {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(260px, 340px)', gap: 14, alignItems: 'start' }}>
           <section style={{ ...panel, padding: 8, overflow: 'hidden' }}>
-            <div style={{ aspectRatio: `${board.width} / ${board.height}`, minHeight: 520 }}>
-              <BoardSvg board={board} />
+            <div style={board.id === 'demo-mines' ? {width: '100%'} : {aspectRatio: `${board.width} / ${board.height}`, minHeight: 520}}>
+              {board.id === 'demo-mines' ? <DemoMinesPreview board={board} /> : <BoardSvg board={board} />}
             </div>
           </section>
 
           <aside style={{ display: 'grid', gap: 12 }}>
             <section style={panel}>
               <h2 style={{ margin: '0 0 10px', fontSize: 18 }}>Board Summary</h2>
-              <p style={{ margin: '5px 0' }}><strong>{board.nodes.length}</strong> spaces</p>
+              <p style={{ margin: '5px 0' }}><strong>{board.nodes.length}</strong> playable spaces</p>
+              {board.stops && <p style={{ margin: '5px 0' }}><strong>{board.stops.length}</strong> free junctions/services</p>}
+              {board.startDeck && <p style={{ margin: '5px 0', color: '#b6e7d2' }}>Large entrance deck (not counted)</p>}
               <p style={{ margin: '5px 0' }}><strong>{board.trophySpots?.length || 0}</strong> prototype Trophy locations</p>
               <p style={{ margin: '5px 0' }}><strong>{board.defaultTrophyPrice}</strong> Tokens per Trophy</p>
               {board.prototypeOnly && <p style={{ margin: '9px 0 0', color: '#fbbf24' }}>Not connected to live Party Mode.</p>}
@@ -302,12 +368,12 @@ export default function BoardDesignLab({ onBack }) {
 
             {board.id === 'demo-mines' && (
               <section style={panel}>
-                <h2 style={{ margin: '0 0 10px', fontSize: 18 }}>Demo Mines First Pass</h2>
+                <h2 style={{ margin: '0 0 10px', fontSize: 18 }}>Demo Mines — Approved Browser Layout v4</h2>
                 <div style={{ display: 'grid', gap: 8, color: '#d5deea', fontSize: 13, lineHeight: 1.42 }}>
                   {(board.designNotes || []).map((note) => <div key={note}>• {note}</div>)}
                 </div>
                 <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #334155', color: '#e9d5ff', fontSize: 12 }}>
-                  Dashed lavender rings mark the three former Ally spaces so they are easy to review in this temporary prototype.
+                  Lavender rings mark the three former Ally spaces. Click a pink switching Event to flip the upper conveyor. The giant soccer bomb, mini bomb, stairs, shops and steal stop are preview-only; none of these features is active in Party gameplay.
                 </div>
               </section>
             )}

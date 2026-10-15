@@ -5,6 +5,7 @@ import { endRoom, getClientId, kickPlayer, leaveRoom, listenToGame, listenToRoom
 import { generateBoard } from './boardGenerator'
 import GameBoard from './GameBoard'
 import PartyMode from './PartyMode'
+import BattleMode from './BattleMode'
 import BoardDesignLab from './BoardDesignLab'
 import RouletteReel from './RouletteReel'
 import { PARTY_MECHANICS } from './partyMechanics'
@@ -8860,6 +8861,10 @@ if (screen === 'party-mode') {
   )
 }
 
+if (screen === 'battle-mode') {
+  return <BattleMode onBack={() => setScreen('home')} />
+}
+
 if (screen === 'online-create') {
   return (
     <OnlineLobby
@@ -8886,9 +8891,9 @@ if (screen === 'online-join') {
         <span>Board Game</span>
       </h1>
 
-      <p className="home-screen__subtitle">Classic: 2–6 Players • Party: 2–4 Players</p>
+      <p className="home-screen__subtitle">Classic: 2–6 Players • Party: 2–4 Players • Battle: 2–4 Players</p>
 
-      <div className="home-mode-grid">
+      <div className="home-mode-grid home-mode-grid--main-menu">
         <section className="home-mode-card">
           <div>
             <p className="home-mode-card__eyebrow">Original game</p>
@@ -8917,6 +8922,17 @@ if (screen === 'online-join') {
             <button onClick={() => setScreen('party-mode')}>
               Enter Party Mode
             </button>
+          </div>
+        </section>
+
+        <section className="home-mode-card home-mode-card--battle">
+          <div>
+            <p className="home-mode-card__eyebrow">Board-free challenges</p>
+            <h2>Battle Mode</h2>
+            <p>Create or join an online room. The host chooses any challenge, format, and participants. No board or turns required.</p>
+          </div>
+          <div className="menu home-mode-card__menu">
+            <button onClick={() => setScreen('battle-mode')}>Enter Battle Mode</button>
           </div>
         </section>
       </div>

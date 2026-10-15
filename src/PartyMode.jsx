@@ -48,8 +48,8 @@ function PartyMode({ onBack }) {
       if(!active)return
       setClientId(uid)
       const saved=readPartySession()
-      if(saved?.uid===uid){setRoomCode(saved.roomCode);setScreen('lobby')}
-      else if(saved){clearPartySession();setNotice('Your browser identity changed. Rejoin with your room code.')}
+      if(saved?.uid===uid&&saved.mode!=='battle'){setRoomCode(saved.roomCode);setScreen('lobby')}
+      else if(saved?.uid!==uid&&saved){clearPartySession();setNotice('Your browser identity changed. Rejoin with your room code.')}
     }).catch(e=>active&&setError(e.message)).finally(()=>active&&setRestoring(false))
     return()=>{active=false}
   }, [])
