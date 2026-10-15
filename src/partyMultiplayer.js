@@ -4,7 +4,7 @@ import { ensurePartyClock, partyNow } from './partyClock'
 import { createBattle } from './partyChallengeEngine'
 import { PARTY_CHALLENGES } from './partyChallengeCatalog'
 import { awardPartyBonuses, addPartyStat } from './partyProgress'
-import { joinProtectedRoom, requireOnlineIdentity, normalizeRoomCode, cleanPlayerName, randomRoomCode } from './onlineIdentity'
+import { initializeOnlineIdentity, joinProtectedRoom, requireOnlineIdentity, normalizeRoomCode, cleanPlayerName, randomRoomCode } from './onlineIdentity'
 import { ref, set, get, onValue, update, runTransaction as firebaseTransaction, serverTimestamp } from 'firebase/database'
 import { db } from './firebase'
 import { calculatePartyMovement, clearPendingPartyMovementModifiers, pendingPartyMovementModifier } from './partyMovementModifiers'
@@ -1333,8 +1333,8 @@ function makeTurnState(playerId) {
 
 export async function createPartyRoom(playerName, mode = 'party') {
   if(!['party','battle'].includes(mode))throw Error('Unknown game mode.')
-  requireOnlineIdentity()
-  const playerId = requireOnlineIdentity()
+  const playerId = await initializeOnlineIdentity()
+  requireOnlineIdentity(playerId)
   playerName = cleanPlayerName(playerName)
   const roomCode = randomRoomCode()
 
@@ -1364,15 +1364,15 @@ export async function createPartyRoom(playerName, mode = 'party') {
 }
 
 export async function joinPartyRoom(roomCode, playerName, expectedMode = 'party') {
+  if (!['party', 'battle'].includes(expectedMode)) throw Error('Unknown game mode.')
+  await initializeOnlineIdentity()
   const code = normalizeRoomCode(roomCode)
-  const snapshot = await get(ref(db, `securePartyRooms/${code}`))
-  const room = snapshot.val()
-  if (!room || room.status === 'ended') throw Error('Room not found or closed.')
-  if ((room.mode || 'party') !== expectedMode) {
+  // Non-members can read only this small mode field, never the protected room.
+  // Existing Party rooms from before mode was stored default to Party Mode.
+  const snapshot = await get(ref(db, `securePartyRooms/${code}/mode`))
+  const mode = snapshot.val() || 'party'
+  if (mode !== expectedMode) {
     throw Error(expectedMode === 'battle' ? 'That code belongs to Party Mode, not Battle Mode.' : 'That code belongs to Battle Mode, not Party Mode.')
-  }
-  if (room.status !== 'lobby' && !room.players?.[requireOnlineIdentity()]) {
-    throw Error('That room has already started; ask the host to create a new room.')
   }
   return joinProtectedRoom('securePartyRooms', code, playerName)
 }

@@ -93,13 +93,32 @@ export async function joinProtectedRoom(namespace, code, playerName) {
   const name = cleanPlayerName(playerName)
   code = normalizeRoomCode(code)
 
+  if (!['secureRooms', 'securePartyRooms'].includes(namespace)) {
+    throw new Error('Unknown room type.')
+  }
   const roomPath = `${namespace}/${code}`
-  const seats = (await get(ref(db, `${roomPath}/seats`))).val() || {}
+  let seats
+  try {
+    seats = (await get(ref(db, `${roomPath}/seats`))).val() || {}
+  } catch (error) {
+    throw new Error('Could not connect to this room. Ask the host to check online room access, then retry.', { cause: error })
+  }
+  if (!Object.keys(seats).length) throw new Error('Room not found or closed. Check the code with the host.')
+
+  // Reconnecting members must not rewrite their lobby-only player record
+  // once the game has started. The room read still enforces removal rules.
+  const ownPlayer = await get(ref(db, `${roomPath}/players/${uid}`))
+  if (ownPlayer.exists()) {
+    const room = (await get(ref(db, roomPath))).val()
+    if (!room || room.status === 'ended') throw new Error('Room not found or closed.')
+    return code
+  }
 
   let seat = Object.keys(seats).find((key) => seats[key] === uid)
   let newlyClaimed = false
 
-    const maxPlayers = namespace === 'secureRooms' ? 6 : 4
+  const maxPlayers = namespace === 'secureRooms' ? 6 : 4
+  let lastSeatError
 
   if (seat === undefined) {
     for (let i = 0; i < maxPlayers; i++) {
@@ -108,7 +127,7 @@ export async function joinProtectedRoom(namespace, code, playerName) {
       try {
         const result = await runTransaction(
           ref(db, `${roomPath}/seats/${i}`),
-          (value) => (value === null ? uid : undefined),
+          (value) => (value === null || value === uid ? uid : undefined),
           { applyLocally: false }
         )
 
@@ -117,14 +136,15 @@ export async function joinProtectedRoom(namespace, code, playerName) {
           newlyClaimed = true
           break
         }
-      } catch {
-        // A simultaneous join may have claimed this seat.
+      } catch (error) {
+        // Try the next seat if another join won the race; retain the cause.
+        lastSeatError = error
       }
     }
   }
 
   if (seat === undefined) {
-    throw new Error('Room not found, full, started, or unavailable.')
+    throw new Error('Could not claim a seat. The room may be full, started, or unavailable.', { cause: lastSeatError })
   }
 
   try {
