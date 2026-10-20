@@ -1,3 +1,4 @@
+import { chooseRandomBattle } from './randomBattleSelection'
 import { useEffect, useMemo, useState } from 'react'
 import { initializeOnlineIdentity } from './onlineIdentity'
 import { createPartyRoom, joinPartyRoom, listenToPartyRoom, updatePartyRounds } from './partyMultiplayer'
@@ -242,6 +243,12 @@ export default function BattleMode({ onBack }) {
           </button> : <p>Waiting for the host to continue…</p>}
         </section> : isHost ? <section className="home-mode-card battle-session__picker">
           <p className="home-mode-card__eyebrow">Host Controls</p><h2>Choose This Round's Battle</h2>
+          <button className="battle-session__primary" type="button" disabled={busy || players.length < 2 || players.length > 4}
+            onClick={() => run(() => {
+              const choice = chooseRandomBattle(players.map(p => p.id))
+              return startStandaloneBattle(code, uid, choice.challengeId, choice.format, choice.participants)
+            })}>{busy ? 'Starting…' : 'Random Battle'}</button>
+          <p>Include everyone: randomly choose a format for your party size, then a battle. Teams are randomized.</p>
           <label>Search Battles<input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name or number"/></label>
           <label>Select a Challenge<select value={matching.some(c => c.id === battleId) ? battleId : ''} onChange={e => changeChallenge(e.target.value)}>
             {!matching.some(c => c.id === battleId) && <option value="">Select from matches…</option>}

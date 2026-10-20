@@ -6,7 +6,6 @@ import { generateBoard } from './boardGenerator'
 import GameBoard from './GameBoard'
 import PartyMode from './PartyMode'
 import BattleMode from './BattleMode'
-import BoardDesignLab from './BoardDesignLab'
 import RouletteReel from './RouletteReel'
 import { PARTY_MECHANICS } from './partyMechanics'
 import { PARTY_CARS, formatPartyDieFace, getPartyCar, getPartyCarImageFallback, getPartyCarImageUrl } from './partyCars'
@@ -8849,9 +8848,7 @@ if (specialState) {
       </div>
     )
   }
-if (screen === 'board-design-lab') {
-  return <BoardDesignLab onBack={() => setScreen('home')} />
-}
+
 
 if (screen === 'party-mode') {
   return (
@@ -8937,11 +8934,7 @@ if (screen === 'online-join') {
         </section>
       </div>
 
-      <div className="menu" style={{ marginTop: '18px' }}>
-        <button onClick={() => setScreen('board-design-lab')}>
-          Temporary Board Layout Viewer
-        </button>
-      </div>
+
     </div>
   )
 }
