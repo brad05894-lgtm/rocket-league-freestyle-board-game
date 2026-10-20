@@ -33,8 +33,8 @@ class AssetBoundary extends Component{
  render(){return this.state.failed?<Html center><div className="demo-asset-error">Demo Mines export is missing.<br/>Run export_demo_mines.py, then copy demo-mines-v13.glb and mining-pickaxe.glb into public/models. Refresh afterward.</div></Html>:this.props.children}
 }
 function NativeBoard({room,board}){
- const gltf=useGLTF(URL+'demo-mines-v13.glb')
- const model=useMemo(()=>{const s=gltf.scene.clone(true);s.traverse(o=>{if(o.isMesh){o.material=o.material.clone();o.userData.baseColor=o.material.color?.clone();if((o.userData.sourceName||o.name).startsWith('LEFT CHEVRON')){o.geometry=o.geometry.clone();o.geometry.computeBoundingBox();const pivot=o.geometry.boundingBox.getCenter(new THREE.Vector3());o.geometry.translate(-pivot.x,-pivot.y,-pivot.z);o.position.copy(pivot)}}});return s},[gltf.scene])
+ const gltf=useGLTF(URL+'demo-mines-v13.glb?materials=20261020')
+ const model=useMemo(()=>{const s=gltf.scene.clone(true);s.traverse(o=>{if(o.isMesh){o.raycast=()=>null;o.material=o.material.clone();o.userData.baseColor=o.material.color?.clone();if((o.userData.sourceName||o.name).startsWith('LEFT CHEVRON')){o.geometry=o.geometry.clone();o.geometry.computeBoundingBox();const pivot=o.geometry.boundingBox.getCenter(new THREE.Vector3());o.geometry.translate(-pivot.x,-pivot.y,-pivot.z);o.position.copy(pivot)}}});return s},[gltf.scene])
  useFrame(()=>{
   const now=partyNow(),c=room.boardCinematic
   model.traverse(o=>{
@@ -77,8 +77,7 @@ function Effects({room,board}){
  })
  const countdown=c?.kind==='central-bomb'&&age<3300?(age<1100?c.previous:c.countdown):(room.boardState?.bombCountdown??5)
  return <>
- {[[-3.2,1.5,3.37],[3.2,1.5,3.37],[0,3.55,-6.44],[0,2.95,.92]].map((p,i)=><Html key={i} center position={p} style={{pointerEvents:'none'}}><div style={{color:centralBombColor(countdown),background:'#101415',border:'2px solid #987836',padding:'2px 8px',fontWeight:900,fontSize:23}}>{countdown}</div></Html>)}
- <Html center position={[0,7,-9]} style={{pointerEvents:'none',whiteSpace:'nowrap',color:'#fff4b0',background:'#191613',padding:5}}>Conveyor: {room.boardState?.conveyorLane==='upper'?'↑ Bomb ally route':'↓ Safe route'}</Html>
+ <CountdownSigns value={countdown}/>
  <group ref={burst} position={point}>{Array.from({length:22},(_,i)=><mesh key={i} position={[Math.sin(i*4.1),Math.cos(i*2.1),Math.sin(i*1.7)]}><icosahedronGeometry args={[.22,0]}/><meshBasicMaterial color={i%2?'#ff9d21':'#ffd965'} transparent opacity={.8}/></mesh>)}</group>
  {e?.id==='gold-mine'&&!e.resolved&&<Suspense fallback={null}><Pickaxe effect={e} position={demoPoint(e.nodeId)}/></Suspense>}
  {beat&&<group ref={reward}><mesh><cylinderGeometry args={[.20,.20,.06,20]}/><meshStandardMaterial color="#ffd15d" metalness={.7}/></mesh><Html center position={[0,.5,0]} style={{color:beat.amount>0?'#ffda66':'#ff6262',fontSize:24,fontWeight:900,whiteSpace:'nowrap'}}>{beat.amount>0?'+':''}{beat.amount} {beat.kind==='tokens'?'Tokens':'Trophy'}</Html></group>}
@@ -110,10 +109,26 @@ function Controls({room,activePlayer,overview,topDown,showcase}){
  return <OrbitControls ref={ref} makeDefault enabled={overview&&!room.boardCinematic&&(!showcase||showcase.host)} enableRotate={!topDown} minZoom={fit*.6} maxZoom={fit*5} maxPolarAngle={Math.PI/2-.12} onChange={()=>{if(showcase?.host&&ref.current)showcase.onChange({position:camera.position.toArray(),target:ref.current.target.toArray(),viewHeight:(camera.top-camera.bottom)/camera.zoom})}}/>
 }
 export default function DemoMines3D({room,board,players=[],activePlayer,overview=false,quality='low',topDown=false,showcase,turnOrderPhase=false}){
- return <div className="party-immersive-canvas" style={{position:'absolute',inset:0,background:'#151015'}}><Canvas orthographic dpr={quality==='low'?.75:1} camera={{position:[18,28,32],zoom:20,near:.1,far:180}} gl={{antialias:quality!=='low',powerPreference:'default'}}>
- <color attach="background" args={['#151015']}/><fog attach="fog" args={['#151015',45,95]}/><ambientLight intensity={.65}/><hemisphereLight args={['#eed0aa','#25140b',.7]}/><directionalLight position={[0,18,8]} color="#ffe0a3" intensity={1.3}/><pointLight position={[0,6,12]} color="#ff5522" intensity={35} distance={25}/><pointLight position={[-10,6,0]} color="#62ffa6" intensity={15} distance={16}/>
+ return <div className="party-immersive-canvas" style={{position:'absolute',inset:0,background:'#151015'}}><Canvas orthographic dpr={quality==='low'?.75:1} camera={{position:[18,28,32],zoom:20,near:.5,far:150}} gl={{antialias:quality!=='low',powerPreference:'default'}}>
+ <color attach="background" args={['#151015']}/><fog attach="fog" args={['#151015',45,95]}/><ambientLight intensity={.3}/><hemisphereLight args={['#eed0aa','#25140b',.45]}/><directionalLight position={[0,18,8]} color="#ffe0a3" intensity={1.1}/><pointLight position={[0,6,12]} color="#ff5522" intensity={35} distance={25}/><pointLight position={[-10,6,0]} color="#62ffa6" intensity={15} distance={16}/>
  <AssetBoundary><Suspense fallback={<Html center>Loading Demo Mines…</Html>}><NativeBoard room={room} board={board}/><Effects room={room} board={board}/></Suspense></AssetBoundary>
  {players.map((p,i)=><Actor key={p.id} room={room} player={p} index={i} active={p.id===activePlayer?.id}/>)}
  <Controls room={room} activePlayer={activePlayer} overview={overview||turnOrderPhase} topDown={topDown} showcase={showcase}/>
  </Canvas></div>
+}
+
+function CountdownSigns({value}) {
+ const texture=useMemo(()=>{
+  const canvas=document.createElement('canvas');canvas.width=128;canvas.height=128;
+  const ctx=canvas.getContext('2d');ctx.clearRect(0,0,128,128);
+  ctx.fillStyle=centralBombColor(value);ctx.font='bold 108px Arial';
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(String(value),64,68);
+  const tex=new THREE.CanvasTexture(canvas);tex.colorSpace=THREE.SRGBColorSpace;return tex;
+ },[value]);
+ useEffect(()=>()=>texture.dispose(),[texture]);
+ const signs=[[-3.2,1.5,3.365,1.15],[3.2,1.5,3.365,1.15],[0,3.55,-6.425,1.15],[0,2.95,.935,.67]];
+ return <>{signs.map(([x,y,z,size],i)=><mesh key={i} position={[x,y,z]} raycast={()=>null}>
+  <planeGeometry args={[size*.7,size*.85]}/>
+  <meshBasicMaterial map={texture} transparent depthWrite={false} toneMapped={false} polygonOffset polygonOffsetFactor={-1}/>
+ </mesh>)}</>;
 }
