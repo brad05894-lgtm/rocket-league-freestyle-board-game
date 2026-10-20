@@ -280,7 +280,7 @@ function PartyMode({ onBack }) {
         </div>
 
         <p className="home-mode-card__eyebrow">Party Lobby</p>
-        <h1 className="party-lobby-title">Booststone Ruins</h1>
+        <h1 className="party-lobby-title">Rocket League Party</h1>
         <p className="home-screen__subtitle">
           Room Code: <strong>{roomCode}</strong>
         </p>

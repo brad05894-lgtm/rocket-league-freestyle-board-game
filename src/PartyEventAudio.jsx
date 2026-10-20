@@ -20,7 +20,7 @@ export default function PartyEventAudio({room,clockOffset=0}) {
   if(!cues.length)return
   const active=new Set()
   function layer(kind,duration,noise=false,delay=0){
-   const c=ctx.current;if(!c||c.state!=='running')return
+   const c=ctx.current;if(!c||c.state!=='running'||localStorage.getItem('party-event-muted')==='true')return
    const t=c.currentTime+delay,gain=c.createGain(),filter=c.createBiquadFilter()
    let source
    if(noise){source=c.createBufferSource();const buffer=c.createBuffer(1,Math.ceil(c.sampleRate*duration),c.sampleRate),data=buffer.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=Math.random()*2-1;source.buffer=buffer}

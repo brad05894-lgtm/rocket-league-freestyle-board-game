@@ -1,10 +1,13 @@
+import PartyCinematic from './PartyCinematic'
+import DemoEventAudio from './DemoEventAudio'
+import { getPartyBoard } from './partyBoards'
 import { getPartyCardUseState } from './partyCardAvailability'
 import PartyHostControls from './PartyHostControls'
 import { trophyPathChoices } from './partyRoutes'
 import PartyEventAudio from './PartyEventAudio'
 import PartyBoardDev from './PartyBoardDev'
 import PartyDice from './PartyDice'
-import { partyDiceRevealDuration } from './partyMovementModifiers'
+import { partyDiceRevealDuration, settlePartyZeroMovementTurn } from './partyMovementModifiers'
 import PartyHiddenGift from './PartyHiddenGift'
 import { presentationBeat } from './partyPresentation'
 import PartyFinale from './PartyFinale'
@@ -17,7 +20,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import RouletteReel from './RouletteReel'
 import PartyLuckRoulette from './PartyLuckRoulette'
 import { BOOSTSTONE_RUINS } from './booststoneRuins'
-import BooststoneRuins3D from './BooststoneRuins3D'
+import BooststoneRuins3D from './PartyBoard'
 import { formatPartyDieFace, getPartyCar, getPartyCarImageUrl, getPartyCarImageFallback } from './partyCars'
 import { getEnabledPartyCards, getPartyCard, getPartyCardShopPrice, normalizePartyCards } from './partyCards'
 import {
@@ -215,6 +218,7 @@ function FinalPartyCinematic({ room, players, onLeave, isHost }) {
 }
 
 export default function PartyGame({ roomCode, room, clientId, onLeave, isHost }) {
+  const turn = settlePartyZeroMovementTurn({ ...room.turnState })
   const [presentationNow,setPresentationNow]=useState(Date.now())
   const giftCheckBusy=useRef(false)
   useEffect(()=>{if(!isHost||!room.turnState?.hiddenGiftCheck||giftCheckBusy.current)return;giftCheckBusy.current=true;checkPartyHiddenGift(roomCode,clientId).catch(e=>setError(e.message)).finally(()=>{giftCheckBusy.current=false})},[isHost,room.turnState?.hiddenGiftCheck?.landingId,roomCode,clientId])
@@ -224,7 +228,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const [clockOffset, setClockOffset] = useState(0)
   useEffect(()=>{
     setPresentationNow(Date.now())
-    const end=Math.max(Number(room.presentation?.endsAt||0),Number((room.phase==='turn-order'?room.turnOrderDice:room.turnState?.diceAnimation)?.stoppedAt||0)+partyDiceRevealDuration(room.turnState?.movementModifierApplied))
+    const end=Math.max(Number(room.presentation?.endsAt||0),Number((room.phase==='turn-order'?room.turnOrderDice:room.turnState?.diceAnimation)?.stoppedAt||0)+partyDiceRevealDuration(room.turnState?.movementModifierApplied,room.turnState?.bombRoll))
     if(Date.now()+clockOffset>=end)return
     const timer=setInterval(()=>{setPresentationNow(Date.now());if(Date.now()+clockOffset>=end)clearInterval(timer)},80)
     return()=>clearInterval(timer)
@@ -235,8 +239,8 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const rewardBusy=presentationNow+clockOffset<Number(room.presentation?.endsAt||0)
   const giftBusy=Boolean(room.turnState?.hiddenGiftCheck||(room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed))
   const dice=room.phase==='board'?room.turnState?.diceAnimation:null
-  const diceVisible=dice&&(!dice.stoppedAt||presentationNow+clockOffset<dice.stoppedAt+partyDiceRevealDuration(room.turnState?.movementModifierApplied))
-  const movementBusy = Boolean(room.turnState?.spaceEffect?.awaitingContinue) || motionBusy || carStillMoving || rewardBusy || giftBusy || Boolean(diceVisible)
+  const diceVisible=dice&&(!dice.stoppedAt||presentationNow+clockOffset<dice.stoppedAt+partyDiceRevealDuration(room.turnState?.movementModifierApplied,room.turnState?.bombRoll))
+  const movementBusy = Boolean(room.boardCinematic) || Boolean(turn.spaceEffect?.awaitingContinue) || motionBusy || carStillMoving || rewardBusy || giftBusy || Boolean(diceVisible)
   const busy = actionBusy || movementBusy
   useEffect(() => onValue(databaseRef(db, '.info/serverTimeOffset'), (snapshot) => setClockOffset(Number(snapshot.val()) || 0)), [])
   useEffect(() => {
@@ -278,7 +282,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const [rollingDieType, setRollingDieType] = useState('')
   const seenRouletteKeyRef = useRef('')
   const seenLuckRouletteKeyRef = useRef('')
-  const board = BOOSTSTONE_RUINS
+  const board = getPartyBoard(room)
   const devCards = useMemo(() => getEnabledPartyCards(), [])
 
   const nodeMap = useMemo(
@@ -318,7 +322,6 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const currentPlayer = room.players?.[clientId] || null
   const currentCar = getPartyCar((room.devDiceTest?.playerId===clientId&&room.devDiceTest.carId)||currentPlayer?.carId)
   const activeCar = getPartyCar(activePlayer?.carId)
-  const turn = room.turnState || {}
   const isTurnOrderPhase = room.phase === 'turn-order'
   const turnOrderRolls = room.turnOrderRolls || {}
   const myTurnOrderRoll = Number(turnOrderRolls[clientId]) || 0
@@ -643,6 +646,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const battleLocked=battle?.status==='active'||room.phase==='round-complete'||orderResults
   return (
     <div ref={immersiveRef} className="game party-game-screen party-immersive" data-route={Boolean(routeDecision)} data-panel={hudPanel||'none'}>
+      <PartyCinematic room={room} roomCode={roomCode} clientId={clientId} isHost={isHost} runAction={runAction} busy={actionBusy}/><DemoEventAudio room={room}/>
       <PartyEventAudio room={room} clockOffset={clockOffset}/>
       {diceVisible&&<PartyDice isHost={isHost} error={error} onRecover={()=>runAction(()=>recoverPartyPresentation(roomCode,clientId),true)} animation={dice} room={room} clientId={clientId} busy={actionBusy} onStop={value=>runAction(()=>isTurnOrderPhase?rollPartyTurnOrder(roomCode,clientId):dice.kind==='precision'?stopPartyPrecisionDie(roomCode,clientId,value):rollPartyDie(roomCode,clientId,dice.kind),true)}/>}
       {room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed&&<PartyHiddenGift gift={room.turnState.hiddenGiftResult} name={room.players?.[room.turnState.playerId]?.name||'Player'} canCollect={room.turnState.playerId===clientId} isHost={isHost} busy={actionBusy} onCollect={()=>runAction(()=>collectPartyHiddenGift(roomCode,clientId),true)} onRecover={()=>runAction(()=>skipPartyHiddenGift(roomCode,clientId),true)}/>}
@@ -763,7 +767,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
               <p className="home-mode-card__eyebrow">Closed Garage Gate</p>
               <h3>🚧 Pay {turn.gateToll || 3} Tokens to pass?</h3>
               <p>
-                The currently closed Garage Gate is blocking your route. Paying lets you keep the rest of your movement.
+                The currently closed Garage Gate is blocking your route. Paying switches this gate pair, opens your chosen route, and lets you keep the rest of your movement.
                 Go back to choose another route without paying.
               </p>
               {isMyTurn ? (
@@ -774,7 +778,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
                     onClick={() => handleGarageGate(true)}
                     disabled={busy || (currentSetup.tokens || 0) < (turn.gateToll || 3)}
                   >
-                    Pay {turn.gateToll || 3} Tokens & Continue
+                    Pay {turn.gateToll || 3} Tokens, Switch & Continue
                   </button>
                   <button
                     type="button"
@@ -1360,9 +1364,9 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'board' && !movementBusy && turn.eventEffect && (
+          {room.phase === 'board' && !movementBusy && turn.eventEffect && turn.eventEffect.id!=='gold-mine' && (
             <div className="party-turn-panel__section party-landing-effect">
-              <p className="home-mode-card__eyebrow">Booststone Ruins Event</p>
+              <p className="home-mode-card__eyebrow">{board.name} Event</p>
               <h2>⚡ {turn.eventEffect.name}</h2>
               <p>
                 {(isMyTurn || openHands)
@@ -1571,7 +1575,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
               <h2>🏆 Trophy Available</h2>
               <p>
                 {activePlayer?.name || 'The current player'} reached the active Trophy spot.
-                It costs <strong>{turn.trophyPrice ?? trophyPrice} Tokens</strong>.
+                It costs <strong>{turn.trophyPrice ?? trophyPrice} Tokens</strong>. This stop does not count toward your movement; your remaining {turn.movementRemaining || 0} moves continue after this decision.
               </p>
               {isMyTurn ? (
                 <div className="party-trophy-offer__actions">
@@ -1686,7 +1690,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           {error && <p className="party-form-error"><strong>{error}</strong></p>}
 
           <div className="party-stage-note party-game-stage-note">
-            Explore Booststone Ruins: shops, transport, stealing, Treasure Chests, boulders, gates and Trophies. Each round ends with a Challenge break. One random bonus Trophy is awarded after the final round.
+            Explore {board.name}: shops, stealing, board events and Trophies. Each round ends with a Challenge break. One random bonus Trophy is awarded after the final round.
           </div>
           </>}
         </aside>

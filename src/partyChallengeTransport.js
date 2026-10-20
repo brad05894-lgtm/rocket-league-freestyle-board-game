@@ -38,7 +38,8 @@ export async function confirmChallengeRewards(code,uid,battleId){
   error='';if(!room)return;
   const b=battleOf(room);
   if(!b||b.id!==battleId||room.hostId!==uid){error='Only a host can confirm results.';return}
-  if(b.status==='resolved')return;
+  // A repeated confirmation must not award points or consume another round.
+  if(b.status==='resolved')return room;
   if(!b.game?.result||now<b.game.result.revealAt){error='Wait for the result reveal.';return}
   if(b.source==='standalone'){
    const session=room.battleGame;

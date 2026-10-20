@@ -23,7 +23,7 @@ export function attachEconomyPresentation(room,before,now,retimeTrophy=false) {
  const eventEnd=event?.id==='reactor-trigger-c'?time(event.animationStartedAt)+4700:event?.id==='supply-crates'?time(event.openedAt)+1400:0
  const luck=room.turnState?.spaceEffect
  const luckEnd=luck?.rouletteId&&!luck.awaitingTarget?time(luck.rouletteId)+5500:0
- const diceEnd=time(room.turnState?.diceAnimation?.stoppedAt)+1500
+ const diceEnd=time(room.turnState?.diceAnimation?.stoppedAt)+(room.turnState?.bombRoll?3600:1500)
  const start=Math.max(now,moveEnd,eventEnd,luckEnd,diceEnd,time(room.presentation?.endsAt))
  room.presentation={id:`${now}-${(room.presentationSequence||0)+1}`,startedAt:start,beats,endsAt:start+beats.length*REWARD_BEAT_MS}
  if(luck?.awaitingContinue){room.presentation.holdForLuck=true;room.presentation.startedAt=0;room.presentation.endsAt=0}

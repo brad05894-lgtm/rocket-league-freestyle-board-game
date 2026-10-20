@@ -104,6 +104,13 @@ function applyGameAction(g,a,uid,host,r,now) {
  if(a.type==='timerStop'){if(g.engine==='airdribble')person(g.operator);else person(current());need(g.timer&&!g.timer.pausedAt&&now>=g.timer.startedAt,'Start the timer first.');need(timerLeft(g.timer,now)>0,'Time has expired.');g.timer.pausedAt=now;return}
  if(a.type==='redoRun'){person(g.engine==='airdribble'?g.operator:current());delete g.timer;delete g.entries[current()];if(g.laps)delete g.laps[current()];return}
  if(a.type==='reroll'){admin();need(g.engine!=='arena','The selected arena is locked.');need(a.confirmed,'Confirm the agreed reroll.');if(g.engine==='mechanic'||g.engine==='heads'||g.engine==='manual'&&[74,75].includes(n))g.mechanic=mech(r);else if(g.engine==='draft')g.draft=draft(r);else if(g.engine==='alphabet')g.letter=pick([...new Set(PARTY_MECHANICS.map(m=>m.name[0].toUpperCase()))],r);else if(g.engine==='mode'||g.engine==='arena'){need(g.phase==='ready');g.setting=pick(g.engine==='mode'?MODES:ARENAS,r)}else throw Error('Use a full restart for this Challenge.');return}
+ if(g.engine==='names'&&a.type==='continueElimination'){
+  admin();const pause=g.eliminationBreak;need(g.phase==='elimination-break'&&pause,'No elimination is waiting.');need(now>=pause.endsAt,'Wait for the explosion to finish.');
+  delete g.eliminationBreak;
+  if(pause.finalPlacements){result(g,pause.finalPlacements,now);return}
+  const alive=active(g);need(alive.includes(pause.nextPlayerId),'The next player is unavailable.');g.turn=alive.indexOf(pause.nextPlayerId);g.round=(g.round||1)+1;g.phase='active';g.timer=timer(now,10000);return
+ }
+ if(g.engine==='names'&&g.phase==='elimination-break'){if(a.type==='tick')return;throw Error('Wait for the Host to continue the elimination round.')}
  need(['active','overtime','tiebreak','regroup'].includes(g.phase),'Start the Challenge first.');
  if(g.engine==='tournament'||g.engine==='potatoTournament'){handleTournament(g,a,uid,host,r,now);return}
  if(SECRET_ENGINES.includes(g.engine)){secretAction(g,a,uid,host,r,now);return}
@@ -126,8 +133,8 @@ function applyGameAction(g,a,uid,host,r,now) {
  if(g.engine==='reverseSpeed'){person(current());need(g.timer?.pausedAt,'Press Goal Scored before entering KPH.');const value=numeric(a.value),id=current(),alive=active(g),index=alive.indexOf(id);if(value===0){eliminate(g,[alive[(index+1)%alive.length]],now);g.baseline=null}else if(g.baseline!==null&&value>g.baseline){g.lives[id]--;if(!g.lives[id])eliminate(g,[id],now)}else g.baseline=value;const next=alive.slice(index+1).concat(alive.slice(0,index+1)).find(x=>!g.out.includes(x));g.turn=active(g).indexOf(next);delete g.timer;return}
  if(g.engine==='bust'){const aliveNow=active(g),id=current();person(id);need(a.type==='bustKph','Enter the KPH from your scored goal.');need(g.timer&&!g.timer.pausedAt&&now>=g.timer.startedAt&&timerLeft(g.timer,now)>0,'Your 1-minute turn is not active.');const value=numeric(a.value),before=Number(g.bustRemaining)||0,after=before-value;g.bustHistory||=[];g.bustHistory.push({playerId:id,value,before,after,round:g.round});if(after<0){eliminate(g,[id],now);if(!g.result)resetBustRound(g,r,now);return}if(after===0){const aliveBefore=[...aliveNow],idx=aliveBefore.indexOf(id),victim=aliveBefore[(idx+1)%aliveBefore.length];if(victim&&victim!==id)eliminate(g,[victim],now);if(!g.result)resetBustRound(g,r,now);return}g.bustRemaining=after;g.turn=(g.turn+1)%active(g).length;g.timer=timer(now,60000);return}
  if(g.engine==='names'&&a.type==='invalidAnswer'){throw Error('Try a different answer before your timer expires.')}
- if(g.engine==='names'&&a.type==='redoLastPass'){admin();need(g.lastPass,'Only the immediately previous submitted turn can be redone.');need(active(g).includes(g.lastPass.playerId),'That player is no longer active.');g.turn=active(g).indexOf(g.lastPass.playerId);g.timer={startedAt:now+500,duration:Math.max(1,Number(g.lastPass.remainingMs)||1),pauseTotal:0};g.redoNotice={playerId:g.lastPass.playerId,remainingMs:g.timer.duration};delete g.lastPass;return}
- if(g.engine==='names'){need(uid===current(),'Wait for your turn.');need(a.type==='pass'&&timerLeft(g.timer,now)>0);const remainingMs=timerLeft(g.timer,now);g.lastPlayer=current();g.lastPass={playerId:current(),turn:g.turn,remainingMs,submittedAt:now};delete g.redoNotice;g.turn=(g.turn+1)%active(g).length;g.timer={startedAt:now,duration:10000,pauseTotal:0};return}
+ if(g.engine==='names'&&a.type==='redoLastPass'){admin();need(g.phase==='active','Continue the elimination round first.');need(g.lastPass,'Only the immediately previous submitted turn can be redone.');need(active(g).includes(g.lastPass.playerId),'That player is no longer active.');g.turn=active(g).indexOf(g.lastPass.playerId);g.timer={startedAt:now+500,duration:Math.max(1,Number(g.lastPass.remainingMs)||1),pauseTotal:0};g.redoNotice={playerId:g.lastPass.playerId,remainingMs:g.timer.duration};delete g.lastPass;return}
+ if(g.engine==='names'){need(g.phase==='active'&&g.timer,'Wait for the Host to continue the elimination round.');need(uid===current(),'Wait for your turn.');need(a.type==='pass'&&timerLeft(g.timer,now)>0);const remainingMs=timerLeft(g.timer,now);g.lastPlayer=current();g.lastPass={playerId:current(),turn:g.turn,remainingMs,submittedAt:now};delete g.redoNotice;g.turn=(g.turn+1)%active(g).length;g.timer={startedAt:now,duration:10000,pauseTotal:0};return}
  if(g.engine==='series'){
  if(g.matches?.current){
    if(a.type==='matchAction'){need(a.matchId==='current');gameAction(g.matches.current,a.action,uid,host,r,now);return}
@@ -208,7 +215,15 @@ export function lightAt(g,now){const elapsed=timerElapsed(g.timer,now);const r=s
 function nextGauntlet(g,now){g.turn++;delete g.timer;if(g.turn>=g.ids.length){const compare=(a,b)=>{const x=g.laps?.[a]||[],y=g.laps?.[b]||[];if(x.length!==y.length)return y.length-x.length;for(let i=x.length-1;i>=0;i--)if(x[i]!==y[i])return x[i]-y[i];return 0};const ids=[...g.ids].sort(compare),groups=[];for(const id of ids){if(groups.length&&!compare(id,groups.at(-1)[0]))groups.at(-1).push(id);else groups.push([id])}result(g,groups,now)}}
 function resetBustRound(g,r,now){if(survivalResult(g,now))return;const alive=active(g);g.round=(g.round||1)+1;g.bustTarget=200+Math.floor(r()*301);g.bustRemaining=g.bustTarget;g.order=shuffle(alive,r);g.turn=0;g.timer=timer(now,60000)}
 function tick(g,now,r){if(g.phase!=='active')return;const n=nOf(g);if(g.engine==='bomb'){const pos=bombPosition(g,now);if(Math.abs(pos)>=1)sideWin(g,pos<0?1:0,now);return}if(!g.timer||g.timer.pausedAt||timerLeft(g.timer,now)>0)return;
- if(g.engine==='names'){const alive=active(g),id=alive[g.turn%alive.length];delete g.lastPass;delete g.redoNotice;eliminate(g,[id],now);if(!g.result){g.turn%=active(g).length;g.timer={startedAt:g.timer.startedAt+g.timer.duration+g.timer.pauseTotal,duration:10000,pauseTotal:0}}}
+ if(g.engine==='names'){
+  const alive=active(g),index=g.turn%alive.length,id=alive[index];
+  delete g.lastPass;delete g.redoNotice;eliminate(g,[id],now);
+  const finalPlacements=g.result?.placements;
+  const nextPlayerId=Array.from({length:alive.length},(_,i)=>alive[(index+i+1)%alive.length]).find(player=>!g.out.includes(player))||'';
+  g.eliminationBreak={id:g.instanceId+'-elimination-'+g.eliminations.length,playerId:id,nextPlayerId,startedAt:now,endsAt:now+1400};
+  if(finalPlacements)g.eliminationBreak.finalPlacements=finalPlacements;
+  delete g.result;delete g.timer;g.phase='elimination-break';
+ }
  else if(g.engine==='bust'){const alive=active(g),id=alive[g.turn%alive.length];eliminate(g,[id],now);if(!g.result)resetBustRound(g,r,now)}
  else if(g.engine==='reverseSpeed'){const alive=active(g),id=alive[g.turn%alive.length];g.lives[id]--;if(!g.lives[id])eliminate(g,[id],now);g.turn=(g.turn+(g.out.includes(id)?0:1))%Math.max(1,active(g).length);delete g.timer}
  else if(g.engine==='gauntlet')nextGauntlet(g,now);

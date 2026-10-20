@@ -1,0 +1,1749 @@
+{
+  "id": "demo-mines",
+  "name": "Demo Mines",
+  "subtitle": "Approved browser preview \u00b7 corrected right Card landing, west VS connection and steel-floored start",
+  "prototypeOnly": true,
+  "sourceBoard": "King Bob-omb's Powderkeg Mine",
+  "playerCount": {
+    "min": 2,
+    "max": 4
+  },
+  "defaultTrophyPrice": 10,
+  "width": 1240,
+  "height": 1020,
+  "symmetryAxisX": 620,
+  "startDeck": {
+    "id": "mine-entrance",
+    "x": 620,
+    "y": 1040,
+    "width": 385,
+    "height": 110,
+    "level": 0,
+    "label": "MINE ENTRANCE \u00b7 ALL PLAYERS START"
+  },
+  "startId": "d01",
+  "entryId": "d01",
+  "nodes": [
+    {
+      "id": "d01",
+      "type": "Mechanic",
+      "x": 620,
+      "y": 812,
+      "level": 0,
+      "name": "First blue \u2014 entry funnel",
+      "next": [
+        "d02"
+      ],
+      "previous": [
+        "d25",
+        "d52"
+      ],
+      "trophySpot": false,
+      "worldHeight": 0.65
+    },
+    {
+      "id": "d02",
+      "type": "Danger Mechanic",
+      "x": 620,
+      "y": 720,
+      "level": 0,
+      "name": "Mine staircase: Danger",
+      "next": [
+        "d03"
+      ],
+      "previous": [
+        "d01"
+      ],
+      "trophySpot": false,
+      "worldHeight": 1.625
+    },
+    {
+      "id": "d03",
+      "type": "Mechanic",
+      "x": 620,
+      "y": 600,
+      "level": 2,
+      "name": "Enter raised bomb courtyard",
+      "next": [
+        "d04"
+      ],
+      "previous": [
+        "d02",
+        "d16"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d04",
+      "type": "Event",
+      "x": 705,
+      "y": 600,
+      "level": 2,
+      "name": "Royal event \u2014 lower right",
+      "next": [
+        "d05"
+      ],
+      "special": "royal-explosion",
+      "previous": [
+        "d03"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d05",
+      "type": "Card",
+      "x": 790,
+      "y": 600,
+      "level": 2,
+      "name": "Former Ally: Card",
+      "next": [
+        "d06"
+      ],
+      "convertedFrom": "Ally",
+      "previous": [
+        "d04"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d06",
+      "type": "Event",
+      "x": 790,
+      "y": 525,
+      "level": 2,
+      "name": "Royal event \u2014 right",
+      "next": [
+        "j-northeast"
+      ],
+      "special": "royal-explosion",
+      "previous": [
+        "d05"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d07",
+      "type": "Card",
+      "x": 790,
+      "y": 375,
+      "level": 2,
+      "name": "Royal court: Card",
+      "next": [
+        "d08"
+      ],
+      "previous": [
+        "j-northeast"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d08",
+      "type": "Lucky",
+      "x": 790,
+      "y": 300,
+      "level": 2,
+      "name": "Royal court: Lucky",
+      "next": [
+        "d09"
+      ],
+      "previous": [
+        "d07"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d09",
+      "type": "Mechanic",
+      "x": 705,
+      "y": 300,
+      "level": 2,
+      "name": "Royal court: top right",
+      "next": [
+        "d10"
+      ],
+      "previous": [
+        "d08"
+      ],
+      "trophySpot": true,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d10",
+      "type": "Mechanic",
+      "x": 620,
+      "y": 300,
+      "level": 2,
+      "name": "Royal court: top center",
+      "next": [
+        "d11"
+      ],
+      "previous": [
+        "d09"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d11",
+      "type": "Danger Mechanic",
+      "x": 535,
+      "y": 300,
+      "level": 2,
+      "name": "Royal court: Danger",
+      "next": [
+        "d12"
+      ],
+      "previous": [
+        "d10"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d12",
+      "type": "Event",
+      "x": 450,
+      "y": 300,
+      "level": 2,
+      "name": "Royal event \u2014 upper left",
+      "next": [
+        "d13"
+      ],
+      "special": "royal-explosion",
+      "previous": [
+        "d11",
+        "d42"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d13",
+      "type": "Card",
+      "x": 450,
+      "y": 375,
+      "level": 2,
+      "name": "Royal court: Card",
+      "next": [
+        "d14"
+      ],
+      "previous": [
+        "d12"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d14",
+      "type": "Mechanic",
+      "x": 450,
+      "y": 450,
+      "level": 2,
+      "name": "Royal court: left middle",
+      "next": [
+        "d15"
+      ],
+      "previous": [
+        "d13"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d15",
+      "type": "Event",
+      "x": 450,
+      "y": 525,
+      "level": 2,
+      "name": "Royal event \u2014 lower left",
+      "next": [
+        "j-southwest"
+      ],
+      "special": "royal-explosion",
+      "previous": [
+        "d14"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d16",
+      "type": "Mechanic",
+      "x": 535,
+      "y": 600,
+      "level": 2,
+      "name": "Return to center entry",
+      "next": [
+        "d03"
+      ],
+      "previous": [
+        "j-southwest"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d17",
+      "type": "Mechanic",
+      "x": 882,
+      "y": 450,
+      "level": 2,
+      "name": "Right branch: blue approach",
+      "next": [
+        "j-east"
+      ],
+      "previous": [
+        "j-northeast"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d18",
+      "type": "Mechanic",
+      "x": 1035,
+      "y": 514,
+      "level": 2,
+      "name": "Right lower: blue 1",
+      "next": [
+        "d19"
+      ],
+      "previous": [
+        "j-east"
+      ],
+      "trophySpot": true,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d19",
+      "type": "Mechanic",
+      "x": 1035,
+      "y": 586,
+      "level": 2,
+      "name": "Right lower: blue 2",
+      "next": [
+        "d20"
+      ],
+      "previous": [
+        "d18"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d20",
+      "type": "Danger Mechanic",
+      "x": 1035,
+      "y": 658,
+      "level": 2,
+      "name": "Right lower: Danger",
+      "next": [
+        "d21"
+      ],
+      "previous": [
+        "d19"
+      ],
+      "trophySpot": false,
+      "worldHeight": 1.3
+    },
+    {
+      "id": "d21",
+      "type": "Card",
+      "x": 1035,
+      "y": 720,
+      "level": 0,
+      "name": "Right lower staircase: Card",
+      "next": [
+        "d22"
+      ],
+      "previous": [
+        "d20"
+      ],
+      "trophySpot": false,
+      "worldHeight": 1.3
+    },
+    {
+      "id": "d22",
+      "type": "Bad Luck",
+      "x": 1035,
+      "y": 812,
+      "level": 1,
+      "name": "Right lower: Bad Luck",
+      "next": [
+        "d23"
+      ],
+      "previous": [
+        "d21"
+      ],
+      "trophySpot": false,
+      "worldHeight": 1.3
+    },
+    {
+      "id": "d23",
+      "type": "Mechanic",
+      "x": 932,
+      "y": 812,
+      "level": 1,
+      "name": "Right lower: back left",
+      "next": [
+        "d24"
+      ],
+      "previous": [
+        "d22"
+      ],
+      "trophySpot": false,
+      "worldHeight": 1.3
+    },
+    {
+      "id": "d24",
+      "type": "Card",
+      "x": 850,
+      "y": 812,
+      "level": 0,
+      "name": "Right descent: Card",
+      "next": [
+        "d25"
+      ],
+      "previous": [
+        "d23"
+      ],
+      "trophySpot": false,
+      "worldHeight": 0.65
+    },
+    {
+      "id": "d25",
+      "type": "Lucky",
+      "x": 756,
+      "y": 812,
+      "level": 0,
+      "name": "Former Ally: Lucky",
+      "next": [
+        "d01"
+      ],
+      "convertedFrom": "Ally",
+      "previous": [
+        "d24"
+      ],
+      "trophySpot": true,
+      "worldHeight": 0.65
+    },
+    {
+      "id": "d26",
+      "type": "Card",
+      "x": 1035,
+      "y": 334,
+      "level": 2,
+      "name": "Right climb: Card 1",
+      "next": [
+        "d27"
+      ],
+      "previous": [
+        "j-east"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d27",
+      "type": "Card",
+      "x": 1035,
+      "y": 268,
+      "level": 2,
+      "name": "Right climb: Card 2",
+      "next": [
+        "shop-east"
+      ],
+      "previous": [
+        "d26"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d28",
+      "type": "Mechanic",
+      "x": 1035,
+      "y": 182,
+      "level": 3,
+      "name": "Right terrace: blue",
+      "next": [
+        "d29"
+      ],
+      "previous": [
+        "shop-east"
+      ],
+      "trophySpot": false,
+      "worldHeight": 3.75
+    },
+    {
+      "id": "d29",
+      "type": "Event",
+      "x": 1035,
+      "y": 145,
+      "level": 3,
+      "name": "Right terrace event",
+      "next": [
+        "d30"
+      ],
+      "special": "ore-lift",
+      "previous": [
+        "d28"
+      ],
+      "trophySpot": false,
+      "worldHeight": 3.75
+    },
+    {
+      "id": "d30",
+      "type": "Mechanic",
+      "x": 950,
+      "y": 145,
+      "level": 3,
+      "name": "Right upper bridge: blue",
+      "next": [
+        "d31"
+      ],
+      "previous": [
+        "d29"
+      ],
+      "trophySpot": false,
+      "worldHeight": 3.75
+    },
+    {
+      "id": "d31",
+      "type": "Event",
+      "x": 865,
+      "y": 145,
+      "level": 4,
+      "name": "Right switch event",
+      "next": [
+        "d32",
+        "d34"
+      ],
+      "special": "conveyor-reversal",
+      "previous": [
+        "d30"
+      ],
+      "trophySpot": false,
+      "worldHeight": 4.85
+    },
+    {
+      "id": "d32",
+      "type": "Lucky",
+      "x": 785,
+      "y": 209,
+      "level": 4,
+      "name": "Lower conveyor: Lucky east",
+      "next": [
+        "d33"
+      ],
+      "previous": [
+        "d31"
+      ],
+      "trophySpot": false,
+      "worldHeight": 4.85
+    },
+    {
+      "id": "d33",
+      "type": "Lucky",
+      "x": 455,
+      "y": 209,
+      "level": 4,
+      "name": "Lower conveyor: Lucky west",
+      "next": [
+        "d36"
+      ],
+      "previous": [
+        "d32"
+      ],
+      "trophySpot": false,
+      "worldHeight": 4.85
+    },
+    {
+      "id": "d34",
+      "type": "Mechanic",
+      "x": 785,
+      "y": 82,
+      "level": 4,
+      "name": "Upper conveyor: blue east",
+      "next": [
+        "mini-bomb"
+      ],
+      "previous": [
+        "d31"
+      ],
+      "trophySpot": false,
+      "worldHeight": 4.85
+    },
+    {
+      "id": "d35",
+      "type": "Battle",
+      "x": 455,
+      "y": 82,
+      "level": 4,
+      "name": "Upper conveyor: VS west",
+      "next": [
+        "d36"
+      ],
+      "previous": [
+        "mini-bomb"
+      ],
+      "trophySpot": false,
+      "worldHeight": 4.85
+    },
+    {
+      "id": "d36",
+      "type": "Event",
+      "x": 375,
+      "y": 145,
+      "level": 4,
+      "name": "Left switch event",
+      "next": [
+        "d38"
+      ],
+      "special": "conveyor-reversal",
+      "previous": [
+        "d33",
+        "d35"
+      ],
+      "trophySpot": false,
+      "worldHeight": 4.85
+    },
+    {
+      "id": "d38",
+      "type": "Mechanic",
+      "x": 300,
+      "y": 145,
+      "level": 3,
+      "name": "Upper west: blue, turn toward terrace",
+      "next": [
+        "d39"
+      ],
+      "previous": [
+        "d36"
+      ],
+      "trophySpot": true,
+      "worldHeight": 3.75
+    },
+    {
+      "id": "d39",
+      "type": "Mechanic",
+      "x": 205,
+      "y": 145,
+      "level": 3,
+      "name": "Upper west: blue, begin descent",
+      "next": [
+        "d40"
+      ],
+      "previous": [
+        "d38"
+      ],
+      "trophySpot": false,
+      "worldHeight": 3.75
+    },
+    {
+      "id": "d40",
+      "type": "Bad Luck",
+      "x": 205,
+      "y": 245,
+      "level": 3,
+      "name": "Upper west: Bad Luck",
+      "next": [
+        "steal-west"
+      ],
+      "previous": [
+        "d39"
+      ],
+      "trophySpot": false,
+      "worldHeight": 3.75
+    },
+    {
+      "id": "d41",
+      "type": "Mechanic",
+      "x": 205,
+      "y": 335,
+      "level": 1,
+      "name": "West middle blue \u2014 join return / inward VS",
+      "next": [
+        "d42"
+      ],
+      "previous": [
+        "steal-west",
+        "d46"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d42",
+      "type": "Battle",
+      "x": 320,
+      "y": 335,
+      "level": 1,
+      "name": "Inward VS leading to court Event",
+      "next": [
+        "d12"
+      ],
+      "previous": [
+        "d41"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d43",
+      "type": "Bad Luck",
+      "x": 345,
+      "y": 575,
+      "level": 1,
+      "name": "Center lower-left to west fork: Bad Luck",
+      "next": [
+        "j-west"
+      ],
+      "previous": [
+        "j-southwest"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d44",
+      "type": "Event",
+      "x": 205,
+      "y": 515,
+      "level": 1,
+      "name": "Left middle: Event",
+      "next": [
+        "d45"
+      ],
+      "special": "mine-cart-left",
+      "previous": [
+        "j-west"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d45",
+      "type": "Mechanic",
+      "x": 205,
+      "y": 455,
+      "level": 1,
+      "name": "Left middle: blue",
+      "next": [
+        "d46"
+      ],
+      "previous": [
+        "d44"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d46",
+      "type": "Event",
+      "x": 205,
+      "y": 395,
+      "level": 1,
+      "name": "Left middle: Event",
+      "next": [
+        "d41"
+      ],
+      "special": "gold-mine-gamble-left",
+      "previous": [
+        "d45"
+      ],
+      "trophySpot": false,
+      "worldHeight": 2.6
+    },
+    {
+      "id": "d47",
+      "type": "Danger Mechanic",
+      "x": 205,
+      "y": 645,
+      "level": 1,
+      "name": "Left lower: Danger",
+      "next": [
+        "d48"
+      ],
+      "previous": [
+        "j-west"
+      ],
+      "trophySpot": false,
+      "worldHeight": 1.3
+    },
+    {
+      "id": "d48",
+      "type": "Mechanic",
+      "x": 205,
+      "y": 720,
+      "level": 0,
+      "name": "Left staircase: blue",
+      "next": [
+        "shop-west"
+      ],
+      "previous": [
+        "d47"
+      ],
+      "trophySpot": false,
+      "worldHeight": 1.3
+    },
+    {
+      "id": "d49",
+      "type": "Event",
+      "x": 205,
+      "y": 812,
+      "level": 0,
+      "name": "Left mine Event",
+      "next": [
+        "d50"
+      ],
+      "special": "mine-cart-left",
+      "previous": [
+        "shop-west"
+      ],
+      "trophySpot": false,
+      "worldHeight": 1.3
+    },
+    {
+      "id": "d50",
+      "type": "Card",
+      "x": 300,
+      "y": 812,
+      "level": 0,
+      "name": "Former Ally: Card",
+      "next": [
+        "d51"
+      ],
+      "convertedFrom": "Ally",
+      "previous": [
+        "d49"
+      ],
+      "trophySpot": false,
+      "worldHeight": 1.3
+    },
+    {
+      "id": "d51",
+      "type": "Mechanic",
+      "x": 390,
+      "y": 812,
+      "level": 0,
+      "name": "Left lower: blue",
+      "next": [
+        "d52"
+      ],
+      "previous": [
+        "d50"
+      ],
+      "trophySpot": true,
+      "worldHeight": 0.65
+    },
+    {
+      "id": "d52",
+      "type": "Battle",
+      "x": 484,
+      "y": 812,
+      "level": 0,
+      "name": "Left lower: VS",
+      "next": [
+        "d01"
+      ],
+      "previous": [
+        "d51"
+      ],
+      "trophySpot": false,
+      "worldHeight": 0.65
+    }
+  ],
+  "stops": [
+    {
+      "id": "j-northeast",
+      "kind": "Junction",
+      "type": "Junction",
+      "x": 790,
+      "y": 450,
+      "level": 2,
+      "name": "Center fork: continue or exit east",
+      "nonSpace": true,
+      "next": [
+        "d07",
+        "d17"
+      ],
+      "previous": [
+        "d06"
+      ],
+      "worldHeight": 2.6
+    },
+    {
+      "id": "j-southwest",
+      "kind": "Junction",
+      "type": "Junction",
+      "x": 450,
+      "y": 600,
+      "level": 2,
+      "name": "Center fork: keep looping or exit west",
+      "nonSpace": true,
+      "next": [
+        "d16",
+        "d43"
+      ],
+      "previous": [
+        "d15"
+      ],
+      "worldHeight": 2.6
+    },
+    {
+      "id": "j-east",
+      "kind": "Junction",
+      "type": "Junction",
+      "x": 1035,
+      "y": 450,
+      "level": 2,
+      "name": "Right fork: up or down",
+      "nonSpace": true,
+      "next": [
+        "d18",
+        "d26"
+      ],
+      "previous": [
+        "d17"
+      ],
+      "worldHeight": 2.6
+    },
+    {
+      "id": "shop-east",
+      "kind": "Shop",
+      "type": "Shop",
+      "x": 1035,
+      "y": 225,
+      "level": 2,
+      "name": "East Action Shop \u2014 optional, no die step",
+      "nonSpace": true,
+      "next": [
+        "d28"
+      ],
+      "previous": [
+        "d27"
+      ],
+      "worldHeight": 3.75
+    },
+    {
+      "id": "mini-bomb",
+      "kind": "Egg",
+      "type": "Egg",
+      "x": 620,
+      "y": 82,
+      "level": 4,
+      "name": "Orange Rocket League egg nuisance \u2014 forced stop",
+      "nonSpace": true,
+      "next": [
+        "d35"
+      ],
+      "previous": [
+        "d34"
+      ],
+      "worldHeight": 4.85
+    },
+    {
+      "id": "steal-west",
+      "kind": "Steal",
+      "type": "Steal",
+      "x": 205,
+      "y": 290,
+      "level": 3,
+      "name": "Steal stop \u2014 optional, no die step",
+      "nonSpace": true,
+      "next": [
+        "d41"
+      ],
+      "previous": [
+        "d40"
+      ],
+      "worldHeight": 2.6
+    },
+    {
+      "id": "j-west",
+      "kind": "Junction",
+      "type": "Junction",
+      "x": 205,
+      "y": 575,
+      "level": 1,
+      "name": "Left fork: up or down",
+      "nonSpace": true,
+      "next": [
+        "d44",
+        "d47"
+      ],
+      "previous": [
+        "d43"
+      ],
+      "worldHeight": 2.6
+    },
+    {
+      "id": "shop-west",
+      "kind": "Shop",
+      "type": "Shop",
+      "x": 205,
+      "y": 770,
+      "level": 0,
+      "name": "West Action Shop \u2014 optional, no die step",
+      "nonSpace": true,
+      "next": [
+        "d49"
+      ],
+      "previous": [
+        "d48"
+      ],
+      "worldHeight": 1.3
+    }
+  ],
+  "edges": [
+    {
+      "id": "d01->d02",
+      "from": "d01",
+      "to": "d02"
+    },
+    {
+      "id": "d02->d03",
+      "from": "d02",
+      "to": "d03"
+    },
+    {
+      "id": "d03->d04",
+      "from": "d03",
+      "to": "d04"
+    },
+    {
+      "id": "d04->d05",
+      "from": "d04",
+      "to": "d05"
+    },
+    {
+      "id": "d05->d06",
+      "from": "d05",
+      "to": "d06"
+    },
+    {
+      "id": "d06->j-northeast",
+      "from": "d06",
+      "to": "j-northeast"
+    },
+    {
+      "id": "j-northeast->d07",
+      "from": "j-northeast",
+      "to": "d07"
+    },
+    {
+      "id": "d07->d08",
+      "from": "d07",
+      "to": "d08"
+    },
+    {
+      "id": "d08->d09",
+      "from": "d08",
+      "to": "d09"
+    },
+    {
+      "id": "d09->d10",
+      "from": "d09",
+      "to": "d10"
+    },
+    {
+      "id": "d10->d11",
+      "from": "d10",
+      "to": "d11"
+    },
+    {
+      "id": "d11->d12",
+      "from": "d11",
+      "to": "d12"
+    },
+    {
+      "id": "d12->d13",
+      "from": "d12",
+      "to": "d13"
+    },
+    {
+      "id": "d13->d14",
+      "from": "d13",
+      "to": "d14"
+    },
+    {
+      "id": "d14->d15",
+      "from": "d14",
+      "to": "d15"
+    },
+    {
+      "id": "d15->j-southwest",
+      "from": "d15",
+      "to": "j-southwest"
+    },
+    {
+      "id": "j-southwest->d16",
+      "from": "j-southwest",
+      "to": "d16"
+    },
+    {
+      "id": "d16->d03",
+      "from": "d16",
+      "to": "d03"
+    },
+    {
+      "id": "j-northeast->d17",
+      "from": "j-northeast",
+      "to": "d17"
+    },
+    {
+      "id": "d17->j-east",
+      "from": "d17",
+      "to": "j-east"
+    },
+    {
+      "id": "j-east->d18",
+      "from": "j-east",
+      "to": "d18"
+    },
+    {
+      "id": "d18->d19",
+      "from": "d18",
+      "to": "d19"
+    },
+    {
+      "id": "d19->d20",
+      "from": "d19",
+      "to": "d20"
+    },
+    {
+      "id": "d20->d21",
+      "from": "d20",
+      "to": "d21"
+    },
+    {
+      "id": "d21->d22",
+      "from": "d21",
+      "to": "d22"
+    },
+    {
+      "id": "d22->d23",
+      "from": "d22",
+      "to": "d23"
+    },
+    {
+      "id": "d23->d24",
+      "from": "d23",
+      "to": "d24"
+    },
+    {
+      "id": "d24->d25",
+      "from": "d24",
+      "to": "d25"
+    },
+    {
+      "id": "d25->d01",
+      "from": "d25",
+      "to": "d01"
+    },
+    {
+      "id": "j-east->d26",
+      "from": "j-east",
+      "to": "d26"
+    },
+    {
+      "id": "d26->d27",
+      "from": "d26",
+      "to": "d27"
+    },
+    {
+      "id": "d27->shop-east",
+      "from": "d27",
+      "to": "shop-east"
+    },
+    {
+      "id": "shop-east->d28",
+      "from": "shop-east",
+      "to": "d28"
+    },
+    {
+      "id": "d28->d29",
+      "from": "d28",
+      "to": "d29"
+    },
+    {
+      "id": "d29->d30",
+      "from": "d29",
+      "to": "d30"
+    },
+    {
+      "id": "d30->d31",
+      "from": "d30",
+      "to": "d31"
+    },
+    {
+      "id": "d31->d32",
+      "from": "d31",
+      "to": "d32",
+      "lane": "lower"
+    },
+    {
+      "id": "d32->d33",
+      "from": "d32",
+      "to": "d33",
+      "lane": "lower"
+    },
+    {
+      "id": "d33->d36",
+      "from": "d33",
+      "to": "d36",
+      "lane": "lower"
+    },
+    {
+      "id": "d31->d34",
+      "from": "d31",
+      "to": "d34",
+      "lane": "upper"
+    },
+    {
+      "id": "d34->mini-bomb",
+      "from": "d34",
+      "to": "mini-bomb",
+      "lane": "upper"
+    },
+    {
+      "id": "mini-bomb->d35",
+      "from": "mini-bomb",
+      "to": "d35",
+      "lane": "upper"
+    },
+    {
+      "id": "d35->d36",
+      "from": "d35",
+      "to": "d36",
+      "lane": "upper"
+    },
+    {
+      "id": "d36->d38",
+      "from": "d36",
+      "to": "d38"
+    },
+    {
+      "id": "d38->d39",
+      "from": "d38",
+      "to": "d39"
+    },
+    {
+      "id": "d39->d40",
+      "from": "d39",
+      "to": "d40"
+    },
+    {
+      "id": "d40->steal-west",
+      "from": "d40",
+      "to": "steal-west"
+    },
+    {
+      "id": "steal-west->d41",
+      "from": "steal-west",
+      "to": "d41"
+    },
+    {
+      "id": "d41->d42",
+      "from": "d41",
+      "to": "d42"
+    },
+    {
+      "id": "d42->d12",
+      "from": "d42",
+      "to": "d12"
+    },
+    {
+      "id": "j-southwest->d43",
+      "from": "j-southwest",
+      "to": "d43"
+    },
+    {
+      "id": "d43->j-west",
+      "from": "d43",
+      "to": "j-west"
+    },
+    {
+      "id": "j-west->d44",
+      "from": "j-west",
+      "to": "d44"
+    },
+    {
+      "id": "d44->d45",
+      "from": "d44",
+      "to": "d45"
+    },
+    {
+      "id": "d45->d46",
+      "from": "d45",
+      "to": "d46"
+    },
+    {
+      "id": "d46->d41",
+      "from": "d46",
+      "to": "d41"
+    },
+    {
+      "id": "j-west->d47",
+      "from": "j-west",
+      "to": "d47"
+    },
+    {
+      "id": "d47->d48",
+      "from": "d47",
+      "to": "d48"
+    },
+    {
+      "id": "d48->shop-west",
+      "from": "d48",
+      "to": "shop-west"
+    },
+    {
+      "id": "shop-west->d49",
+      "from": "shop-west",
+      "to": "d49"
+    },
+    {
+      "id": "d49->d50",
+      "from": "d49",
+      "to": "d50"
+    },
+    {
+      "id": "d50->d51",
+      "from": "d50",
+      "to": "d51"
+    },
+    {
+      "id": "d51->d52",
+      "from": "d51",
+      "to": "d52"
+    },
+    {
+      "id": "d52->d01",
+      "from": "d52",
+      "to": "d01"
+    }
+  ],
+  "terrain": [
+    {
+      "id": "starting-deck",
+      "points": "412,860 828,860 828,996 412,996",
+      "elevation": 0,
+      "fill": "#767267"
+    },
+    {
+      "id": "bottom-left",
+      "points": "160,607 554,607 554,850 160,850",
+      "elevation": 0,
+      "fill": "#635447"
+    },
+    {
+      "id": "bottom-right",
+      "points": "686,607 1080,607 1080,850 686,850",
+      "elevation": 0,
+      "fill": "#635447"
+    },
+    {
+      "id": "bottom-continuous-deck",
+      "points": "160,779 1080,779 1080,850 160,850",
+      "elevation": 0,
+      "fill": "#635447"
+    },
+    {
+      "id": "west-middle",
+      "points": "153,312 419,312 419,674 153,674",
+      "elevation": 1,
+      "fill": "#665f51"
+    },
+    {
+      "id": "west-high",
+      "points": "153,120 419,120 419,297 153,297",
+      "elevation": 3,
+      "fill": "#837a68"
+    },
+    {
+      "id": "east-middle",
+      "points": "821,248 1087,248 1087,674 821,674",
+      "elevation": 1,
+      "fill": "#665f51"
+    },
+    {
+      "id": "east-high",
+      "points": "821,120 1087,120 1087,206 821,206",
+      "elevation": 3,
+      "fill": "#837a68"
+    },
+    {
+      "id": "highest-conveyor",
+      "points": "342,37 898,37 898,244 342,244",
+      "elevation": 4,
+      "fill": "#444b48"
+    },
+    {
+      "id": "royal-court",
+      "points": "415,265 825,265 825,634 415,634",
+      "elevation": 2,
+      "fill": "#425447"
+    }
+  ],
+  "trophySpots": [
+    "d09",
+    "d18",
+    "d25",
+    "d38",
+    "d51"
+  ],
+  "shops": [
+    {
+      "id": "shop-east",
+      "kind": "Shop",
+      "type": "Shop",
+      "x": 1035,
+      "y": 225,
+      "level": 2,
+      "name": "East Action Shop \u2014 optional, no die step",
+      "nonSpace": true,
+      "next": [
+        "d28"
+      ],
+      "previous": [
+        "d27"
+      ]
+    },
+    {
+      "id": "shop-west",
+      "kind": "Shop",
+      "type": "Shop",
+      "x": 205,
+      "y": 770,
+      "level": 0,
+      "name": "West Action Shop \u2014 optional, no die step",
+      "nonSpace": true,
+      "next": [
+        "d49"
+      ],
+      "previous": [
+        "d48"
+      ]
+    }
+  ],
+  "gates": [],
+  "switchEvents": [
+    "d31",
+    "d36"
+  ],
+  "conveyorLanes": {
+    "lower": [
+      "d32",
+      "d33"
+    ],
+    "upper": [
+      "d34",
+      "mini-bomb",
+      "d35"
+    ]
+  },
+  "defaultConveyorLane": "lower",
+  "spaceColors": {
+    "Mechanic": "#3489f5",
+    "Danger Mechanic": "#ef4444",
+    "Card": "#ae5bef",
+    "Battle": "#f9a725",
+    "Event": "#fb6192",
+    "Lucky": "#16a34a",
+    "Bad Luck": "#c51422"
+  },
+  "landmarks": [
+    {
+      "id": "bomb",
+      "kind": "soccer-ball-bomb",
+      "x": 620,
+      "y": 448,
+      "radius": 78.4,
+      "label": "KING BOOM",
+      "countdown": 5,
+      "onSeparateIsland": true
+    },
+    {
+      "id": "egg",
+      "kind": "orange-egg",
+      "x": 620,
+      "y": 6,
+      "radius": 15,
+      "label": "ORANGE EGG",
+      "worldPosition": [
+        0,
+        12.6,
+        5.62
+      ],
+      "onRearPedestal": true
+    },
+    {
+      "id": "conveyor",
+      "kind": "conveyor",
+      "x": 620,
+      "y": 141,
+      "width": 520,
+      "height": 185,
+      "label": "REVERSING CONVEYOR"
+    }
+  ],
+  "boardEvents": {
+    "royal-explosion": {
+      "name": "Royal Soccer Bomb",
+      "description": "Center-loop event placeholder: advances the giant bomb countdown."
+    },
+    "conveyor-reversal": {
+      "name": "Switch the Conveyor",
+      "description": "Landing here flips the active upper route; the preview toggle simulates it."
+    },
+    "mine-cart-left": {
+      "name": "Mine Cart",
+      "description": "Left mine-cart event placeholder."
+    },
+    "gold-mine-gamble-left": {
+      "name": "Gold Mine",
+      "description": "Gold mine event placeholder."
+    },
+    "ore-lift": {
+      "name": "Ore Lift",
+      "description": "Upper-right mine machinery event placeholder."
+    }
+  },
+  "designNotes": [
+    "51 playable spaces retained from V3; 8 non-space stops; spawn deck never counts as a playable space.",
+    "Approved map art is shown exactly in the browser. Source graph remains editable for the future 3D board.",
+    "Right Card pair is on the lower terrace with the shop stop at its transition to the high terrace; bottom entry lane has continuous steel flooring.",
+    "West VS reaches the upper-left center court Event through a square corner; 4 junctions, 2 shops, 1 Steal stop and 1 orange egg are non-space stops.",
+    "Upper conveyor has two routes; a switch Event makes only one selectable. Toggle it in the preview.",
+    "Former Ally spaces: d05 \u2192 Card, d25 \u2192 Lucky, d50 \u2192 Card.",
+    "Purple = Card, orange VS = Battle, pink = Event, blue = Mechanic, red = Danger.",
+    "Elevations are indicated on the prototype; they are NOT yet a 3D game board.",
+    "Live Booststone Ruins and Party Mode remain unchanged."
+  ],
+  "geometryVersion": 5,
+  "worldHeights": {
+    "bottom": 0.65,
+    "corners": 1.3,
+    "middle": 2.6,
+    "upper": 3.75,
+    "top": 4.85,
+    "landing": 1.625
+  },
+  "countdownColors": {
+    "5": "green",
+    "4": "green",
+    "3": "yellow",
+    "2": "yellow",
+    "1": "red",
+    "0": "reserved"
+  },
+  "lastThreeTurnsBadLuck": {
+    "material": "Very Bad Luck dark purple",
+    "icon": "!?",
+    "collection": "07 Final-three-turn space variants",
+    "previewActive": false,
+    "color": "#2c0350",
+    "description": "Darker violet; normal Bad Luck is red."
+  },
+  "platformGrid": [
+    {
+      "id": "bottom-west",
+      "rect": [
+        160,
+        634,
+        360,
+        850
+      ],
+      "surfaceHeight": 1.3,
+      "surface": "grate"
+    },
+    {
+      "id": "bottom-center",
+      "rect": [
+        360,
+        634,
+        880,
+        850
+      ],
+      "surfaceHeight": 0.65,
+      "surface": "warm steel"
+    },
+    {
+      "id": "bottom-east",
+      "rect": [
+        880,
+        634,
+        1080,
+        850
+      ],
+      "surfaceHeight": 1.3,
+      "surface": "grate"
+    },
+    {
+      "id": "middle-west",
+      "rect": [
+        160,
+        265,
+        400,
+        634
+      ],
+      "surfaceHeight": 2.6,
+      "surface": "dark warm steel"
+    },
+    {
+      "id": "middle-center",
+      "rect": [
+        415,
+        265,
+        825,
+        634
+      ],
+      "surfaceHeight": 2.6,
+      "surface": "green metal with island/moat"
+    },
+    {
+      "id": "middle-east",
+      "rect": [
+        840,
+        265,
+        1080,
+        634
+      ],
+      "surfaceHeight": 2.6,
+      "surface": "dark warm steel"
+    },
+    {
+      "id": "upper-west",
+      "rect": [
+        160,
+        120,
+        420,
+        244
+      ],
+      "surfaceHeight": 3.75,
+      "surface": "warm steel"
+    },
+    {
+      "id": "upper-center",
+      "rect": [
+        342,
+        37,
+        898,
+        244
+      ],
+      "surfaceHeight": 4.85,
+      "surface": "warm steel"
+    },
+    {
+      "id": "upper-east",
+      "rect": [
+        820,
+        120,
+        1080,
+        244
+      ],
+      "surfaceHeight": 3.75,
+      "surface": "warm steel"
+    }
+  ],
+  "fuseRuns": {
+    "west": [
+      [
+        -0.96,
+        -5.25,
+        0.87
+      ],
+      [
+        -5.25,
+        -5.25,
+        0.87
+      ],
+      [
+        -5.25,
+        -3.45,
+        0.87
+      ],
+      [
+        -5.25,
+        -3.45,
+        2.28
+      ],
+      [
+        -5.25,
+        6.35,
+        2.28
+      ],
+      [
+        0,
+        6.35,
+        2.28
+      ]
+    ],
+    "east": [
+      [
+        0.96,
+        -5.25,
+        0.87
+      ],
+      [
+        5.25,
+        -5.25,
+        0.87
+      ],
+      [
+        5.25,
+        -3.45,
+        0.87
+      ],
+      [
+        5.25,
+        -3.45,
+        2.28
+      ],
+      [
+        5.25,
+        6.35,
+        2.28
+      ],
+      [
+        0,
+        6.35,
+        2.28
+      ]
+    ]
+  },
+  "environmentRevision": {
+    "visibleLava": "under two grates only",
+    "cornerEntrancesAdded": 4,
+    "totalMineEntrances": 7,
+    "crystals": "soft emerald, reduced emission",
+    "materials": "procedural weathering and AgX lighting",
+    "crystalMaterial": {
+      "baseColor": [
+        0.03,
+        0.47,
+        0.19
+      ],
+      "emissionStrength": 0.8,
+      "source": "Earlier V2 emerald material"
+    }
+  },
+  "backgroundTerraces": {
+    "lava": 0,
+    "gold": 2.6,
+    "wheelConstruction": 3.75
+  },
+  "actionShops": [
+    "shop-west",
+    "shop-east"
+  ],
+  "stealCloud": "steal-west"
+}

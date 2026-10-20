@@ -1,3 +1,5 @@
+import {partyNow} from './partyClock'
+import { transformedBadLuck } from './demoMinesEvents'
 import {chestOpenAmount, chestCloseDelay} from './partyEventTiming'
 import {RewardParticles,HiddenGiftOnBoard,BoardServices,chestWalkPoint,rewardPoint} from './PartyBoardEffects'
 import {presentationBeat} from './partyPresentation'
@@ -8,6 +10,14 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Html, OrbitControls, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import layout from './booststoneV7Layout.json'
+import spaceMaterials from './demoMinesSpaceMaterials.json'
+
+// RGB arrays are linear values copied directly from Demo Mines' Blender materials.
+const spaceMaterialProps = (type) => {
+  const m = spaceMaterials[type]
+  return {color: new THREE.Color(...m.color), emissive: new THREE.Color(...m.emissive),
+    roughness: m.roughness, metalness: m.metalness, emissiveIntensity: m.emissiveIntensity}
+}
 
 const MODEL_URL = `${import.meta.env.BASE_URL || '/'}models/booststone-v7.glb`
 const COLORS = ['#f8fafc', '#fbbf24', '#38bdf8', '#f472b6']
@@ -82,15 +92,17 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
         chestLids.push({object:pivot,index,rotation:pivot.quaternion.clone()})
       })
     }
-    // Only Bad Luck materials need private copies for final-five recoloring.
+    // Match every colored space fill to the approved Demo Mines material.
     for (const node of board.nodes) {
-      if (node.type !== 'Bad Luck') continue
+      if (!spaceMaterials[node.type]) continue
       spaces[node.id]?.traverse((o) => {
         if (!o.isMesh) return
         const source = Array.isArray(o.material) ? o.material : [o.material]
         const mats = source.map((m) => {
+          if (!m?.color || !/^(?:WEB_)?Space /.test(m.name)) return m
           const copy = m.clone()
-          originals.push({ material: copy, color: copy.color.clone() })
+          Object.assign(copy, spaceMaterialProps(node.type))
+          if (node.type === 'Bad Luck') originals.push({ material: copy })
           return copy
         })
         o.material = Array.isArray(o.material) ? mats : mats[0]
@@ -150,8 +162,8 @@ function BoardModel({ board, room, finalFive, closedGarageGateIds = [], ballRun,
     Object.entries(model.spaces).forEach(([nodeId, object]) => { object.visible = nodeId !== id && !['Lucky','Bad Luck','Battle','Event'].includes(board.nodes.find(n=>n.id===nodeId)?.type) })
   }, [model, room.activeTrophyNodeId])
   useEffect(() => {
-    model.originals.forEach(({ material, color }) => {
-      material.color.copy(finalFive ? new THREE.Color('#14151a') : color)
+    model.originals.forEach(({ material }) => {
+      Object.assign(material, spaceMaterialProps(finalFive ? 'Very Bad Luck dark purple' : 'Bad Luck'))
     })
   }, [model, finalFive])
 
@@ -361,7 +373,7 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
     const eventActive = Number(room.turnState?.eventEffect?.animationStartedAt) > 0 && Date.now()+clockOffset-Number(room.turnState.eventEffect.animationStartedAt) < 5000
     const reward=presentationBeat(room,Date.now()+clockOffset)
     const trophyActive=Number(room.turnState?.trophyCinematic?.startedAt)>0&&Date.now()+clockOffset-Number(room.turnState.trophyCinematic.startedAt)<3300
-    if (overview && previous.current === overview && !eventActive && !reward && !trophyActive && !(room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed)) { broadcast(); return }
+    if (overview && previous.current === overview && !eventActive && !room.boardCinematic && !reward && !trophyActive && !(room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed)) { broadcast(); return }
     let cinematicTarget = null
     let gateLocked = false
     const now = Date.now() + clockOffset
@@ -416,6 +428,8 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
     if(reward)invalidate()
     const gift=room.turnState?.hiddenGiftResult
     if(gift&&!gift.dismissed){const p=layout.nodes[room.playerSetup?.[gift.playerId]?.boardNodeId];if(p){cinematicTarget=new THREE.Vector3(...p);invalidate()}}
+    const home=room.boardCinematic
+    if(home?.kind==='homestretch'){const index=Math.floor((now-home.startedAt-1800)/2200);cinematicTarget=new THREE.Vector3(...(layout.nodes[home.nodes[index]]||TARGET));gateLocked=index>=0&&((now-home.startedAt-1800)%2200)>=900;invalidate()}
     const desired = cinematicTarget || (overview ? new THREE.Vector3(...TARGET) : followPoint.current)
     if (!desired) return
     const factor = gateLocked ? 1 : 1 - Math.exp(-8 * Math.min(dt, .1))
@@ -432,7 +446,7 @@ function CameraControls({ resetKey, overview, followPoint, topDown, room, board,
     } else previous.current = overview
     if (!overview) previous.current = false
   })
-  return <OrbitControls ref={ref} makeDefault target={TARGET} enabled={overview && (!showcase || showcase.host)} onChange={broadcast}
+  return <OrbitControls ref={ref} makeDefault target={TARGET} enabled={overview && !room.boardCinematic && (!showcase || showcase.host)} onChange={broadcast}
     minPolarAngle={topDown ? 0 : .15} maxPolarAngle={topDown ? 0 : Math.PI / 2 - .08}
     enablePan enableZoom enableRotate={!topDown} enableDamping={false}
     minZoom={fit * .65} maxZoom={fit * 4} />
@@ -549,11 +563,13 @@ function DestinationHighlights({ nodeIds = [] }) {
 }
 
 function SpaceMarkers({board,room,model,finalStretch}) {
+ const [markerNow,setMarkerNow]=useState(partyNow())
+ useEffect(()=>{setMarkerNow(partyNow());if(!room.boardCinematic)return;const t=setInterval(()=>setMarkerNow(partyNow()),60);return()=>clearInterval(t)},[room.boardCinematic])
  const spike=useMemo(()=>{const shape=new THREE.Shape();for(let i=0;i<24;i++){const a=i*Math.PI/12,r=i%2?.72:1,x=Math.cos(a)*r,y=Math.sin(a)*r;i?shape.lineTo(x,y):shape.moveTo(x,y)}shape.closePath();return shape},[]);
  const texture=useMemo(()=>{const make=text=>{const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');x.fillStyle='white';x.font='bold '+(text==='VS'?'60':text==='!?'?'76':'96')+'px Arial';x.textAlign='center';x.textBaseline='middle';x.fillText(text,64,66);const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t};return {event:make('!'),bad:make('!?'),vs:make('VS')}},[]);
  useEffect(()=>()=>Object.values(texture).forEach(t=>t.dispose()),[texture]);
- return <group>{board.nodes.filter(n=>['Lucky','Bad Luck','Battle','Event'].includes(n.type)&&n.id!==room.activeTrophyNodeId&&model.spaces[n.id]).map(n=>{const o=model.spaces[n.id],p=new THREE.Vector3();o.getWorldPosition(p);const q=o.getWorldQuaternion(new THREE.Quaternion());const bad=n.type==='Bad Luck',vs=n.type==='Battle',lucky=n.type==='Lucky';const color=bad?(finalStretch?'#554165':'#b66b79'):vs?'#ca9b61':lucky?'#6c9e80':'#bb849e';const disc=(r,c)=> <mesh rotation={[-Math.PI/2,0,0]} scale={[r,r,r]}>{bad?<shapeGeometry args={[spike]}/>:<circleGeometry args={[1,vs?3:40]}/>}<meshStandardMaterial color={c} roughness={.88} side={THREE.DoubleSide}/></mesh>;return <group key={n.id} position={p.toArray()} quaternion={q}><group position={[0,.033,0]}>
- {disc(.199,'#dce4df')}<group position={[0,.002,0]}>{disc(.174,color)}</group>
+ return <group>{board.nodes.filter(n=>['Lucky','Bad Luck','Battle','Event'].includes(n.type)&&n.id!==room.activeTrophyNodeId&&model.spaces[n.id]).map(n=>{const o=model.spaces[n.id],p=new THREE.Vector3();o.getWorldPosition(p);const q=o.getWorldQuaternion(new THREE.Quaternion());const bad=n.type==='Bad Luck',vs=n.type==='Battle',lucky=n.type==='Lucky';const fill=spaceMaterialProps(bad&&transformedBadLuck(room,n.id,markerNow)?'Very Bad Luck dark purple':n.type);const disc=(r,c,isFill=false)=> <mesh rotation={[-Math.PI/2,0,0]} scale={[r,r,r]}>{bad?<shapeGeometry args={[spike]}/>:<circleGeometry args={[1,vs?3:40]}/>}<meshStandardMaterial {...(isFill?fill:{color:c,roughness:.42})} side={THREE.DoubleSide}/></mesh>;return <group key={n.id} position={p.toArray()} quaternion={q}><group position={[0,.033,0]}>
+ {disc(.199,'#dce4df')}<group position={[0,.002,0]}>{disc(.174,null,true)}</group>
  {(bad||vs||n.type==='Event')&&<mesh position={[0,.004,0]} rotation={[-Math.PI/2,0,0]}><planeGeometry args={[.27,.27]}/><meshBasicMaterial map={bad?texture.bad:vs?texture.vs:texture.event} transparent depthWrite={false}/></mesh>}
  {lucky&&<group position={[0,.005,0]}>{[[-.047,-.012],[.047,-.012],[0,-.065]].map(([x,z],i)=><mesh key={i} position={[x,0,z]} rotation={[-Math.PI/2,0,0]}><circleGeometry args={[.057,20]}/><meshBasicMaterial color="#e4ece4"/></mesh>)}<mesh position={[.012,0,.055]} rotation={[-Math.PI/2,0,.2]}><planeGeometry args={[.022,.1]}/><meshBasicMaterial color="#e4ece4"/></mesh></group>}
  </group></group>})}</group>

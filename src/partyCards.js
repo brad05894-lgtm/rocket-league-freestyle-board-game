@@ -1,4 +1,7 @@
 export const PARTY_CARDS = [
+  {id:'brake-check',name:'Brake Check',description:'Use before rolling. Choose an opponent: subtract 3 movement from their next roll. Penalties stack; movement cannot go below 0.',enabled:true,effect:'movement-penalty',amount:3,requiresTarget:true,negativeTargetEffect:true,timing:'before-roll'},
+  {id:'wheel-clamp',name:'Wheel Clamp',description:'Use before rolling. Choose an opponent: subtract 5 movement from their next roll. Penalties stack; movement cannot go below 0.',enabled:true,effect:'movement-penalty',amount:5,requiresTarget:true,negativeTargetEffect:true,timing:'before-roll'},
+
   { id: 'unlimited-tries', name: 'Unlimited Tries', description: 'After your Mechanic is revealed, use before Attempt 1. Take unlimited attempts within the existing 90-second limit; the clock never resets or extends.', enabled: true, effect: 'unlimited-attempts', timing: 'before-mechanic-attempt' },
   {
     id: 'boost-canister',
@@ -289,7 +292,9 @@ export const PARTY_CARD_SHOP_PRICES = Object.freeze({
   'token-tornado': 2,
   'teleport-pad': 4,
   'golden-teleporter': 8,
-  shield: 2,
+  'brake-check': 2,
+  'wheel-clamp': 3,
+  shield: 3,
   'double-payout': 4,
   'steal-card': 2,
   'swap-hands': 2,

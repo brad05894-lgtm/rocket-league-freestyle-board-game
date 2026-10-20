@@ -1,3 +1,4 @@
+import { isPartyIntermediateStop } from './partyRoutes'
 import { economySnapshot, attachEconomyPresentation } from './partyPresentation'
 import { identityKey, seal, unseal } from './partyChallengeSecrets'
 import { ensurePartyClock, partyNow } from './partyClock'
@@ -7,8 +8,9 @@ import { awardPartyBonuses, addPartyStat } from './partyProgress'
 import { initializeOnlineIdentity, joinProtectedRoom, requireOnlineIdentity, normalizeRoomCode, cleanPlayerName, randomRoomCode } from './onlineIdentity'
 import { ref, set, get, onValue, update, runTransaction as firebaseTransaction, serverTimestamp } from 'firebase/database'
 import { db } from './firebase'
-import { calculatePartyMovement, clearPendingPartyMovementModifiers, pendingPartyMovementModifier } from './partyMovementModifiers'
-import { BOOSTSTONE_RUINS } from './booststoneRuins'
+import { calculatePartyMovement, clearPendingPartyMovementModifiers, pendingPartyMovementModifier, settlePartyZeroMovementTurn } from './partyMovementModifiers'
+import { getPartyBoard, PARTY_NODE_BY_ID, partyNext } from './partyBoards'
+import { triggerDemoEvent, mineAction, giveBombAlly, rollBombAlly, explodeAllyAtTurnEnd, maybeHomestretch, createBoardCinematic } from './demoMinesEvents'
 import { getPartyCar, formatPartyDieFace } from './partyCars'
 import { PARTY_MECHANICS, pickPartyMechanic } from './partyMechanics'
 import { getEnabledPartyCards, getPartyCard, normalizePartyCards, pickPartyCard, getPartyShopCards, getPartyCardShopPrice } from './partyCards'
@@ -84,9 +86,7 @@ const PARTY_SUPPLY_CRATE_REWARDS = [
 
 export const PARTY_BATTLES = PARTY_CHALLENGES
 
-const BOARD_NODE_BY_ID = Object.fromEntries(
-  BOOSTSTONE_RUINS.nodes.map((node) => [node.id, node])
-)
+const BOARD_NODE_BY_ID = PARTY_NODE_BY_ID
 
 const PARTY_MECHANIC_DIFFICULTY_ORDER = ['Easy', 'Medium', 'Hard', 'Insane']
 
@@ -169,8 +169,8 @@ function startPartyBattle(room, turn, challengerId, source, options = {}) {
 function eligibleTrophySpots(room = {}, excludeNodeId = '') {
   const occupied = new Set(Object.values(room.playerSetup || {})
     .filter((setup) => setup && setup.onStartDeck !== true)
-    .map((setup) => setup.boardNodeId || BOOSTSTONE_RUINS.startId))
-  return (BOOSTSTONE_RUINS.trophySpots || []).filter((id) =>
+    .map((setup) => setup.boardNodeId || getPartyBoard(room).startId))
+  return (getPartyBoard(room).trophySpots || []).filter((id) =>
     id !== excludeNodeId && !occupied.has(id) && BOARD_NODE_BY_ID[id] && !['Junction','Event','Start','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[id].type)
   )
 }
@@ -180,8 +180,8 @@ function pickTrophySpot(excludeNodeId = '', room = {}) {
   return pool.length ? pool[Math.floor(Math.random() * pool.length)] : ''
 }
 
-function findNodeOneSpaceBefore(targetNodeId) {
-  const predecessors = BOOSTSTONE_RUINS.nodes.filter((node) =>
+function findNodeOneSpaceBefore(targetNodeId, room) {
+  const predecessors = getPartyBoard(room).nodes.filter((node) =>
     (node.next || []).includes(targetNodeId)
   )
 
@@ -416,7 +416,7 @@ function isPartyFinalThree(room) {
 }
 
 function getPartyBaseTrophyPrice(room) {
-  return room?.settings?.trophyPrice ?? BOOSTSTONE_RUINS.defaultTrophyPrice
+  return room?.settings?.trophyPrice ?? getPartyBoard(room).defaultTrophyPrice
 }
 
 function getPartyEffectiveTrophyPrice(room) {
@@ -858,9 +858,9 @@ export async function resolvePartyLuckyTokenSteal(roomCode, playerId, targetId =
 }
 
 
-function defaultClosedGarageGateIds() {
+function defaultClosedGarageGateIds(room) {
   return Object.fromEntries(
-    (BOOSTSTONE_RUINS.garageGatePairs || []).map((pair) => [pair.id, pair.defaultClosedGateId])
+    (getPartyBoard(room).garageGatePairs || []).map((pair) => [pair.id, pair.defaultClosedGateId])
   )
 }
 
@@ -904,7 +904,7 @@ function ensurePartyActionShopState(room, boardState) {
   }
 
   const validIds = new Set(getPartyShopCards().map((card) => card.id))
-  for (const node of BOOSTSTONE_RUINS.nodes.filter((entry) => entry.type === 'Shop')) {
+  for (const node of getPartyBoard(room).nodes.filter((entry) => entry.type === 'Shop')) {
     const existing = [...new Set(partyShopArray(boardState.actionShopStocks[node.id]).filter((id) => validIds.has(id)))].slice(0, 3)
     // Once somebody buys a Card, that slot intentionally stays empty until the turn ends.
     boardState.actionShopStocks[node.id] = boardState.pendingActionShopRefills[node.id]
@@ -949,12 +949,12 @@ function ensurePartyBoardState(room) {
     room.boardState.usedBoardEvents = {}
   }
 
-  const defaults = defaultClosedGarageGateIds()
+  const defaults = defaultClosedGarageGateIds(room)
   if (!room.boardState.closedGarageGateIds || typeof room.boardState.closedGarageGateIds !== 'object') {
     room.boardState.closedGarageGateIds = { ...defaults }
 
     // Migrate older in-progress rooms that stored only one closed gate.
-    const legacyGate = (BOOSTSTONE_RUINS.gates || []).find(
+    const legacyGate = (getPartyBoard(room).gates || []).find(
       (gate) => gate.id === room.boardState.closedGarageGateId
     )
     if (legacyGate?.pairId) room.boardState.closedGarageGateIds[legacyGate.pairId] = legacyGate.id
@@ -974,7 +974,7 @@ function ensurePartyBoardState(room) {
 
 function getPartyClosedGarageGates(room) {
   const boardState = ensurePartyBoardState(room)
-  const gates = BOOSTSTONE_RUINS.gates || []
+  const gates = getPartyBoard(room).gates || []
   return Object.values(boardState.closedGarageGateIds || {})
     .map((id) => gates.find((gate) => gate.id === id))
     .filter(Boolean)
@@ -992,11 +992,12 @@ function getPartyClosedGateForEdge(room, fromId, toId) {
   }) || null
 }
 
-function togglePartyGarageGatePairs(room) {
+function togglePartyGarageGatePairs(room, selectedPairId = '') {
   const boardState = ensurePartyBoardState(room)
-  const gates = BOOSTSTONE_RUINS.gates || []
+  const gates = getPartyBoard(room).gates || []
 
-  for (const pair of BOOSTSTONE_RUINS.garageGatePairs || []) {
+  for (const pair of getPartyBoard(room).garageGatePairs || []) {
+    if (selectedPairId && pair.id !== selectedPairId) continue
     const pairGateIds = [pair.forwardGateId, pair.branchGateId].filter(Boolean)
     const current = boardState.closedGarageGateIds[pair.id] || pair.defaultClosedGateId
     boardState.closedGarageGateIds[pair.id] = pairGateIds.find((id) => id !== current) || pair.defaultClosedGateId
@@ -1023,7 +1024,7 @@ function getPartySupplyCrateChoices(seed = 0) {
 function applyPartyEventLanding(room, turn, playerId, nodeId, seed = 0) {
   const node = BOARD_NODE_BY_ID[nodeId]
   const eventId = node?.special || ''
-  const event = BOOSTSTONE_RUINS.boardEvents?.[eventId]
+  const event = getPartyBoard(room).boardEvents?.[eventId]
   const playerName = room.players?.[playerId]?.name || 'Player'
   const setup = room.playerSetup?.[playerId]
   const boardState = ensurePartyBoardState(room)
@@ -1040,6 +1041,7 @@ function applyPartyEventLanding(room, turn, playerId, nodeId, seed = 0) {
   }
 
   if (!setup) return effect
+  if(room.settings?.mapId==='demo-mines'){const result=triggerDemoEvent(room,turn,playerId,nodeId,partyNow());addPartyActivity(room,playerId,result.publicMessage,'event');return result}
 
   if (eventId === 'supply-crates') {
     const choices = getPartySupplyCrateChoices(seed)
@@ -1067,7 +1069,7 @@ function applyPartyEventLanding(room, turn, playerId, nodeId, seed = 0) {
     } else {
       boardState.usedBoardEvents[eventId] = true
       const affectedNodes = Array.isArray(event?.affectedNodes) ? event.affectedNodes : []
-      const resetTo = event?.resetTo || BOOSTSTONE_RUINS.startId
+      const resetTo = event?.resetTo || getPartyBoard(room).startId
       const affectedIds = []
       effect.animationStartedAt = serverTimestamp()
       effect.fromPositions = {}
@@ -1210,6 +1212,16 @@ export async function resolvePartySupplyCrate(roomCode, playerId, crateIndex) {
 }
 
 function finishLanding(room, turn, playerId, nodeId, mechanic, card, battleOptions = {}) {
+  if (nodeId === room.activeTrophyNodeId && isPartyIntermediateStop(BOARD_NODE_BY_ID[nodeId], room.activeTrophyNodeId)) {
+    turn.readyToEnd = false
+    turn.awaitingTrophy = true
+    turn.awaitingChoice = false
+    turn.trophyNodeId = nodeId
+    turn.trophyPrice = getPartyEffectiveTrophyPrice(room)
+    turn.movementRemaining = Math.max(0, Number(turn.movementRemaining) || 0)
+    for (const key of ['pendingLanding','landedNodeId','landedType','landingEffect','spaceEffect','eventEffect']) delete turn[key]
+    return
+  }
   turn.readyToEnd = true
   turn.landedNodeId = nodeId
   turn.landedType = BOARD_NODE_BY_ID[nodeId]?.type || 'Space'
@@ -1521,7 +1533,7 @@ export async function startPartyRoom(roomCode, requesterId) {
       {
         tokens: 5,
         trophies: 0,
-        boardNodeId: BOOSTSTONE_RUINS.startId,
+        boardNodeId: getPartyBoard(room).startId,
         onStartDeck: true,
         cards: [],
       },
@@ -1557,9 +1569,9 @@ export async function startPartyRoom(roomCode, requesterId) {
     presentation: null,
     boardState: {
       closedGarageGateIds: Object.fromEntries(
-        (BOOSTSTONE_RUINS.garageGatePairs || []).map((pair) => [pair.id, pair.defaultClosedGateId])
+        (getPartyBoard(room).garageGatePairs || []).map((pair) => [pair.id, pair.defaultClosedGateId])
       ),
-      closedGarageGateId: (BOOSTSTONE_RUINS.garageGatePairs || [])[0]?.defaultClosedGateId || '',
+      closedGarageGateId: (getPartyBoard(room).garageGatePairs || [])[0]?.defaultClosedGateId || '',
       usedBoardEvents: {},
     },
     temporaryTrophyPriceMultiplier: null,
@@ -1580,11 +1592,21 @@ export async function startPartyRoom(roomCode, requesterId) {
 
 export async function confirmPartyBoardSelection(roomCode, playerId, mapId) {
   requireOnlineIdentity(playerId)
-  if(mapId !== 'booststone-ruins') throw new Error('That board is not available yet.')
+  if(!['booststone-ruins','demo-mines'].includes(mapId)) throw new Error('Unknown board.')
+  const keys=await identityKey(playerId)
+  const initial=(await get(ref(db, `securePartyRooms/${normalizeCode(roomCode)}`))).val()
+  const selected={...initial,settings:{...initial?.settings,mapId}}
+  const trophy=pickTrophySpot('',selected)
+  const packet=await seal(keys.publicKey,{nodeId:pickHiddenGiftSpot({...selected,activeTrophyNodeId:trophy})})
   const result=await runTransaction(ref(db, `securePartyRooms/${normalizeCode(roomCode)}`),room=>{
     if(!room || room.hostId!==playerId || room.status!=='playing' || room.phase!=='board-select')return
     room.phase='showcase'
     room.settings.mapId=mapId
+    for(const setup of Object.values(room.playerSetup||{})){setup.boardNodeId=getPartyBoard(room).startId;setup.onStartDeck=true}
+    room.activeTrophyNodeId=trophy
+    room.hiddenGift={hostId:playerId,version:1,packet}
+    room.boardState={bombCountdown:5,conveyorLane:'lower',homestretchShown:false}
+    ensurePartyBoardState(room)
     return room
   })
   if(!result.committed)throw new Error('Only the host can select the board before play.')
@@ -1692,9 +1714,11 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
   const roomRef = ref(db, `securePartyRooms/${code}`)
   const randomFaceIndex = Math.floor(Math.random() * 6)
   const normalRoll = randomFaceIndex + 1
+  const bombSeed = Math.random()
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
+    if (room?.boardCinematic) return
     if (!room) {
       failureReason = 'Party room not found.'
       return
@@ -1769,7 +1793,7 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
     }
 
     const previousTurn = room.turnState || makeTurnState(playerId)
-    const movementModifier = pendingPartyMovementModifier(previousTurn, setup)
+    const movementModifier = pendingPartyMovementModifier(previousTurn, setup) + rollBombAlly(setup,previousTurn,bombSeed)
     const totalMovement = calculatePartyMovement(movement, movementModifier)
     clearPendingPartyMovementModifiers(previousTurn, setup)
 
@@ -1832,7 +1856,8 @@ export async function rollPartyDie(roomCode, playerId, dieType) {
       'roll'
     )
 
-    if (totalMovement === 0) { room.turnState.readyToEnd = true; room.turnState.noMovement = true }
+    if (totalMovement === 0) settlePartyZeroMovementTurn(room.turnState)
+    else delete room.turnState.noMovement
 
     return room
   })
@@ -1856,6 +1881,7 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
+    if (room?.boardCinematic) return
     if (!room) {
       failureReason = 'Party room not found.'
       return
@@ -1905,9 +1931,9 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
     turn.movementStarted = true
     delete turn.resumeMovement
 
-    let currentNodeId = setup.boardNodeId || BOOSTSTONE_RUINS.startId
+    let currentNodeId = setup.boardNodeId || getPartyBoard(room).startId
     let remaining = turn.movementRemaining || 0
-    if (!['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[currentNodeId]?.type)) turn.lastLandableNodeId = currentNodeId
+    if (!isPartyIntermediateStop(BOARD_NODE_BY_ID[currentNodeId], room.activeTrophyNodeId) && turn.trophyPassedNodeId !== currentNodeId) turn.lastLandableNodeId = currentNodeId
     let choiceUsed = false
     let requestedNextId = chosenNextId
     const path = [setup.onStartDeck ? 'start-deck' : currentNodeId]
@@ -1917,7 +1943,7 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
     while (remaining > 0) {
       if (++hops > 256) { failureReason = 'This route could not be completed. Choose another route.'; return }
       const currentNode = BOARD_NODE_BY_ID[currentNodeId]
-      const options = setup.onStartDeck ? [BOOSTSTONE_RUINS.startId] : currentNode?.next || []
+      const options = setup.onStartDeck ? [getPartyBoard(room).startId] : partyNext(room,currentNodeId)
 
       if (options.length === 0) {
         remaining = 0
@@ -1970,11 +1996,16 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
       setup.onStartDeck = false
       currentNodeId = nextId
       path.push(nextId)
-      if (!['Junction', 'Shop', 'Paratroopa', 'Lakitu'].includes(BOARD_NODE_BY_ID[nextId]?.type)) {
+      if (!isPartyIntermediateStop(BOARD_NODE_BY_ID[nextId], room.activeTrophyNodeId)) {
         remaining -= 1
         turn.lastLandableNodeId = nextId
+        delete turn.trophyPassedNodeId
         addPartyStat(room, playerId, 'spacesTraveled')
         turn.movementSpacesTaken = (turn.movementSpacesTaken || 0) + 1
+      }
+      if (BOARD_NODE_BY_ID[nextId]?.type === 'BombPickup' && giveBombAlly(setup)) {
+        addPartyActivity(room,playerId,'A bomb ally joined for your next 3 movement rolls. It leaves with a −5 Token explosion.','event')
+        turn.bombPickedUp=true
       }
       const serviceType = BOARD_NODE_BY_ID[nextId]?.type
       if (['Shop', 'Paratroopa', 'Lakitu'].includes(serviceType)) {
@@ -1984,11 +2015,12 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
         break
       }
 
-      if (currentNodeId === room.activeTrophyNodeId) {
+      if (currentNodeId === room.activeTrophyNodeId && isPartyIntermediateStop(BOARD_NODE_BY_ID[currentNodeId], room.activeTrophyNodeId)) {
         turn.awaitingChoice = false
         delete turn.choiceNodeId
         delete turn.choices
         turn.awaitingTrophy = true
+        turn.trophyStopUncounted = true
         turn.trophyNodeId = currentNodeId
         turn.trophyPrice = getPartyEffectiveTrophyPrice(room)
         break
@@ -1996,10 +2028,10 @@ export async function continuePartyMovement(roomCode, playerId, chosenNextId = '
 
       if (remaining > 0) {
         const nextNode = BOARD_NODE_BY_ID[currentNodeId]
-        if ((nextNode?.next || []).length > 1) {
+        if (partyNext(room,currentNodeId).length > 1) {
           turn.awaitingChoice = true
           turn.choiceNodeId = currentNodeId
-          turn.choices = nextNode.next
+          turn.choices = partyNext(room,currentNodeId)
           break
         }
       }
@@ -2135,14 +2167,21 @@ export async function resolvePartyGarageGate(roomCode, playerId, payToll) {
         failureReason = `You need ${toll} Tokens to pass the closed Garage Gate.`
         return
       }
+      const gate = (getPartyBoard(room).gates || []).find(g => g.id === turn.gateId)
+      if (!gate?.pairId) { failureReason = 'This Garage Gate is no longer available.'; return }
       setup.tokens = Math.max(0, (Number(setup.tokens) || 0) - toll)
+      // Paying opens this route and closes the other route in the same pair.
+      // The Garage Gate Event remains the action that switches both pairs.
+      togglePartyGarageGatePairs(room, gate.pairId)
       turn.gatePassApproved = partyGateEdgeKey(turn.gateFromNodeId, turn.gateToNodeId)
+      turn.selectedRoute = turn.gateToNodeId
+      turn.resumeMovement = true
       delete turn.awaitingGate
       delete turn.gateId
       delete turn.gateFromNodeId
       delete turn.gateToNodeId
       delete turn.gateToll
-      addPartyActivity(room, playerId, `${playerName} paid ${toll} Tokens to pass the closed Garage Gate.`, 'event')
+      addPartyActivity(room, playerId, `${playerName} paid ${toll} Tokens to switch this Garage Gate pair and continue through the newly opened route.`, 'event')
     } else {
       const fromId = turn.gateFromNodeId
       turn.awaitingChoice = true
@@ -2165,12 +2204,6 @@ export async function resolvePartyTrophyPass(roomCode, playerId, buyTrophy) {
   const code = normalizeCode(roomCode)
   const roomRef = ref(db, `securePartyRooms/${code}`)
   const nextTrophySeed = Math.random()
-  const landingMechanic = pickPartyMechanic()
-  const landingCard = pickPartyCard()
-  const landingBattleMechanic = pickPartyMechanic()
-  const landingBattleSeed = Math.random()
-  const landingOpponentSeed = Math.random()
-  const landingSpaceOutcomeSeed = Math.random()
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
@@ -2242,22 +2275,29 @@ export async function resolvePartyTrophyPass(roomCode, playerId, buyTrophy) {
     )
 
     turn.awaitingTrophy = false
-    delete turn.trophyNodeId
-    delete turn.trophyPrice
-
+    const passedNodeId = turn.trophyNodeId || setup.boardNodeId
+    // Older clients counted this stop as a space. Refund it once when identifiable.
+    if (!turn.trophyStopUncounted && !turn.trophyFromCardBeforeRoll &&
+        turn.lastLandableNodeId === passedNodeId && Number(turn.movementSpacesTaken) > 0) {
+      turn.movementRemaining = (Number(turn.movementRemaining) || 0) + 1
+      turn.movementSpacesTaken--
+      const stats = room.partyStats?.[playerId]
+      if (stats) stats.spacesTraveled = Math.max(0, (Number(stats.spacesTraveled) || 0) - 1)
+      delete turn.lastLandableNodeId
+    }
+    for (const key of ['trophyNodeId','trophyPrice','trophyStopUncounted','pendingLanding',
+      'landedNodeId','landedType','landingEffect','spaceEffect','eventEffect']) delete turn[key]
+    turn.trophyPassedNodeId = passedNodeId
+    turn.readyToEnd = false
     if (turn.trophyFromCardBeforeRoll) {
-      // Golden Teleporter happens before the roll. After the Trophy decision,
-      // the player still gets their normal die choice and full board turn.
       delete turn.trophyFromCardBeforeRoll
-      turn.readyToEnd = false
       turn.rolled = false
       turn.movementRemaining = 0
       turn.movementStarted = false
-    } else if ((turn.movementRemaining || 0) <= 0) {
-      const landedNodeId = setup.boardNodeId || BOOSTSTONE_RUINS.startId
-      finishLanding(room, turn, playerId, landedNodeId, landingMechanic, landingCard, { battleSeed: landingBattleSeed, opponentSeed: landingOpponentSeed, battleMechanic: landingBattleMechanic, spaceOutcomeSeed: landingSpaceOutcomeSeed })
+      delete turn.resumeMovement
     } else {
-      turn.readyToEnd = false
+      turn.movementRemaining = Math.max(1, Number(turn.movementRemaining) || 0)
+      turn.resumeMovement = true
     }
 
     room.turnState = turn
@@ -2310,10 +2350,10 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
       room.playerSetup = {}
     }
 
-    const testerNodeId = BOOSTSTONE_RUINS.nodes[2]?.id || BOOSTSTONE_RUINS.startId
-    const targetNodeId = BOOSTSTONE_RUINS.nodes[Math.max(3, BOOSTSTONE_RUINS.nodes.length - 5)]?.id || BOOSTSTONE_RUINS.startId
-    const mechanicNodeId = BOOSTSTONE_RUINS.nodes.find((node) => node.type === 'Mechanic')?.id || BOOSTSTONE_RUINS.startId
-    const dangerNodeId = BOOSTSTONE_RUINS.nodes.find((node) => node.type === 'Danger Mechanic')?.id || mechanicNodeId
+    const testerNodeId = getPartyBoard(room).nodes[2]?.id || getPartyBoard(room).startId
+    const targetNodeId = getPartyBoard(room).nodes[Math.max(3, getPartyBoard(room).nodes.length - 5)]?.id || getPartyBoard(room).startId
+    const mechanicNodeId = getPartyBoard(room).nodes.find((node) => node.type === 'Mechanic')?.id || getPartyBoard(room).startId
+    const dangerNodeId = getPartyBoard(room).nodes.find((node) => node.type === 'Danger Mechanic')?.id || mechanicNodeId
 
     const pickDevMechanic = (difficulty = '') => {
       if (difficulty) {
@@ -2384,7 +2424,7 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
       instructions = `Use Teleport Pad on ${targetName}. Your two player markers start far apart and should swap positions.`
     } else if (card.effect === 'golden-teleporter') {
       testerSetup.tokens = 20
-      const trophyChoices = (BOOSTSTONE_RUINS.trophySpots || []).filter((nodeId) => nodeId !== testerSetup.boardNodeId)
+      const trophyChoices = (getPartyBoard(room).trophySpots || []).filter((nodeId) => nodeId !== testerSetup.boardNodeId)
       if (trophyChoices.length) room.activeTrophyNodeId = trophyChoices[0]
       instructions = 'Use Golden Teleporter. You should move to exactly one space before the active Trophy, then still need to roll. A 0-movement roll should leave you short; any forward movement of at least 1 should reach the Trophy on the first step.'
     } else if (card.effect === 'shield' && targetSetup) {
@@ -2424,6 +2464,8 @@ export async function preparePartyCardDevTest(roomCode, requesterId, cardId) {
       instructions = `Use Top Corner on ${targetName}. It should stay secret until their next Mechanic, which should require a top-corner finish.`
     } else if (card.effect === 'challenge-glove') {
       instructions = 'Use Challenge Glove, choose one opponent before revealing a random 1v1, and verify that only the winner gets 1 Trophy and no Tokens. Then roll normally.'
+    } else if (card.effect === 'movement-penalty') {
+      instructions = `Use ${card.name} on an opponent. Their next roll loses ${card.amount} movement, stacking with other penalties. Shield blocks it.`
     } else if (card.effect === 'movement-boost') {
       instructions = `Use ${card.name}, then roll. The final movement should be the die movement plus ${card.amount || 0}.`
     } else if (card.effect === 'precision-die') {
@@ -2575,6 +2617,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
   let failureReason = ''
 
   const result = await runTransaction(roomRef, (room) => {
+    if (room?.boardCinematic) return
     if (!room) {
       failureReason = 'Party room not found.'
       return
@@ -2770,7 +2813,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       turn.movementStartNodeId=setup.onStartDeck?'start-deck':setup.boardNodeId
       turn.movementSpacesTaken=0
       turn.faceLabel = String(value)
-      const movementModifier = pendingPartyMovementModifier(turn, setup)
+      const movementModifier = pendingPartyMovementModifier(turn, setup) + rollBombAlly(setup,turn,battleSeed)
       const movementTotal = calculatePartyMovement(value, movementModifier)
       clearPendingPartyMovementModifiers(turn, setup)
       turn.baseMovement = value
@@ -2781,7 +2824,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       turn.movementStarted = false
       turn.awaitingChoice = false
       turn.readyToEnd = movementTotal === 0
-      if (movementTotal === 0) turn.noMovement = true
+      if (movementTotal === 0) settlePartyZeroMovementTurn(turn)
       else delete turn.noMovement
       delete turn.movementBonusApplied
       delete turn.tokenChange
@@ -2793,6 +2836,10 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
       privateMessage = movementModifier ? `Precision Dice: ${value} ${movementModifier > 0 ? '+' : '−'} ${Math.abs(movementModifier)} = ${movementTotal} movement.` : `Precision Dice set your movement to ${value}.`
       publicMessage = movementModifier ? `${playerName} used Precision Dice: ${value} ${movementModifier > 0 ? '+' : '−'} ${Math.abs(movementModifier)} = ${movementTotal} movement.` : `${playerName} chose ${value} movement with a Card instead of rolling.`
       publicType = 'roll'
+    } else if (card.effect === 'movement-penalty') {
+      if(!blockedByShield)targetSetup.pendingMovementPenalty=(Number(targetSetup.pendingMovementPenalty)||0)+card.amount
+      privateMessage=blockedByShield?`${targetName}'s Shield blocked ${card.name}.`:`${targetName}'s next movement roll gets −${card.amount}.`
+      publicMessage=privateMessage
     } else if (card.effect === 'movement-boost') {
       const amount = Number(card.amount) || 0
       if (amount <= 0) {
@@ -2841,8 +2888,8 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
         privateMessage = `${targetName}'s Shield blocked ${card.name}. ${card.name} had no effect.`
         publicMessage = `${playerName} used a Card on ${targetName}, but it was blocked.`
       } else {
-        const myNode = setup.boardNodeId || BOOSTSTONE_RUINS.startId
-        const targetNode = targetSetup.boardNodeId || BOOSTSTONE_RUINS.startId
+        const myNode = setup.boardNodeId || getPartyBoard(room).startId
+        const targetNode = targetSetup.boardNodeId || getPartyBoard(room).startId
         const wasOnDeck = setup.onStartDeck === true
         setup.onStartDeck = targetSetup.onStartDeck === true
         targetSetup.onStartDeck = wasOnDeck
@@ -2858,7 +2905,7 @@ export async function usePartyCard(roomCode, playerId, cardIndex, options = {}) 
         return
       }
 
-      const setupNodeId = findNodeOneSpaceBefore(trophyNodeId)
+      const setupNodeId = findNodeOneSpaceBefore(trophyNodeId, room)
       if (!setupNodeId || !BOARD_NODE_BY_ID[setupNodeId]) {
         failureReason = 'Could not find a space immediately before the active Trophy.'
         return
@@ -3937,7 +3984,7 @@ export async function preparePartyBattleDevTest(roomCode, requesterId) {
     delete turn.resumeMovement
     turn.readyToEnd = true
     turn.landedType = 'Battle'
-    turn.landedNodeId = BOOSTSTONE_RUINS.nodes.find((node) => node.type === 'Battle')?.id || BOOSTSTONE_RUINS.startId
+    turn.landedNodeId = getPartyBoard(room).nodes.find((node) => node.type === 'Battle')?.id || getPartyBoard(room).startId
 
     const battle = startPartyBattle(room, turn, requesterId, 'battle-space', {
       opponentId,
@@ -4004,7 +4051,7 @@ export async function preparePartyLuckDevTest(roomCode, requesterId, spaceType =
       return
     }
 
-    const targetNode = BOOSTSTONE_RUINS.nodes.find((node) => node.type === landingNodeType)
+    const targetNode = getPartyBoard(room).nodes.find((node) => node.type === landingNodeType)
     if (!targetNode) {
       failureReason = `No ${landingNodeType} Space exists on this map.`
       return
@@ -4104,8 +4151,8 @@ export async function preparePartyEventDevTest(roomCode, requesterId, eventId = 
 
     const order = orderedPlayerIds(room)
     const testerIndex = order.indexOf(requesterId)
-    const targetNode = BOOSTSTONE_RUINS.nodes.find((node) => node.special === eventId)
-    const event = BOOSTSTONE_RUINS.boardEvents?.[eventId]
+    const targetNode = getPartyBoard(room).nodes.find((node) => node.special === eventId)
+    const event = getPartyBoard(room).boardEvents?.[eventId]
     if (testerIndex < 0 || !room.playerSetup?.[requesterId]) {
       failureReason = 'The host player setup is missing.'
       return
@@ -4134,7 +4181,7 @@ export async function preparePartyEventDevTest(roomCode, requesterId, eventId = 
       playerSetup.tokens = 12 + index
       playerSetup.trophies = index === 0 ? 1 : 0
       playerSetup.cards = []
-      playerSetup.boardNodeId = BOOSTSTONE_RUINS.startId
+      playerSetup.boardNodeId = getPartyBoard(room).startId
     })
 
     const testerSetup = room.playerSetup[requesterId]
@@ -4199,6 +4246,8 @@ export async function skipPartyEvent(roomCode, requesterId) {
       return
     }
 
+    delete room.boardCinematic
+    if (effect.id === 'gold-mine') { effect.unbanked = 0; effect.stage = 'result' }
     effect.resolved = true
     effect.skippedByHost = true
     effect.awaitingCrateChoice = false
@@ -4229,7 +4278,7 @@ export async function preparePartyServiceDevTest(roomCode, requesterId, serviceT
     if (room.hostId !== requesterId) { failureReason = 'Only the host can prepare a DEV service test.'; return }
     const order = orderedPlayerIds(room)
     const testerIndex = order.indexOf(requesterId)
-    const node = BOOSTSTONE_RUINS.nodes.find((entry) => entry.type === normalizedType)
+    const node = getPartyBoard(room).nodes.find((entry) => entry.type === normalizedType)
     if (testerIndex < 0 || !room.playerSetup?.[requesterId] || !node) {
       failureReason = `A ${normalizedType} test could not be prepared on this board.`
       return
@@ -4377,6 +4426,8 @@ export async function endPartyTurn(roomCode, playerId) {
       return
     }
 
+    settlePartyZeroMovementTurn(room.turnState)
+
     if (room.turnState?.battle && room.turnState.battle.status === 'active') {
       failureReason = 'Resolve the Battle before ending your turn.'
       return
@@ -4430,6 +4481,8 @@ export async function endPartyTurn(roomCode, playerId) {
       return
     }
 
+    if(room.boardCinematic){failureReason='Finish the board cinematic first.';return}
+    if(explodeAllyAtTurnEnd(room,playerId,partyNow()))return room
     advancePartyTurn(room, playerId, shopRefillSeed)
     return room
   })
@@ -4500,6 +4553,7 @@ function removePartyPlayer(room, playerId, reason, now) {
   const order = before.filter((id) => id !== playerId)
   room.playerOrder = order
   delete room.playerSetup?.[playerId]
+  if (room.boardCinematic?.playerId === playerId) delete room.boardCinematic
   delete room.devBoardCheckpoint
   room.roundTakenPlayerIds = Object.values(room.roundTakenPlayerIds || {}).filter(id => id !== playerId)
   delete room.presentation
@@ -4693,7 +4747,7 @@ export async function stopPartyAtPreviousSpace(roomCode, playerId) {
     const turn=room?.turnState,setup=room?.playerSetup?.[playerId]
     if(room?.status!=='playing'||room.phase!=='board'||turn?.playerId!==playerId||orderedPlayerIds(room)[room.turnIndex||0]!==playerId||!turn.awaitingChoice||turn.awaitingGate||!setup)return
     const id=turn.lastLandableNodeId,node=BOARD_NODE_BY_ID[id]
-    if(!node||['Junction','Shop','Paratroopa','Lakitu'].includes(node.type))return
+    if(!node||isPartyIntermediateStop(node,room.activeTrophyNodeId)||id===turn.trophyPassedNodeId)return
     setup.boardNodeId=id
     turn.movementRemaining=0
     for(const key of ['awaitingChoice','choiceNodeId','choices','selectedRoute','gatePassApproved'])delete turn[key]
@@ -4737,7 +4791,8 @@ function runTransaction(reference, reduce, options) {
   const precisionIndex=room?.turnState?.diceAnimation?.cardIndex,oldCards=JSON.stringify(room?.playerSetup?.[room?.turnState?.playerId]?.cards)
   const next=reduce(room)
   if(next&&Number.isInteger(precisionIndex)&&next.turnState?.diceAnimation&&!next.turnState.rolled&&oldCards!==JSON.stringify(next.playerSetup?.[next.turnState.playerId]?.cards))delete next.turnState.diceAnimation
-  if(next&&next.presentationSequence===priorPresentationSequence&&phase==='board'&&next.phase==='board'&&battle===JSON.stringify(next.turnState?.battle||null)&&dev===JSON.stringify([next.devVisualTest,next.devBoardCheckpoint,next.devCardTest,next.devEventTest,next.devSpaceTest,next.devServiceTest,next.devBattleTest])) attachEconomyPresentation(next,before,now,priorTrophy!==JSON.stringify(next.turnState?.trophyCinematic||null))
+  if(next&&!next.boardCinematic&&next.presentationSequence===priorPresentationSequence&&phase==='board'&&next.phase==='board'&&battle===JSON.stringify(next.turnState?.battle||null)&&dev===JSON.stringify([next.devVisualTest,next.devBoardCheckpoint,next.devCardTest,next.devEventTest,next.devSpaceTest,next.devServiceTest,next.devBattleTest])) attachEconomyPresentation(next,before,now,priorTrophy!==JSON.stringify(next.turnState?.trophyCinematic||null))
+  if(next)maybeHomestretch(next,now)
   return next
  },options)
 }
@@ -4754,7 +4809,7 @@ export function hiddenGiftOutcome(rank,seed,amountSeed,finalStretch) {
 }
 function pickHiddenGiftSpot(room,exclude='') {
  const occupied=new Set(Object.values(room.playerSetup||{}).filter(s=>!s.onStartDeck).map(s=>s.boardNodeId))
- const pool=BOOSTSTONE_RUINS.nodes.filter(n=>n.type==='Mechanic'&&n.id!==exclude&&n.id!==room.activeTrophyNodeId&&!occupied.has(n.id))
+ const pool=getPartyBoard(room).nodes.filter(n=>n.type==='Mechanic'&&n.id!==exclude&&n.id!==room.activeTrophyNodeId&&!occupied.has(n.id))
  return pool[Math.floor(Math.random()*pool.length)]?.id||''
 }
 export async function checkPartyHiddenGift(code,uid) {
@@ -4819,7 +4874,7 @@ export async function beginPartyDie(code,uid,kind,cardIndex=null) {
  const now=partyNow()
  const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
   const t=room?.turnState
-  if(room?.phase!=='board'||t?.playerId!==uid||t.rolled||t.awaitingTrophy||t.battle?.status==='active')return
+  if(room?.boardCinematic||room?.phase!=='board'||t?.playerId!==uid||t.rolled||t.awaitingTrophy||t.battle?.status==='active')return
   if(!['normal','special','precision'].includes(kind))return
   if(kind==='precision'&&t.cardUsedThisTurn)return
   if(kind==='precision'){const cards=normalizePartyCards(room.playerSetup?.[uid]?.cards);if(cards[cardIndex]!=='precision-dice')cardIndex=cards.indexOf('precision-dice');if(cardIndex<0)return}
@@ -4830,8 +4885,9 @@ export async function beginPartyDie(code,uid,kind,cardIndex=null) {
  if(!result.committed)throw Error('The dice cannot be opened right now.')
 }
 
-const DEV_BOARD_FIELDS=['phase','status','turnIndex','currentRound','turnDirection','roundTakenPlayerIds','playerSetup','partyStats','turnState','boardState','activeTrophyNodeId','boardMotion','presentation','presentationSequence','devDiceTest','roundBattle','temporaryTrophyPriceMultiplier','temporaryTrophyPriceUntil','hiddenGift','devBonusPreview','turnOrderDice','turnOrderComplete','turnOrderRolls','turnOrderReady','showcaseCamera']
-function devCheckpoint(room){if(!room.devBoardCheckpoint)room.devBoardCheckpoint=Object.fromEntries(DEV_BOARD_FIELDS.map(k=>[k,room[k]===undefined?null:JSON.parse(JSON.stringify(room[k]))]))}
+const DEV_BOARD_FIELDS=['boardCinematic','cinematicSequence','phase','status','turnIndex','currentRound','turnDirection','roundTakenPlayerIds','playerSetup','partyStats','turnState','boardState','activeTrophyNodeId','boardMotion','presentation','presentationSequence','devDiceTest','roundBattle','temporaryTrophyPriceMultiplier','temporaryTrophyPriceUntil','hiddenGift','devBonusPreview','turnOrderDice','turnOrderComplete','turnOrderRolls','turnOrderReady','showcaseCamera']
+function devCheckpoint(room){if(room?.boardCinematic)return
+  if(!room.devBoardCheckpoint)room.devBoardCheckpoint=Object.fromEntries(DEV_BOARD_FIELDS.map(k=>[k,room[k]===undefined?null:JSON.parse(JSON.stringify(room[k]))]))}
 export async function savePartyDevCheckpoint(code,uid){requireOnlineIdentity(uid);await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{if(!room||room.hostId!==uid)return;devCheckpoint(room);return room})}
 export async function restorePartyDevCheckpoint(code,uid){requireOnlineIdentity(uid);await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
  if(!room||room.hostId!==uid||!room.devBoardCheckpoint)return
@@ -4851,6 +4907,7 @@ export async function recoverPartyPresentation(code,uid){requireOnlineIdentity(u
    delete room.turnState.diceAnimation
    return room
  }
+ if(room.boardCinematic){delete room.boardCinematic;if(room.turnState?.eventEffect)room.turnState.eventEffect.resolved=true}
  if(room.turnState?.spaceEffect?.awaitingContinue){room.turnState.spaceEffect.awaitingContinue=false;room.turnState.spaceEffect.continuedAt=partyNow()}
  delete room.turnOrderDice;delete room.presentation;delete room.turnState?.trophyCinematic;delete room.turnState?.diceAnimation
  if(room.turnState?.eventEffect){room.turnState.eventEffect.animationStartedAt=0;if(room.turnState.eventEffect.openedAt)room.turnState.eventEffect.openedAt=1}
@@ -4868,7 +4925,7 @@ export async function preparePartyVisualDevTest(code,uid,scenario,options={}) {
   room.turnState=makeTurnState(uid)
   for(const key of ['presentation','boardMotion','devDiceTest','devBonusPreview','devCardTest','devSpaceTest','devEventTest','devServiceTest','devBattleTest'])delete room[key]
   const setup=room.playerSetup[uid]
-  setup.boardNodeId='n01';setup.onStartDeck=false
+  setup.boardNodeId=getPartyBoard(room).nodes.find(n=>n.type==='Mechanic').id;setup.onStartDeck=false
   setup.tokens=Math.max(0,Math.min(999,Number(options.balance??20)||0))
   if(scenario==='dice'){
    if(options.carId){if(!getPartyCar(options.carId))return;room.devDiceTest={playerId:uid,carId:options.carId}}
@@ -4888,7 +4945,7 @@ export async function preparePartyVisualDevTest(code,uid,scenario,options={}) {
    room.turnState.hiddenGiftResult={id:`dev-gift-${now}`,playerId:uid,kind:scenario==='gift-trophy'?'trophies':'tokens',amount:scenario==='gift-trophy'?1:randomPartyInt(seed,options.finalStretch?15:10,options.finalStretch?20:15),startedAt:now,dismissed:false}
   }else if(scenario==='mechanic'||scenario==='danger'){
    if(options.finalStretch)room.currentRound=Math.max(1,(room.settings?.rounds||10)-2);else room.currentRound=1
-   const node=BOOSTSTONE_RUINS.nodes.find(n=>n.type===(scenario==='danger'?'Danger Mechanic':'Mechanic'))
+   const node=getPartyBoard(room).nodes.find(n=>n.type===(scenario==='danger'?'Danger Mechanic':'Mechanic'))
    setup.boardNodeId=node.id;room.turnState.rolled=true;room.turnState.readyToEnd=true;room.turnState.landedNodeId=node.id
    attachLandingEffect(room,room.turnState,uid,node.id,mechanic)
   }else if(scenario==='trophy-offer'){
@@ -4969,8 +5026,9 @@ export async function skipPartyTurn(code, uid) {
   if(!room||room.hostId!==uid||room.status!=='playing'||room.phase!=='board')return
   const turn=room.turnState,id=turn?.playerId
   if(!id||!room.players?.[id])return
+  delete room.boardCinematic
   const setup=room.playerSetup?.[id]
-  if(setup&&['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[setup.boardNodeId]?.type))setup.boardNodeId=turn.lastLandableNodeId||BOOSTSTONE_RUINS.startId
+  if(setup&&['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[setup.boardNodeId]?.type))setup.boardNodeId=turn.lastLandableNodeId||getPartyBoard(room).startId
   delete room.presentation;delete room.boardMotion;delete room.devBonusPreview
   room.presentationSequence=(room.presentationSequence||0)+1
   addPartyActivity(room,uid,`${room.players[id].name}'s turn was skipped by the host. Existing balances were kept.`, 'system')
@@ -4990,4 +5048,44 @@ export async function kickPartyPlayer(code, uid, targetId) {
   return room
  })
  if(!result.committed)throw Error('Only the host can remove another current player.')
+}
+
+export async function resolveDemoMining(code,uid,action,revision){
+ requireOnlineIdentity(uid);await ensurePartyClock();const now=partyNow(),a=Math.random(),b=Math.random();let message='Mining is not available.'
+ const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(!room||room.phase!=='board'||room.settings?.mapId!=='demo-mines'||(room.turnState?.playerId!==uid&&room.hostId!==uid))return
+  try{const e=mineAction(room,action,revision,a,b,now);if(action==='collect')addPartyStat(room,room.turnState.playerId,'tokensCollected',e.collected);return room}catch(err){message=err.message;return}
+ })
+ if(!result.committed)throw Error(message)
+}
+export async function finishBoardCinematic(code,uid,id,skip=false){
+ requireOnlineIdentity(uid);await ensurePartyClock()
+ const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  const c=room?.boardCinematic;if(!c||c.id!==id||(uid!==room.hostId&&uid!==c.playerId))return
+  if(skip&&uid!==room.hostId)return
+  if(!skip&&partyNow()<c.endsAt)return
+  delete room.boardCinematic
+  if(room.turnState?.eventEffect&&c.kind!=='homestretch')room.turnState.eventEffect.resolved=true
+  return room
+ })
+ if(!result.committed)throw Error('Wait for the cinematic, or ask the host to skip it.')
+}
+export async function prepareDemoDev(code,uid,scenario){
+ requireOnlineIdentity(uid);const now=partyNow()
+ const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(!room||room.hostId!==uid||room.phase!=='board')return
+  const setup=room.playerSetup?.[uid];if(!setup)return
+  delete room.boardCinematic;delete room.boardMotion;delete room.presentation
+  room.turnIndex=orderedPlayerIds(room).indexOf(uid);room.turnState=makeTurnState(uid)
+  if(scenario==='homestretch'){room.currentRound=Math.max(1,(room.settings.rounds||10)-2);room.boardState.homestretchShown=false;maybeHomestretch(room,now);return room}
+  if(room.settings?.mapId!=='demo-mines')return
+  if(scenario.startsWith('ally-')){setup.bombAlly={rollsLeft:scenario==='ally-final'?1:3};return room}
+  const nodes={mining:'d44',minecart:'d49','minecart-return':'d29',countdown:'d04',explosion:'d04',conveyor:'d31'}
+  const node=nodes[scenario];if(!node)return
+  if(scenario==='explosion'){room.boardState.bombCountdown=1;for(const s of Object.values(room.playerSetup)){s.boardNodeId='d03';s.onStartDeck=false;s.tokens=15}}
+  setup.boardNodeId=node;setup.onStartDeck=false
+  Object.assign(room.turnState,{rolled:true,movementStarted:true,movementSpacesTaken:1,readyToEnd:true,landedNodeId:node,landedType:'Event'})
+  triggerDemoEvent(room,room.turnState,uid,node,now);return room
+ })
+ if(!result.committed)throw Error('Choose Demo Mines and enter the board phase first.')
 }
