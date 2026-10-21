@@ -53,10 +53,13 @@ function NativeBoard({room,board}){
  return <primitive object={model}/>
 }
 function Pickaxe({effect,position}){
- const asset=useGLTF(URL+'mining-pickaxe.glb'),ref=useRef()
+ const asset=useGLTF(URL+'mining-pickaxe.glb'),ref=useRef(),debris=useRef()
  const clone=useMemo(()=>asset.scene.clone(true),[asset.scene])
- useFrame(()=>{if(!ref.current)return;const t=clamp((partyNow()-Number(effect.lastSwingAt||0))/1100);ref.current.rotation.z=t<1?-.6+Math.sin(t*Math.PI*1.5)*1.3:-.5;ref.current.visible=!effect.broken||t<.75;ref.current.position.y=position[1]+.8})
- return <group ref={ref} position={position} scale={.85}><primitive object={clone}/></group>
+ useFrame(()=>{if(!ref.current)return;const age=partyNow()-Number(effect.lastSwingAt||0),t=clamp(age/1100),breaking=effect.broken&&age>=550;
+ ref.current.rotation.z=t<1?-.6+Math.sin(t*Math.PI*1.5)*1.3:-.5;ref.current.visible=!breaking;ref.current.position.y=position[1]+.8
+ if(debris.current){debris.current.visible=breaking;const d=clamp((age-550)/1900);debris.current.children.forEach((o,i)=>{o.position.set((i%2?1:-1)*d*(.35+i*.08),Math.max(.04,.9+Math.sin(d*Math.PI)*.5-d*1.05),(i-1)*d*.18);o.rotation.set(d*(i+1)*2,0,d*(i%2?3:-3))})}
+ })
+ return <><group ref={ref} position={position} scale={.85}><primitive object={clone}/></group><group ref={debris} position={position} visible={false}>{[0,1,2].map(i=><mesh key={i}><boxGeometry args={i===0?[.65,.13,.19]:[.08,.42,.08]}/><meshStandardMaterial color={i===0?'#a5b3bf':'#805031'} metalness={i===0?.7:0} roughness={.45}/></mesh>)}</group></>
 }
 function Cart(){return <group><mesh position={[0,.25,0]}><boxGeometry args={[.75,.48,.95]}/><meshStandardMaterial color="#705039" metalness={.3}/></mesh>{[-.4,.4].flatMap(x=>[-.32,.32].map(z=><mesh key={`${x}-${z}`} position={[x,0,z]} rotation={[0,0,Math.PI/2]}><cylinderGeometry args={[.17,.17,.08,12]}/><meshStandardMaterial color="#25292e" metalness={.7}/></mesh>))}</group>}
 function Actor({room,player,index,active}){

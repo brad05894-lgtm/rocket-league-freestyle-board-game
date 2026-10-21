@@ -1,8 +1,9 @@
 import {useEffect,useRef,useState} from 'react'
+import {createPortal} from 'react-dom'
 import {partyNow} from './partyClock'
 import {finishBoardCinematic,resolveDemoMining,resolveDemoMinecart} from './partyMultiplayer'
 import './demoMines.css'
-export default function PartyCinematic({room,roomCode,clientId,isHost,runAction,busy,error}){
+function EventContent({room,roomCode,clientId,isHost,runAction,busy,error}){
  const [now,setNow]=useState(partyNow()),lastAttempt=useRef(0)
  useEffect(()=>{const t=setInterval(()=>setNow(partyNow()),80);return()=>clearInterval(t)},[])
  const c=room.boardCinematic,e=room.turnState?.eventEffect,owner=room.turnState?.playerId
@@ -29,12 +30,21 @@ export default function PartyCinematic({room,roomCode,clientId,isHost,runAction,
  </section>
  if(e?.id!=='gold-mine')return null
  const waiting=now<Number(e.swingUntil||0),act=a=>runAction(()=>resolveDemoMining(roomCode,clientId,a,e.revision),true)
- return <section className="demo-cinematic-caption demo-mining" role="dialog" aria-label="Dig for Gold">
+ const age=now-Number(e.lastSwingAt||0),progress=Math.max(0,Math.min(1,(age-550)/(e.broken?1900:750)))
+ const total=e.lastSwingAt&&waiting?Math.round(Number(e.previousTotal||0)+(Number(e.unbanked||0)-Number(e.previousTotal||0))*progress):Number(e.stage==='result'&&!e.broken?e.collected||0:e.unbanked||0)
+ const rules=e.stage==='rules'
+ return <section className={`demo-cinematic-caption demo-mining ${rules?'demo-mining-intro':''}`} role="dialog" aria-label="Dig for Gold">
  <small>{room.players?.[owner]?.name} · Dig for Gold!</small>
- {e.stage==='rules'?<><p>Each successful swing earns 1–5 Tokens. Your first is safe; further swings are riskier. Collect after any success. Breaking the pickaxe loses only this visit’s earnings.</p>{can&&<button disabled={busy} onClick={()=>act('start')}>Start Mining</button>}</>:<>
- <strong className="demo-gold-total">{e.stage==='result'?(e.collected||0):e.unbanked} Tokens</strong>
- <p>{e.stage==='result'?e.publicMessage:waiting?'Swinging…':e.swings?'Collect your Tokens or risk another swing.':'Your first swing is safe.'}</p>
- {can&&<div className="demo-mining-buttons">{e.stage==='mining'?<><button disabled={busy||waiting} onClick={()=>act('swing')}>{waiting?'Swinging…':e.swings?'Swing Again':'First Swing'}</button>{e.swings>0&&<button disabled={busy||waiting} onClick={()=>act('collect')}>Collect</button>}</>:<button disabled={busy||waiting} onClick={()=>act('finish')}>Done</button>}</div>}</>}
+ {rules?<><h2>Dig for Gold!</h2><p>Each successful swing earns <strong>1–5 Tokens</strong>. Your first swing is guaranteed to succeed.</p><p>After each success, cash out your total or swing again. Each extra swing is riskier. If your pickaxe breaks, you lose everything mined during this visit. Your existing Tokens are safe.</p>{can&&<button disabled={busy} onClick={()=>act('continue')}>Continue</button>}</>:<>
+ <div className="demo-mining-tally"><strong className="demo-gold-total">{total} Tokens</strong><span className="demo-gold-gain" key={e.lastSwingAt}>{e.lastSwingAt&&age>=550?(e.broken?'Pickaxe broke!':`+${e.lastGain} Tokens`):waiting?'Swinging…':'Visit total'}</span></div>
+ <p>{e.broken&&age>=550?'This visit’s winnings are lost. Your existing Tokens are safe.':e.broken&&waiting?'Swinging…':e.stage==='result'?e.publicMessage:e.swings?'Cash out or risk another swing.':'Your first swing is safe.'}</p>
+ {can&&<div className="demo-mining-buttons">{e.stage==='ready'?<button disabled={busy} onClick={()=>act('start')}>Start Mining</button>:e.stage==='mining'?<><button disabled={busy||waiting} onClick={()=>act('swing')}>{waiting?'Swinging…':e.swings?'Swing Again':'First Swing'}</button>{e.swings>0&&<button disabled={busy||waiting} onClick={()=>act('collect')}>Cash Out</button>}</>:<button disabled={busy||waiting} onClick={()=>act('finish')}>Done</button>}</div>}</>}
  {!can&&<small>Watching {room.players?.[owner]?.name} mine…</small>}{error&&<p role="alert">{error}</p>}
  </section>
+}
+// Escape transformed board ancestors and track the actually visible mobile viewport.
+export default function PartyCinematic(props){
+ const [viewport,setViewport]=useState({bottom:0,top:0,height:typeof window==='undefined'?800:window.innerHeight})
+ useEffect(()=>{const v=window.visualViewport;const sync=()=>setViewport({bottom:Math.max(0,window.innerHeight-(v?.height||window.innerHeight)-(v?.offsetTop||0)),top:v?.offsetTop||0,height:v?.height||window.innerHeight});sync();v?.addEventListener('resize',sync);v?.addEventListener('scroll',sync);window.addEventListener('resize',sync);return()=>{v?.removeEventListener('resize',sync);v?.removeEventListener('scroll',sync);window.removeEventListener('resize',sync)}},[])
+ return createPortal(<div className="demo-event-layer" style={{'--demo-bottom':`${viewport.bottom}px`,'--demo-center':`${viewport.top+viewport.height/2}px`,'--demo-height':`${viewport.height}px`}}><EventContent {...props}/></div>,document.body)
 }

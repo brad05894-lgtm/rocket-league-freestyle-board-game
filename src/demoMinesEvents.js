@@ -31,25 +31,28 @@ export function triggerDemoEvent(room,turn,uid,nodeId,now){
   createBoardCinematic(room,'conveyor',now,{playerId:uid,lane:state.conveyorLane,title:'Conveyor Reversed!',message:effect.publicMessage},3500)
  }else if(node.special==='gold-mine'){
   effect.name='Dig for Gold!';effect.stage='rules';effect.swings=0;effect.unbanked=0;effect.revision=0
-  effect.publicMessage='Each successful swing mines 1–5 Tokens. Your first swing is safe. Each extra swing is riskier. Collect after any success, or risk another swing. A broken pickaxe loses only this visit’s earnings.'
+  effect.publicMessage='Each successful swing mines 1–5 Tokens. Your first swing is safe. Each extra swing is riskier. Cash out after any success, or risk another swing. A broken pickaxe loses only this visit’s earnings.'
  }
  turn.eventEffect=effect;return effect
 }
 export function mineAction(room,action,expectedRevision,breakSeed,rewardSeed,now){
  const e=room.turnState?.eventEffect
  if(e?.id!=='gold-mine'||e.resolved||e.revision!==expectedRevision)throw Error('Mining state changed. Please try again.')
- if(action==='start'){if(e.stage!=='rules')throw Error('Mining already started.');e.stage='mining'}
+ if(action==='continue'){if(e.stage!=='rules')throw Error('Rules already acknowledged.');e.stage='ready'}
+ else if(action==='start'){if(!['rules','ready'].includes(e.stage))throw Error('Mining already started.');e.stage='mining'}
  else if(action==='swing'){
   if(e.stage!=='mining'||now<Number(e.swingUntil||0))throw Error('Wait for the pickaxe to finish.')
-  e.swings++;e.lastSwingAt=now;e.swingUntil=now+1100
+  e.previousTotal=Math.max(0,Number(e.unbanked)||0)
+  e.swings++;e.lastSwingAt=now;e.swingUntil=now+1600
   e.broken=breakSeed<miningBreakChance(e.swings)
-  e.lastGain=e.broken?0:1+Math.min(4,Math.floor(rewardSeed*5))
-  e.unbanked=e.broken?0:e.unbanked+e.lastGain
+  e.lastGain=e.broken?0:1+Math.max(0,Math.min(4,Math.floor((Number.isFinite(rewardSeed)?rewardSeed:0)*5)))
+  e.unbanked=e.broken?0:e.previousTotal+e.lastGain
+  if(e.broken)e.swingUntil=now+2800
   if(e.broken){e.stage='result';e.publicMessage='Your pickaxe broke! 0 Tokens collected. Your existing Tokens are safe.'}
  }else if(action==='collect'){
   if(e.stage!=='mining'||e.swings<1||now<Number(e.swingUntil||0))throw Error('Finish at least one swing first.')
   const s=room.playerSetup[room.turnState.playerId];s.tokens=Math.max(0,Number(s.tokens)||0)+e.unbanked
-  e.collected=e.unbanked;e.stage='result';e.publicMessage=`Collected ${e.unbanked} Tokens!`
+  e.collected=e.unbanked;e.stage='result';e.publicMessage=`Cashed out ${e.unbanked} Tokens!`
  }else if(action==='finish'){
   if(e.stage!=='result'||now<Number(e.swingUntil||0))throw Error('Finish mining first.')
   e.resolved=true

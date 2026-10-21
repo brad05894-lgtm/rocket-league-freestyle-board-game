@@ -21,3 +21,15 @@
 .party-hud-standings button.active{box-shadow:0 0 12px var(--player-color,#fff)!important}
 @media(max-width:600px){.party-immersive .demo-cinematic-caption{left:12px;right:12px;width:auto;bottom:calc(18px + env(safe-area-inset-bottom));max-height:32dvh;padding:10px 12px}.party-immersive .demo-cinematic-caption p{font-size:13px}.party-immersive[data-event="true"] .party-hud-round{display:none}.demo-event-toast{top:calc(70px + env(safe-area-inset-top))}}
 @media(max-height:500px) and (min-width:601px){.party-immersive .demo-cinematic-caption{width:300px;max-height:48dvh;bottom:12px}.party-immersive .demo-cinematic-caption p{font-size:12px}}
+
+/* Viewport-safe event controls, outside the transformed board container. */
+.demo-event-layer .demo-cinematic-caption{left:auto;right:20px;transform:none;bottom:calc(var(--demo-bottom,0px) + 32px + env(safe-area-inset-bottom));width:min(350px,calc(100vw - 32px));max-height:calc(var(--demo-height,100dvh) - 100px);padding:14px;border-radius:16px;font-size:14px}
+.demo-event-layer .demo-cinematic-caption p{font-size:14px;line-height:1.4;margin:8px 0}
+.demo-event-layer button{min-height:46px;touch-action:manipulation}
+.demo-event-layer .demo-gold-total{font-size:26px;margin:0}
+.demo-mining-tally{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;margin:8px 0}
+.demo-event-layer .demo-mining-intro{top:var(--demo-center);bottom:auto;left:50%;right:auto;transform:translate(-50%,-50%);width:min(440px,calc(100vw - 32px));padding:22px;background:#121b29fa;box-shadow:0 0 0 100vmax #0006}
+.demo-event-layer .demo-event-skip{bottom:calc(var(--demo-bottom,0px) + 32px + env(safe-area-inset-bottom))}
+@media(pointer:coarse){.demo-event-layer .demo-cinematic-caption:not(.demo-mining-intro){bottom:calc(var(--demo-bottom,0px) + 86px + env(safe-area-inset-bottom));max-height:calc(var(--demo-height,100dvh) - 180px)}.demo-event-layer .demo-event-skip{bottom:calc(var(--demo-bottom,0px) + 86px + env(safe-area-inset-bottom))}}
+@media(max-width:600px){.demo-event-layer .demo-cinematic-caption:not(.demo-mining-intro){left:16px;right:16px;width:auto}.demo-event-layer .demo-mining-intro{padding:18px}.demo-event-layer .demo-gold-total{font-size:24px}}
+@media(max-height:500px){.demo-event-layer .demo-cinematic-caption:not(.demo-mining-intro){bottom:calc(var(--demo-bottom,0px) + 18px);max-height:calc(var(--demo-height,100dvh) - 60px)}}
