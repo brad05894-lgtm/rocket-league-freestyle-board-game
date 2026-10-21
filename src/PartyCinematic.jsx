@@ -1,19 +1,40 @@
-import {useEffect,useState} from 'react'
+import {useEffect,useRef,useState} from 'react'
 import {partyNow} from './partyClock'
-import {finishBoardCinematic,resolveDemoMining} from './partyMultiplayer'
-import {miningBreakChance} from './demoMinesEvents'
+import {finishBoardCinematic,resolveDemoMining,resolveDemoMinecart} from './partyMultiplayer'
 import './demoMines.css'
-export default function PartyCinematic({room,roomCode,clientId,isHost,runAction,busy}){
- const [now,setNow]=useState(partyNow())
+export default function PartyCinematic({room,roomCode,clientId,isHost,runAction,busy,error}){
+ const [now,setNow]=useState(partyNow()),lastAttempt=useRef(0)
  useEffect(()=>{const t=setInterval(()=>setNow(partyNow()),80);return()=>clearInterval(t)},[])
  const c=room.boardCinematic,e=room.turnState?.eventEffect,owner=room.turnState?.playerId
- if(c){const done=now>=c.endsAt,can=isHost||c.playerId===clientId,fade=c.kind==='minecart'&&now-c.startedAt>=2850&&now-c.startedAt<3550
-  return <><div className={'demo-cinematic-letterbox'+(fade?' is-tunnel':'')} aria-hidden="true"/><section className="demo-cinematic-caption" role="dialog" aria-label={c.title}><small>{c.kind==='homestretch'?'FINAL THREE ROUNDS':'BOARD EVENT'}</small><h2>{c.title}</h2><p>{c.message}</p>{done&&c.losses&&<p>{Object.entries(c.losses).map(([id,loss])=>`${room.players?.[id]?.name||'Player'}: −${loss}`).join(' · ')}</p>}{done&&can?<button disabled={busy} onClick={()=>runAction(()=>finishBoardCinematic(roomCode,clientId,c.id),true)}>Continue</button>:<small>{done?'Waiting for the host or active player…':'Watch the board…'}</small>}{isHost&&!done&&<button className="demo-skip" disabled={busy} onClick={()=>runAction(()=>finishBoardCinematic(roomCode,clientId,c.id,true),true)}>Skip animation</button>}</section></>
+ const can=isHost||owner===clientId
+ useEffect(()=>{
+  if(!c||now<c.endsAt||busy||!(isHost||c.playerId===clientId)||now-lastAttempt.current<2500)return
+  lastAttempt.current=now
+  runAction(()=>finishBoardCinematic(roomCode,clientId,c.id),true)
+ },[c,now,busy,isHost,clientId,roomCode,runAction])
+ if(c){const age=now-c.startedAt,fade=c.kind==='minecart'?Math.max(0,Math.min(1,(age-4800)/600,(6500-age)/600)):0
+  return <>
+   <div className="demo-tunnel-fade" style={{opacity:fade}} aria-hidden="true"/>
+   {c.kind==='homestretch'&&<div className="demo-event-toast">Homestretch · Final three rounds</div>}
+   {c.kind==='conveyor'&&<div className="demo-event-toast">{c.lane==='upper'?'Upper route open':'Lower route open'}</div>}
+   {c.kind==='ally-goodbye'&&<div className="demo-event-toast">Bomb ally: −{c.loss} Tokens</div>}
+   {isHost&&<button className="demo-event-skip" disabled={busy} onClick={()=>runAction(()=>finishBoardCinematic(roomCode,clientId,c.id,true),true)}>Skip animation</button>}
+   {error&&<div className="demo-event-error" role="alert">{error}</div>}
+  </>
  }
- if(e?.id!=='gold-mine'||e.resolved)return null
- const can=owner===clientId||isHost,waiting=now<Number(e.swingUntil||0),act=a=>runAction(()=>resolveDemoMining(roomCode,clientId,a,e.revision),true)
- return <section className="demo-cinematic-caption demo-mining" role="dialog" aria-label="Dig for Gold"><small>{room.players?.[owner]?.name} · MINING EVENT</small><h2>Dig for Gold!</h2>
- {e.stage==='rules'?<><p>{e.publicMessage}</p>{can&&<button disabled={busy} onClick={()=>act('start')}>Start Mining</button>}</>:<><strong className="demo-gold-total">{e.stage==='result'?(e.collected||0):e.unbanked} Tokens</strong><p>{e.stage==='result'?e.publicMessage:`Swing ${e.swings+1}: ${Math.round(miningBreakChance(e.swings+1)*100)}% chance of breaking. Collected only when you cash out.`}</p>{e.lastGain>0&&<p key={e.lastSwingAt} className="demo-gold-gain">+{e.lastGain} mined!</p>}{can&&<div className="demo-mining-buttons">{e.stage==='mining'?<><button disabled={busy||waiting} onClick={()=>act('swing')}>{waiting?'Swinging…':e.swings?'Keep Mining':'First Swing — Safe'}</button>{e.swings>0&&<button disabled={busy||waiting} onClick={()=>act('collect')}>Collect & Finish</button>}</>:<button disabled={busy||waiting} onClick={()=>act('finish')}>Continue</button>}</div>}</>}
- {!can&&<small>Watching {room.players?.[owner]?.name} mine…</small>}
+ if(e?.resolved)return null
+ if(e?.id==='minecart')return <section className="demo-cinematic-caption demo-ride-choice" role="dialog" aria-label="Free minecart ride">
+  <h2>Take a free ride?</h2><p>Travel to the opposite corner and end your turn there. The arrival space won’t activate.</p>
+  {can?<div className="demo-mining-buttons"><button disabled={busy} onClick={()=>runAction(()=>resolveDemoMinecart(roomCode,clientId,true),true)}>Ride</button><button disabled={busy} onClick={()=>runAction(()=>resolveDemoMinecart(roomCode,clientId,false),true)}>Stay here</button></div>:<small>Waiting for {room.players?.[owner]?.name}…</small>}{error&&<p role="alert">{error}</p>}
+ </section>
+ if(e?.id!=='gold-mine')return null
+ const waiting=now<Number(e.swingUntil||0),act=a=>runAction(()=>resolveDemoMining(roomCode,clientId,a,e.revision),true)
+ return <section className="demo-cinematic-caption demo-mining" role="dialog" aria-label="Dig for Gold">
+ <small>{room.players?.[owner]?.name} · Dig for Gold!</small>
+ {e.stage==='rules'?<><p>Each successful swing earns 1–5 Tokens. Your first is safe; further swings are riskier. Collect after any success. Breaking the pickaxe loses only this visit’s earnings.</p>{can&&<button disabled={busy} onClick={()=>act('start')}>Start Mining</button>}</>:<>
+ <strong className="demo-gold-total">{e.stage==='result'?(e.collected||0):e.unbanked} Tokens</strong>
+ <p>{e.stage==='result'?e.publicMessage:waiting?'Swinging…':e.swings?'Collect your Tokens or risk another swing.':'Your first swing is safe.'}</p>
+ {can&&<div className="demo-mining-buttons">{e.stage==='mining'?<><button disabled={busy||waiting} onClick={()=>act('swing')}>{waiting?'Swinging…':e.swings?'Swing Again':'First Swing'}</button>{e.swings>0&&<button disabled={busy||waiting} onClick={()=>act('collect')}>Collect</button>}</>:<button disabled={busy||waiting} onClick={()=>act('finish')}>Done</button>}</div>}</>}
+ {!can&&<small>Watching {room.players?.[owner]?.name} mine…</small>}{error&&<p role="alert">{error}</p>}
  </section>
 }

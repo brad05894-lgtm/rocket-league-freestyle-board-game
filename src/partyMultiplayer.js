@@ -10,7 +10,7 @@ import { ref, set, get, onValue, update, runTransaction as firebaseTransaction, 
 import { db } from './firebase'
 import { calculatePartyMovement, clearPendingPartyMovementModifiers, pendingPartyMovementModifier, settlePartyZeroMovementTurn } from './partyMovementModifiers'
 import { getPartyBoard, PARTY_NODE_BY_ID, partyNext } from './partyBoards'
-import { triggerDemoEvent, mineAction, giveBombAlly, rollBombAlly, explodeAllyAtTurnEnd, maybeHomestretch, createBoardCinematic } from './demoMinesEvents'
+import { triggerDemoEvent, chooseMinecartRide, mineAction, giveBombAlly, rollBombAlly, explodeAllyAtTurnEnd, maybeHomestretch, createBoardCinematic } from './demoMinesEvents'
 import { getPartyCar, formatPartyDieFace } from './partyCars'
 import { PARTY_MECHANICS, pickPartyMechanic } from './partyMechanics'
 import { getEnabledPartyCards, getPartyCard, normalizePartyCards, pickPartyCard, getPartyShopCards, getPartyCardShopPrice } from './partyCards'
@@ -4574,8 +4574,7 @@ function removePartyPlayer(room, playerId, reason, now) {
   } else if (room.phase === 'board') {
     if (activeId === playerId) {
     const taken = new Set(Object.values(room.roundTakenPlayerIds || {}))
-    room.turnDirection = 1
-    const direction = 1
+    const direction = room.turnDirection === -1 ? -1 : 1
     const start = before.indexOf(playerId)
     let nextId
     for (let step=1; step<=before.length; step++) {
@@ -4595,6 +4594,7 @@ function removePartyPlayer(room, playerId, reason, now) {
     const battle = room.turnState?.battle
     if (battle?.status === 'active' && (Object.values(battle.availableIds || battle.participantIds || {}).includes(playerId) || battle.opponentId === playerId)) {
       battle.status = 'resolved'
+      battle.cancelled = true
       battle.resultMessage = 'Battle cancelled because a participant left. No Tokens changed.'
       battle.resolvedAt = now
       if (battle.source !== 'challenge-glove') room.turnState.readyToEnd = true
@@ -5061,7 +5061,7 @@ export async function resolveDemoMining(code,uid,action,revision){
 export async function finishBoardCinematic(code,uid,id,skip=false){
  requireOnlineIdentity(uid);await ensurePartyClock()
  const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
-  const c=room?.boardCinematic;if(!c||c.id!==id||(uid!==room.hostId&&uid!==c.playerId))return
+  const c=room?.boardCinematic;if(room&&!c&&(uid===room.hostId||uid===room.turnState?.playerId))return room;if(!c||c.id!==id||(uid!==room.hostId&&uid!==c.playerId))return
   if(skip&&uid!==room.hostId)return
   if(!skip&&partyNow()<c.endsAt)return
   delete room.boardCinematic
@@ -5088,4 +5088,22 @@ export async function prepareDemoDev(code,uid,scenario){
   triggerDemoEvent(room,room.turnState,uid,node,now);return room
  })
  if(!result.committed)throw Error('Choose Demo Mines and enter the board phase first.')
+}
+
+export async function selectPartyMapPreview(code,uid,mapId){
+ requireOnlineIdentity(uid)
+ if(!['booststone-ruins','demo-mines'].includes(mapId))throw Error('Unknown map.')
+ const r=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(!room||room.hostId!==uid||room.phase!=='board-select'||room.status!=='playing')return
+  room.settings.mapId=mapId;return room
+ })
+ if(!r.committed)throw Error('Only the host can choose the map.')
+}
+export async function resolveDemoMinecart(code,uid,accept){
+ requireOnlineIdentity(uid);await ensurePartyClock();const now=partyNow();let error='Only the active player or host can choose this ride.'
+ const r=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(!room||room.phase!=='board'||room.settings?.mapId!=='demo-mines'||(room.hostId!==uid&&room.turnState?.playerId!==uid))return
+  try{chooseMinecartRide(room,accept,now);return room}catch(e){error=e.message;return}
+ })
+ if(!r.committed)throw Error(error)
 }

@@ -1,3 +1,5 @@
+import {partyPlayerColor} from './partyPlayerColors'
+import {kickPartyPlayer} from './partyMultiplayer'
 import PartyCinematic from './PartyCinematic'
 import DemoEventAudio from './DemoEventAudio'
 import { getPartyBoard } from './partyBoards'
@@ -269,6 +271,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   const [boardView, setBoardView] = useState('3d')
   const [overview, setOverview] = useState(false)
   const [hudPanel, setHudPanel] = useState(null)
+  const [selectedStanding,setSelectedStanding]=useState(null)
   const [quality, setQuality] = useState('low')
   const immersiveRef = useRef(null)
   const [fullscreenError, setFullscreenError] = useState('')
@@ -643,10 +646,11 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
   if(room.devBonusPreview)return <PartyFinale room={room.devBonusPreview} clockOffset={clockOffset} isHost={isHost} isPreview onLeave={()=>runAction(()=>closePartyBonusDevTest(roomCode,clientId))}/>
   if(room.phase==='party-complete-test')return <PartyFinale room={room} clockOffset={clockOffset} onLeave={onLeave} isHost={isHost}/>
   const routeDecision = room.phase==='board' && !movementBusy && (turn.awaitingChoice || turn.awaitingGate)
+  const eventFocused=Boolean(room.boardCinematic)||Boolean(turn.eventEffect&&!turn.eventEffect.resolved&&['gold-mine','minecart'].includes(turn.eventEffect.id))
   const battleLocked=battle?.status==='active'||room.phase==='round-complete'||orderResults
   return (
-    <div ref={immersiveRef} className="game party-game-screen party-immersive" data-route={Boolean(routeDecision)} data-panel={hudPanel||'none'}>
-      <PartyCinematic room={room} roomCode={roomCode} clientId={clientId} isHost={isHost} runAction={runAction} busy={actionBusy}/><DemoEventAudio room={room}/>
+    <div ref={immersiveRef} className="game party-game-screen party-immersive" data-event={eventFocused} data-route={Boolean(routeDecision)} data-panel={eventFocused?'none':hudPanel||'none'}>
+      <PartyCinematic room={room} roomCode={roomCode} clientId={clientId} isHost={isHost} runAction={runAction} busy={actionBusy} error={error}/><DemoEventAudio room={room}/>
       <PartyEventAudio room={room} clockOffset={clockOffset}/>
       {diceVisible&&<PartyDice isHost={isHost} error={error} onRecover={()=>runAction(()=>recoverPartyPresentation(roomCode,clientId),true)} animation={dice} room={room} clientId={clientId} busy={actionBusy} onStop={value=>runAction(()=>isTurnOrderPhase?rollPartyTurnOrder(roomCode,clientId):dice.kind==='precision'?stopPartyPrecisionDie(roomCode,clientId,value):rollPartyDie(roomCode,clientId,dice.kind),true)}/>}
       {room.turnState?.hiddenGiftResult&&!room.turnState.hiddenGiftResult.dismissed&&<PartyHiddenGift gift={room.turnState.hiddenGiftResult} name={room.players?.[room.turnState.playerId]?.name||'Player'} canCollect={room.turnState.playerId===clientId} isHost={isHost} busy={actionBusy} onCollect={()=>runAction(()=>collectPartyHiddenGift(roomCode,clientId),true)} onRecover={()=>runAction(()=>skipPartyHiddenGift(roomCode,clientId),true)}/>}
@@ -669,10 +673,11 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
           </div>
         </div>
       )}
-      <div className="party-hud" inert={battleLocked?true:undefined}>
+      {!eventFocused&&selectedStanding&&room.players?.[selectedStanding]&&<section className="party-player-actions" style={{'--player-color':partyPlayerColor(room,selectedStanding)}} role="dialog" aria-label="Player options"><strong>{room.players[selectedStanding].name}</strong><button onClick={()=>setSelectedStanding(null)} aria-label="Close player options">✕</button><p>🏆 {room.playerSetup?.[selectedStanding]?.trophies||0} · Tokens {room.playerSetup?.[selectedStanding]?.tokens||0}</p>{isHost&&selectedStanding!==clientId&&<button disabled={actionBusy} onClick={()=>{if(window.confirm(`Remove ${room.players[selectedStanding].name}? Any affected battle will be cancelled without new rewards.`))runAction(async()=>{await kickPartyPlayer(roomCode,clientId,selectedStanding);setSelectedStanding(null)},true)}}>Kick player</button>}</section>}
+      <div className="party-hud" inert={battleLocked||eventFocused?true:undefined}>
         <header className="party-hud-top">
           <div className="party-hud-round"><strong>{isTurnOrderPhase?'Starting order':`Round ${room.currentRound||1} / ${room.settings?.rounds||10}`}</strong><small>Room {roomCode} · {openHands?'Open':'Hidden'} Hands</small></div>
-          <div className="party-hud-standings">{players.map(player=>{const score=room.playerSetup?.[player.id]||{};const car=getPartyCar(player.carId);return <button key={player.id} className={player.id===activePlayer?.id?'active':''} onClick={()=>setHudPanel(hudPanel==='players'?null:'players')}><img src={getPartyCarImageUrl(car)} alt=""/><span><strong>{player.name}</strong><small>🏆 {score.trophies||0} · <TokenIcon/> {score.tokens??5}</small></span></button>})}</div>
+          <div className="party-hud-standings">{players.map(player=>{const score=room.playerSetup?.[player.id]||{};const car=getPartyCar(player.carId);return <button key={player.id} className={player.id===activePlayer?.id?'active':''} style={{'--player-color':partyPlayerColor(room,player.id)}} onClick={()=>{setSelectedStanding(player.id);setHudPanel(null)}}><img src={getPartyCarImageUrl(car)} alt=""/><span><strong>{player.name}</strong><small>🏆 {score.trophies||0} · <TokenIcon/> {score.tokens??5}</small></span></button>})}</div>
         </header>
         <nav className="party-hud-menu" aria-label="Game controls">
           <button aria-pressed={hudPanel==='turn'} onClick={()=>setHudPanel(hudPanel==='turn'?null:'turn')}>🎲 {isMyTurn&&!turn.rolled?'Dice':'Turn'}</button>
@@ -715,7 +720,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
 
         </section>
 
-        <aside className="party-turn-panel" inert={battleLocked?true:undefined} aria-label="Game overlay">
+        <aside className="party-turn-panel" inert={battleLocked||eventFocused?true:undefined} aria-label="Game overlay">
           <header className="party-panel-header"><strong>{({turn:'Your turn',cards:'Action Cards',players:'Standings',log:'Activity',dev:'Dev Test Lab',settings:'Settings'})[hudPanel]||'Game'}</strong><button aria-label="Close overlay" onClick={()=>setHudPanel(null)}>✕</button></header>
           {routeDecision && hudPanel==='turn' ? <>
       {room.phase === 'board' && !movementBusy && turn.awaitingChoice && !turn.awaitingGate && battle?.status !== 'active' && (() => {
@@ -1364,7 +1369,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
             </div>
           )}
 
-          {room.phase === 'board' && !movementBusy && turn.eventEffect && turn.eventEffect.id!=='gold-mine' && (
+          {room.phase === 'board' && !movementBusy && turn.eventEffect && !['gold-mine','minecart','royal-explosion','conveyor-reversal'].includes(turn.eventEffect.id) && (
             <div className="party-turn-panel__section party-landing-effect">
               <p className="home-mode-card__eyebrow">{board.name} Event</p>
               <h2>⚡ {turn.eventEffect.name}</h2>

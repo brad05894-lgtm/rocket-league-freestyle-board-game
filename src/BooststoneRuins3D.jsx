@@ -1,3 +1,4 @@
+import {partyPlayerColor} from './partyPlayerColors'
 import {partyNow} from './partyClock'
 import { transformedBadLuck } from './demoMinesEvents'
 import {chestOpenAmount, chestCloseDelay} from './partyEventTiming'
@@ -337,12 +338,12 @@ function PlayerTokens({ board, room, players, activePlayer, turnOrderPhase, turn
     return <AnimatedPiece key={p.id} position={position} motion={room.boardMotion} playerId={p.id} clockOffset={clockOffset} followPoint={followPoint} isActive={p.id === activePlayer?.id} escape={escape} treasure={treasure}>
       <mesh castShadow>
         <sphereGeometry args={[0.17, 18, 12]} />
-        <meshStandardMaterial color={COLORS[i % COLORS.length]} roughness={0.5} />
+        <meshStandardMaterial color={partyPlayerColor(room,p.id)} roughness={0.5} />
       </mesh>
       {!turnOrderPhase && p.id === activePlayer?.id && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.13, 0]}>
         <ringGeometry args={[0.22, 0.29, 24]} /><meshBasicMaterial color="#fde047" side={THREE.DoubleSide} />
       </mesh>}
-      <SpriteLabel text={`${p.name}${turnOrderPhase && roll ? ` • ${roll}` : ''}`} />
+
     </AnimatedPiece>
   })}</group>
 }

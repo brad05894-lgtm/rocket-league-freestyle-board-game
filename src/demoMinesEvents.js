@@ -12,10 +12,9 @@ export function triggerDemoEvent(room,turn,uid,nodeId,now){
  room.boardState ||= {};const state=room.boardState
  const effect={id:node.special,name:getPartyBoard(room).boardEvents[node.special]?.name||'Mine Event',resolved:false,animationStartedAt:now,publicMessage:'',playerId:uid,nodeId}
  if(node.special==='minecart'){
-  const destination=nodeId==='d29'?'d49':'d29'
-  effect.publicMessage='A free minecart ride to the opposite corner! Your turn ends there; the destination does not activate.'
-  setup.boardNodeId=destination;setup.onStartDeck=false;turn.movementRemaining=0;turn.readyToEnd=true
-  createBoardCinematic(room,'minecart',now,{playerId:uid,from:nodeId,to:destination,title:'All Aboard!',message:effect.publicMessage},6500)
+  effect.stage='offer';effect.destination=nodeId==='d29'?'d49':'d29'
+  effect.publicMessage='Ride to the opposite corner for free? Your turn ends on arrival without activating that space.'
+  turn.movementRemaining=0;turn.readyToEnd=true
  }else if(node.special==='royal-explosion'){
   const previous=Number.isInteger(state.bombCountdown)?state.bombCountdown:5,remaining=previous-1
   const affected=[],losses={}
@@ -25,14 +24,14 @@ export function triggerDemoEvent(room,turn,uid,nodeId,now){
   }}
   state.bombCountdown=remaining<=0?5:remaining
   effect.publicMessage=remaining<=0?'BOOM! Everyone on the central loop loses half their Tokens, rounded up. Stay on your spaces. Countdown resets to 5.':`Central bomb countdown: ${remaining}.`
-  createBoardCinematic(room,'central-bomb',now,{playerId:uid,previous,countdown:remaining,affected,losses,title:remaining<=0?'Royal Explosion!':'Tick… Tock…',message:effect.publicMessage},remaining<=0?5500:3000)
+  createBoardCinematic(room,'central-bomb',now,{playerId:uid,previous,countdown:remaining,affected,losses,title:remaining<=0?'Explosion!':'Tick… Tock…',message:effect.publicMessage},remaining<=0?8500:3600)
  }else if(node.special==='conveyor-reversal'){
   state.conveyorLane=state.conveyorLane==='upper'?'lower':'upper'
   effect.publicMessage=state.conveyorLane==='upper'?'The top conveyor now takes the upper route past the bomb ally.':'The top conveyor now takes the lower, safe route.'
   createBoardCinematic(room,'conveyor',now,{playerId:uid,lane:state.conveyorLane,title:'Conveyor Reversed!',message:effect.publicMessage},3500)
  }else if(node.special==='gold-mine'){
   effect.name='Dig for Gold!';effect.stage='rules';effect.swings=0;effect.unbanked=0;effect.revision=0
-  effect.publicMessage='Each successful swing mines 1–5 Tokens. First swing is safe; break chances then rise to 10%, 20%, 30%, 40%, and 50%. Collect after any success, or risk another swing. A broken pickaxe loses only this visit’s earnings.'
+  effect.publicMessage='Each successful swing mines 1–5 Tokens. Your first swing is safe. Each extra swing is riskier. Collect after any success, or risk another swing. A broken pickaxe loses only this visit’s earnings.'
  }
  turn.eventEffect=effect;return effect
 }
@@ -85,4 +84,15 @@ export function transformedBadLuck(room,id,now){
  const c=room.boardCinematic
  if(c?.kind==='homestretch'){const index=c.nodes.indexOf(id);return index<0?final:now>=c.startedAt+1800+index*2200+1000}
  return final
+}
+
+export function chooseMinecartRide(room,accept,now){
+ const turn=room.turnState,e=turn?.eventEffect
+ if(e?.id!=='minecart'||e.resolved||e.stage!=='offer'||room.boardCinematic)throw Error('This minecart choice has already been handled.')
+ if(typeof accept!=='boolean')throw Error('Choose Ride or Stay.')
+ turn.movementRemaining=0;turn.readyToEnd=true
+ if(!accept){e.resolved=true;e.stage='declined';e.publicMessage='Stayed at this station.';return}
+ const setup=room.playerSetup[turn.playerId]
+ setup.boardNodeId=e.destination;setup.onStartDeck=false;e.stage='riding'
+ createBoardCinematic(room,'minecart',now,{playerId:turn.playerId,from:e.nodeId,to:e.destination,title:'Minecart Ride',message:''},12000)
 }
