@@ -1,3 +1,4 @@
+import {refundVsPot} from './partyVsPot'
 import { isPartyIntermediateStop } from './partyRoutes'
 import { economySnapshot, attachEconomyPresentation } from './partyPresentation'
 import { identityKey, seal, unseal } from './partyChallengeSecrets'
@@ -4539,6 +4540,8 @@ export async function beginNextPartyRound(roomCode, requesterId) {
 }
 
 function removePartyPlayer(room, playerId, reason, now) {
+  const pendingBattle=room.turnState?.battle;
+  if(pendingBattle?.status==='active'&&(room.turnState?.playerId===playerId||pendingBattle.participantIds?.includes(playerId)))refundVsPot(room,pendingBattle);
   const before = orderedPlayerIds(room)
   const activeId = room.turnState?.playerId
   const name = room.players[playerId].name
@@ -5026,6 +5029,7 @@ export async function skipPartyTurn(code, uid) {
   if(!room||room.hostId!==uid||room.status!=='playing'||room.phase!=='board')return
   const turn=room.turnState,id=turn?.playerId
   if(!id||!room.players?.[id])return
+  refundVsPot(room,turn.battle)
   delete room.boardCinematic
   const setup=room.playerSetup?.[id]
   if(setup&&['Junction','Shop','Paratroopa','Lakitu'].includes(BOARD_NODE_BY_ID[setup.boardNodeId]?.type))setup.boardNodeId=turn.lastLandableNodeId||getPartyBoard(room).startId

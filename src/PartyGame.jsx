@@ -1,3 +1,4 @@
+import {boardRanks} from './partyVsPot'
 import {partyPlayerColor} from './partyPlayerColors'
 import {kickPartyPlayer} from './partyMultiplayer'
 import PartyCinematic from './PartyCinematic'
@@ -677,7 +678,7 @@ export default function PartyGame({ roomCode, room, clientId, onLeave, isHost })
       <div className="party-hud" inert={battleLocked||eventFocused?true:undefined}>
         <header className="party-hud-top">
           <div className="party-hud-round"><strong>{isTurnOrderPhase?'Starting order':`Round ${room.currentRound||1} / ${room.settings?.rounds||10}`}</strong><small>Room {roomCode} · {openHands?'Open':'Hidden'} Hands</small></div>
-          <div className="party-hud-standings">{players.map(player=>{const score=room.playerSetup?.[player.id]||{};const car=getPartyCar(player.carId);return <button key={player.id} className={player.id===activePlayer?.id?'active':''} style={{'--player-color':partyPlayerColor(room,player.id)}} onClick={()=>{setSelectedStanding(player.id);setHudPanel(null)}}><img src={getPartyCarImageUrl(car)} alt=""/><span><strong>{player.name}</strong><small>🏆 {score.trophies||0} · <TokenIcon/> {score.tokens??5}</small></span></button>})}</div>
+          <div className="party-hud-standings">{players.map(player=>{const score=room.playerSetup?.[player.id]||{};const car=getPartyCar(player.carId);return <button key={player.id} className={player.id===activePlayer?.id?'active':''} style={{'--player-color':partyPlayerColor(room,player.id)}} onClick={()=>{setSelectedStanding(player.id);setHudPanel(null)}}><img src={getPartyCarImageUrl(car)} alt=""/><span><strong>{boardRanks(room)[player.id]}. {player.name}</strong><small>🏆 {score.trophies||0} · <TokenIcon/> {score.tokens??5}</small></span></button>})}</div>
         </header>
         <nav className="party-hud-menu" aria-label="Game controls">
           <button aria-pressed={hudPanel==='turn'} onClick={()=>setHudPanel(hudPanel==='turn'?null:'turn')}>🎲 {isMyTurn&&!turn.rolled?'Dice':'Turn'}</button>

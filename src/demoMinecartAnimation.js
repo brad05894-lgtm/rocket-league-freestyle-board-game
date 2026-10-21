@@ -23,7 +23,7 @@ function along(points,t){
  for(let i=0;i<lengths.length;i++){if(d<=lengths[i])return mix(points[i],points[i+1],lengths[i]?d/lengths[i]:0);d-=lengths[i]}
  return points.at(-1)
 }
-export function minecartFrame(c,now){
+function passengerFrame(c,now){
  const age=Math.max(0,now-c.startedAt),from=stationRail(c.from),to=stationRail(c.to)
  const departure=from[0],arrival=to[0],a=demoPoint(c.from),b=demoPoint(c.to)
  let player,cart,riding=false,travel=0,rail=from
@@ -35,4 +35,20 @@ export function minecartFrame(c,now){
  else {rail=to;cart=arrival;player=walkStation(c.to,arrival,b,(age-9500)/2200)}
  const tangentA=along(rail,Math.max(0,travel-.01)),tangentB=along(rail,Math.min(1,travel+.01))
  return {player,cart,riding,yaw:Math.atan2(tangentB[0]-tangentA[0],tangentB[2]-tangentA[2])+(age>=5500?Math.PI:0),age}
+}
+
+export function minecartFrame(c,now){
+ const elapsed=Math.max(0,now-c.startedAt),pickup=Number(c.pickupMs)||0;
+ if(elapsed<pickup){
+  const departing=elapsed<3000,rail=stationRail(departing?c.cartFrom:c.from);
+  const t=departing?clamp(elapsed/2300):1-clamp((elapsed-3500)/2500),cart=along(rail,t);
+  const a=along(rail,Math.max(0,t-.01)),b=along(rail,Math.min(1,t+.01));
+  return {player:demoPoint(c.from),cart,riding:false,waiting:true,yaw:Math.atan2(b[0]-a[0],b[2]-a[2])+(departing?0:Math.PI),age:elapsed};
+ }
+ return {...passengerFrame({...c,startedAt:c.startedAt+pickup},now),waiting:false};
+}
+export function minecartFade(c,now){
+ const elapsed=now-c.startedAt,pickup=Number(c.pickupMs)||0;
+ if(elapsed<pickup)return Math.max(0,Math.min(1,(elapsed-2300)/500,(4000-elapsed)/500));
+ const age=elapsed-pickup;return Math.max(0,Math.min(1,(age-4800)/600,(6500-age)/600));
 }

@@ -1,5 +1,5 @@
 import {partyPlayerColor} from './partyPlayerColors'
-import {minecartFrame} from './demoMinecartAnimation'
+import {minecartFrame,stationRail} from './demoMinecartAnimation'
 import {Component,Suspense,useEffect,useMemo,useRef,useState} from 'react'
 import {Canvas,useFrame,useThree} from '@react-three/fiber'
 import {Html,OrbitControls,useGLTF} from '@react-three/drei'
@@ -47,24 +47,21 @@ function NativeBoard({room,board}){
     if(explosion&&age>=5700&&age<7100){const t=(age-5700)/1400;o.position.y+=12*(1-t*t);o.rotation.z=(1-t)*.8}
    }
    // Runtime cart replaces the parked model during the ride only.
-   if(/minecart|cart body|cart wheel/i.test(name)&&!/rail|track|mouth/i.test(name))o.visible=c?.kind!=='minecart'
+   if(/minecart|cart body|cart wheel/i.test(name)&&!/rail|track|mouth/i.test(name))o.visible=false
   })
  })
- return <primitive object={model}/>
+ return <primitive object={model} userData={{minecartGround:true}}/>
 }
 function Pickaxe({effect,position}){
- const asset=useGLTF(URL+'mining-pickaxe.glb'),ref=useRef(),debris=useRef()
+ const asset=useGLTF(URL+'mining-pickaxe.glb'),ref=useRef()
  const clone=useMemo(()=>asset.scene.clone(true),[asset.scene])
- useFrame(()=>{if(!ref.current)return;const age=partyNow()-Number(effect.lastSwingAt||0),t=clamp(age/1100),breaking=effect.broken&&age>=550;
- ref.current.rotation.z=t<1?-.6+Math.sin(t*Math.PI*1.5)*1.3:-.5;ref.current.visible=!breaking;ref.current.position.y=position[1]+.8
- if(debris.current){debris.current.visible=breaking;const d=clamp((age-550)/1900);debris.current.children.forEach((o,i)=>{o.position.set((i%2?1:-1)*d*(.35+i*.08),Math.max(.04,.9+Math.sin(d*Math.PI)*.5-d*1.05),(i-1)*d*.18);o.rotation.set(d*(i+1)*2,0,d*(i%2?3:-3))})}
- })
- return <><group ref={ref} position={position} scale={.85}><primitive object={clone}/></group><group ref={debris} position={position} visible={false}>{[0,1,2].map(i=><mesh key={i}><boxGeometry args={i===0?[.65,.13,.19]:[.08,.42,.08]}/><meshStandardMaterial color={i===0?'#a5b3bf':'#805031'} metalness={i===0?.7:0} roughness={.45}/></mesh>)}</group></>
+ useFrame(()=>{if(!ref.current)return;const t=clamp((partyNow()-Number(effect.lastSwingAt||0))/1100);ref.current.rotation.z=t<1?-.6+Math.sin(t*Math.PI*1.5)*1.3:-.5;ref.current.visible=!effect.broken||t<.75;ref.current.position.y=position[1]+.8})
+ return <group ref={ref} position={position} scale={.85}><primitive object={clone}/></group>
 }
 function Cart(){return <group><mesh position={[0,.25,0]}><boxGeometry args={[.75,.48,.95]}/><meshStandardMaterial color="#705039" metalness={.3}/></mesh>{[-.4,.4].flatMap(x=>[-.32,.32].map(z=><mesh key={`${x}-${z}`} position={[x,0,z]} rotation={[0,0,Math.PI/2]}><cylinderGeometry args={[.17,.17,.08,12]}/><meshStandardMaterial color="#25292e" metalness={.7}/></mesh>))}</group>}
 function Actor({room,player,index,active}){
- const ref=useRef(),egg=useRef()
- useFrame(()=>{if(!ref.current)return;const p=playerPoint(room,player.id,partyNow());if(room.playerSetup?.[player.id]?.onStartDeck)p[0]+=(index-1.5)*.55;else if(!(room.boardCinematic?.kind==='minecart'&&room.boardCinematic.playerId===player.id)){p[0]+=(index%2?1:-1)*.12;p[2]+=(index<2?1:-1)*.12}ref.current.position.set(...p);if(egg.current)egg.current.position.y=.6+Math.sin(partyNow()/220)*.08})
+ const ref=useRef(),egg=useRef(),world=useThree(state=>state.scene),groundRay=useMemo(()=>new THREE.Raycaster(),[]),groundCache=useRef(null)
+ useFrame(()=>{if(!ref.current)return;const p=playerPoint(room,player.id,partyNow());if(room.playerSetup?.[player.id]?.onStartDeck)p[0]+=(index-1.5)*.55;else if(!(room.boardCinematic?.kind==='minecart'&&room.boardCinematic.playerId===player.id)){p[0]+=(index%2?1:-1)*.12;p[2]+=(index<2?1:-1)*.12}const ride=room.boardCinematic;if(ride?.kind==='minecart'&&ride.playerId===player.id){const f=minecartFrame(ride,partyNow());if(!f.riding){const root=world.children.find(o=>o.userData.minecartGround);if(root){const old=groundCache.current;if(!old||old.id!==ride.id||Math.hypot(old.x-p[0],old.z-p[2])>.08){groundRay.set(new THREE.Vector3(p[0],Math.max(demoPoint(ride.from)[1],demoPoint(ride.to)[1])+.7,p[2]),new THREE.Vector3(0,-1,0));const hit=groundRay.intersectObject(root,true).find(h=>h.object.visible&&h.point.y<=p[1]+1.8);groundCache.current={id:ride.id,x:p[0],z:p[2],y:hit?hit.point.y+.06:p[1]}}p[1]=Math.max(p[1],groundCache.current.y)}}}ref.current.position.set(...p);if(egg.current)egg.current.position.y=.6+Math.sin(partyNow()/220)*.08})
  const s=room.playerSetup?.[player.id],c=room.boardCinematic,inCart=c?.kind==='minecart'&&c.playerId===player.id
  return <group ref={ref}><mesh position={[0,.28,0]}><sphereGeometry args={[.23,14,10]}/><meshStandardMaterial color={partyPlayerColor(room,player.id)} emissive={active?'#40391d':'#000'}/></mesh>{s?.bombAlly&&<group ref={egg} position={[.45,.6,0]}><mesh scale={[.75,1,.75]}><sphereGeometry args={[.20,12,8]}/><meshStandardMaterial color="#ff982e"/></mesh></group>}</group>
 }
@@ -86,7 +83,7 @@ function Effects({room,board}){
  <ConveyorRoute room={room}/>
  <StationSteps/>
  <CentralBlast cinematic={c}/>
- {c?.kind==='minecart'&&<RideCart cinematic={c}/>}
+ {c?.kind==='minecart'?<RideCart cinematic={c}/>:<group position={stationRail(room.boardState?.minecartStation||'d49')[0].map((v,i)=>i===1?v+.17:v)}><Cart/></group>}
  <group ref={burst} position={point}>{Array.from({length:22},(_,i)=><mesh key={i} position={[Math.sin(i*4.1),Math.cos(i*2.1),Math.sin(i*1.7)]}><icosahedronGeometry args={[.22,0]}/><meshBasicMaterial color={i%2?'#ff9d21':'#ffd965'} transparent opacity={.8}/></mesh>)}</group>
  {e?.id==='gold-mine'&&!e.resolved&&<Suspense fallback={null}><Pickaxe effect={e} position={demoPoint(e.nodeId).map((v,i)=>i===0?v+.4:v)}/></Suspense>}
  {beat&&<group ref={reward}><mesh><cylinderGeometry args={[.20,.20,.06,20]}/><meshStandardMaterial color="#ffd15d" metalness={.7}/></mesh><Html center position={[0,.5,0]} style={{color:beat.amount>0?'#ffda66':'#ff6262',fontSize:24,fontWeight:900,whiteSpace:'nowrap'}}>{beat.amount>0?'+':''}{beat.amount} {beat.kind==='tokens'?'Tokens':'Trophy'}</Html></group>}
@@ -101,7 +98,7 @@ function Controls({room,activePlayer,overview,topDown,showcase}){
   if(showcase&&!showcase.host&&showcase.camera){const p=showcase.camera;camera.position.lerp(vec(p.position),.25);ref.current.target.lerp(vec(p.target),.25);camera.zoom=(camera.top-camera.bottom)/p.viewHeight;camera.updateProjectionMatrix();ref.current.update();return}
   let target=null
   if(c){const age=now-c.startedAt
-   if(c.kind==='minecart')target=minecartPosition(c,now)
+   if(c.kind==='minecart'){const f=minecartFrame(c,now);target=f.waiting?f.cart:f.player}
    if(c.kind==='central-bomb')target=[0,3.7,-1.55]
    if(c.kind==='conveyor')target=[0,5,-9.2]
    if(c.kind==='ally-goodbye')target=demoPoint(c.nodeId)

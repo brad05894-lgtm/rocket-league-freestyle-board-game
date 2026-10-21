@@ -1,3 +1,4 @@
+import {vsPotRewards} from './partyVsPot'
 import { secretAction, SECRET_ENGINES } from './partyChallengeSecretEngine'
 import { PARTY_CHALLENGES, CHALLENGE_BY_ID, FORMAT_SIZES, challengePool } from './partyChallengeCatalog'
 import { PARTY_MECHANICS } from './partyMechanics'
@@ -237,6 +238,7 @@ function timedAction(g,a,now){const n=nOf(g);need(g.phase==='overtime'||g.engine
  else if(n===83)g.timer.pausedAt=now;
 }
 export function rewardDistribution(b){
+ if(b.source==='battle-space'&&b.pot)return vsPotRewards(b)
  const groups=b.game?.result?.placements||[],ids=b.participantIds||[]
  const rewards=Object.fromEntries(ids.map(id=>[id,0]));if(groups.length<=1)return rewards
  const ffa=['1v1v1','1v1v1v1'].includes(b.format||b.game?.format)
@@ -267,7 +269,7 @@ export function reduceBattle(b,a,uid,seed,now){
    b.participantIds=[b.challengerId,...shuffle((b.availableIds||b.participantIds).filter(id=>id!==b.challengerId),r).slice(0,needed-1)];
    need(b.participantIds.length===needed,'Not enough players for that format.');
    delete b.selectedSides;
-   b.stage='draw';
+   b.stage='stake';
   }
  }
  else if(a.type==='participants'){
@@ -282,6 +284,7 @@ export function reduceBattle(b,a,uid,seed,now){
   if(b.stage==='intro'&&b.source==='challenge-glove'){b.format='1v1';b.stage='participants'}
   else if(b.stage==='intro') b.stage=b.devSelected?'challengeReveal':b.chooseParticipants?'format':b.format==='1v1'?'draw':'formatReveal';
   else if(b.stage==='formatReveal') b.stage='draw';
+  else if(b.stage==='pot'){b.stage='draw'}
   else if(b.stage==='draw'){
    const c=pick(challengePool(b.format),r);b.challengeId=c.id;b.name=c.name;b.stage='challengeReveal';
   }else if(b.stage==='challengeReveal'){
