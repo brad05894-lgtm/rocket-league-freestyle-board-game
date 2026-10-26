@@ -7,7 +7,7 @@ export function ensurePartyClock(){
     const timeout=setTimeout(resolve,1500)
     const finish=()=>{clearTimeout(timeout);resolve()}
     // .info is client-local metadata. Subscribe; never send a get() for it.
-    onValue(ref(db,'.info/serverTimeOffset'),snapshot=>{offset=Number(snapshot.val())||0;finish()},finish)
+    onValue(ref(db,'.info/serverTimeOffset'),snapshot=>{const n=Number(snapshot.val());offset=Number.isFinite(n)?n:0;finish()},finish)
   })
   return ready
 }

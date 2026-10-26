@@ -1,14 +1,15 @@
+import {finiteNumber} from './partyNumericState'
 // Shared, committed presentation timeline. Never awards currency itself.
 export const REWARD_BEAT_MS = 2200
 export function economySnapshot(room) {
- return Object.fromEntries(Object.entries(room?.playerSetup||{}).map(([id,s])=>[id,{tokens:Number(s.tokens)||0,trophies:Number(s.trophies)||0,nodeId:s.onStartDeck?'start-deck':s.boardNodeId}]))
+ return Object.fromEntries(Object.entries(room?.playerSetup||{}).map(([id,s])=>[id,{tokens:finiteNumber(s.tokens),trophies:finiteNumber(s.trophies),nodeId:s.onStartDeck?'start-deck':s.boardNodeId}]))
 }
 export function attachEconomyPresentation(room,before,now,retimeTrophy=false) {
  let beats=[]
  for(const [id,old] of Object.entries(before)) {
   const next=room.playerSetup?.[id];if(!next)continue
   for(const kind of ['tokens','trophies']) {
-   const amount=(Number(next[kind])||0)-old[kind]
+   const amount=finiteNumber(next[kind])-old[kind]
    if(amount)beats.push({playerId:id,kind,amount,nodeId:next.onStartDeck?'start-deck':next.boardNodeId||old.nodeId})
   }
  }
@@ -18,7 +19,7 @@ export function attachEconomyPresentation(room,before,now,retimeTrophy=false) {
  if(room.turnState?.eventEffect?.id==='supply-crates'&&room.turnState.eventEffect.openedAt)for(const b of beats)b.position=[-.8+.7*room.turnState.eventEffect.selectedCrateIndex,1.68,-2.60]
  if(!beats.length)return
  const time=value=>{const n=Number(value);return Number.isFinite(n)?n:value?.['.sv']==='timestamp'?now:0}
- const motion=room.boardMotion,moveEnd=time(motion?.startedAt)+Math.max(0,(motion?.path?.length||1)-1)*(motion?.stepMs||280)
+ const motion=room.boardMotion,moveEnd=time(motion?.startedAt)+Math.max(0,(motion?.path?.length||1)-1)*Math.max(1,finiteNumber(motion?.stepMs,280))
  const event=room.turnState?.eventEffect
  const eventEnd=event?.id==='reactor-trigger-c'?time(event.animationStartedAt)+4700:event?.id==='supply-crates'?time(event.openedAt)+1400:0
  const luck=room.turnState?.spaceEffect

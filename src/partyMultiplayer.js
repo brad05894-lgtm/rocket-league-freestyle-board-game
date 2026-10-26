@@ -1,3 +1,4 @@
+import {normalizePartyNumbers,assertFinitePartyState} from './partyNumericState'
 import {tokenGiftWheel} from './partyGiftWheel'
 import {refundVsPot} from './partyVsPot'
 import { isPartyIntermediateStop } from './partyRoutes'
@@ -4790,6 +4791,7 @@ export async function closePartyBonusDevTest(roomCode, playerId) {
 function runTransaction(reference, reduce, options) {
  const now=partyNow()
  return firebaseTransaction(reference,room=>{
+  normalizePartyNumbers(room)
   const before=economySnapshot(room),priorTrophy=JSON.stringify(room?.turnState?.trophyCinematic||null),priorPresentationSequence=room?.presentationSequence,phase=room?.phase,battle=JSON.stringify(room?.turnState?.battle||null)
   const dev=JSON.stringify([room?.devVisualTest,room?.devBoardCheckpoint,room?.devCardTest,room?.devEventTest,room?.devSpaceTest,room?.devServiceTest,room?.devBattleTest])
   const precisionIndex=room?.turnState?.diceAnimation?.cardIndex,oldCards=JSON.stringify(room?.playerSetup?.[room?.turnState?.playerId]?.cards)
@@ -4797,6 +4799,7 @@ function runTransaction(reference, reduce, options) {
   if(next&&Number.isInteger(precisionIndex)&&next.turnState?.diceAnimation&&!next.turnState.rolled&&oldCards!==JSON.stringify(next.playerSetup?.[next.turnState.playerId]?.cards))delete next.turnState.diceAnimation
   if(next&&!next.boardCinematic&&next.presentationSequence===priorPresentationSequence&&phase==='board'&&next.phase==='board'&&battle===JSON.stringify(next.turnState?.battle||null)&&dev===JSON.stringify([next.devVisualTest,next.devBoardCheckpoint,next.devCardTest,next.devEventTest,next.devSpaceTest,next.devServiceTest,next.devBattleTest])) attachEconomyPresentation(next,before,now,priorTrophy!==JSON.stringify(next.turnState?.trophyCinematic||null))
   if(next){if(next.settings?.mapId==='demo-mines'&&next.phase==='board'&&next.activeTrophyNodeId&&!getPartyBoard(next).trophySpots.includes(next.activeTrophyNodeId)){const pool=eligibleTrophySpots(next,next.activeTrophyNodeId);next.activeTrophyNodeId=pool[0]||''}maybeHomestretch(next,now)}
+  if(next)assertFinitePartyState(next)
   return next
  },options)
 }
