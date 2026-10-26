@@ -6,12 +6,13 @@ const events = {
  'minecart':{name:'All Aboard!'},
  'gold-mine':{name:'Dig for Gold!'},
 }
+export const CONVEYOR_NODE_IDS=['d31','d32','d33','d34','d35','d36','egg-stop']
 const minesNodes=[...layout.nodes,...layout.stops].map(n=>({...n,next:[...n.next],
  type:n.type==='Steal'?'Lakitu':n.type==='Egg'?'BombPickup':n.type,
  special:['d29','d49'].includes(n.id)?'minecart':['d44','d46'].includes(n.id)?'gold-mine':n.special,
 }))
 export const DEMO_MINES_BOARD={...layout,prototypeOnly:false,subtitle:'Minecarts, risky gold mining and a ticking central bomb',nodes:minesNodes,boardEvents:events,gates:[],garageGatePairs:[],
- trophySpots:minesNodes.filter(n=>!['Event','Junction','Shop','Lakitu','BombPickup'].includes(n.type)).map(n=>n.id),
+ trophySpots:minesNodes.filter(n=>!CONVEYOR_NODE_IDS.includes(n.id)&&!['Event','Junction','Shop','Lakitu','BombPickup'].includes(n.type)).map(n=>n.id),
 }
 const DEMO_VARIANTS=Object.fromEntries(['lower','upper'].map(lane=>[lane,{...DEMO_MINES_BOARD,nodes:DEMO_MINES_BOARD.nodes.map(n=>n.id==='d31'?{...n,next:[lane==='upper'?'d34':'d32']}:n)}]))
 export function getPartyBoard(room={}) {

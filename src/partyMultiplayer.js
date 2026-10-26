@@ -1,3 +1,4 @@
+import {tokenGiftWheel} from './partyGiftWheel'
 import {refundVsPot} from './partyVsPot'
 import { isPartyIntermediateStop } from './partyRoutes'
 import { economySnapshot, attachEconomyPresentation } from './partyPresentation'
@@ -11,7 +12,7 @@ import { ref, set, get, onValue, update, runTransaction as firebaseTransaction, 
 import { db } from './firebase'
 import { calculatePartyMovement, clearPendingPartyMovementModifiers, pendingPartyMovementModifier, settlePartyZeroMovementTurn } from './partyMovementModifiers'
 import { getPartyBoard, PARTY_NODE_BY_ID, partyNext } from './partyBoards'
-import { triggerDemoEvent, chooseMinecartRide, mineAction, giveBombAlly, rollBombAlly, explodeAllyAtTurnEnd, maybeHomestretch, createBoardCinematic } from './demoMinesEvents'
+import { beginAllyGoodbye, triggerDemoEvent, chooseMinecartRide, mineAction, giveBombAlly, rollBombAlly, explodeAllyAtTurnEnd, maybeHomestretch, createBoardCinematic } from './demoMinesEvents'
 import { getPartyCar, formatPartyDieFace } from './partyCars'
 import { PARTY_MECHANICS, pickPartyMechanic } from './partyMechanics'
 import { getEnabledPartyCards, getPartyCard, normalizePartyCards, pickPartyCard, getPartyShopCards, getPartyCardShopPrice } from './partyCards'
@@ -4795,7 +4796,7 @@ function runTransaction(reference, reduce, options) {
   const next=reduce(room)
   if(next&&Number.isInteger(precisionIndex)&&next.turnState?.diceAnimation&&!next.turnState.rolled&&oldCards!==JSON.stringify(next.playerSetup?.[next.turnState.playerId]?.cards))delete next.turnState.diceAnimation
   if(next&&!next.boardCinematic&&next.presentationSequence===priorPresentationSequence&&phase==='board'&&next.phase==='board'&&battle===JSON.stringify(next.turnState?.battle||null)&&dev===JSON.stringify([next.devVisualTest,next.devBoardCheckpoint,next.devCardTest,next.devEventTest,next.devSpaceTest,next.devServiceTest,next.devBattleTest])) attachEconomyPresentation(next,before,now,priorTrophy!==JSON.stringify(next.turnState?.trophyCinematic||null))
-  if(next)maybeHomestretch(next,now)
+  if(next){if(next.settings?.mapId==='demo-mines'&&next.phase==='board'&&next.activeTrophyNodeId&&!getPartyBoard(next).trophySpots.includes(next.activeTrophyNodeId)){const pool=eligibleTrophySpots(next,next.activeTrophyNodeId);next.activeTrophyNodeId=pool[0]||''}maybeHomestretch(next,now)}
   return next
  },options)
 }
@@ -4808,7 +4809,7 @@ export function hiddenGiftRank(room,playerId) {
 }
 export function hiddenGiftOutcome(rank,seed,amountSeed,finalStretch) {
  const trophy=seed<([.05,.10,.30,.50][Math.min(3,Math.max(0,rank-1))])
- return {kind:trophy?'trophies':'tokens',amount:trophy?1:(finalStretch?15:10)+Math.min(5,Math.floor(amountSeed*6))}
+ return trophy?{kind:'trophies',amount:1,wheelAngle:324+36*Math.max(0,Math.min(.999999,amountSeed))}:{kind:'tokens',...tokenGiftWheel(amountSeed,finalStretch)}
 }
 function pickHiddenGiftSpot(room,exclude='') {
  const occupied=new Set(Object.values(room.playerSetup||{}).filter(s=>!s.onStartDeck).map(s=>s.boardNodeId))
@@ -4832,7 +4833,7 @@ export async function checkPartyHiddenGift(code,uid) {
   delete room.turnState.hiddenGiftCheck
   if(nextPacket)room.hiddenGift={hostId:uid,version:(room.hiddenGift?.version||0)+1,packet:nextPacket}
   if(found){
-   room.turnState.hiddenGiftResult={id:check.landingId,playerId,kind:reward.kind,amount:reward.amount,startedAt:now,dismissed:false}
+   room.turnState.hiddenGiftResult={id:check.landingId,playerId,kind:reward.kind,amount:reward.amount,wheelAngle:reward.wheelAngle,startedAt:now,dismissed:false}
   }
   return room
  })
@@ -4945,7 +4946,7 @@ export async function preparePartyVisualDevTest(code,uid,scenario,options={}) {
   }else if(scenario.startsWith('gift-')){
    if(options.finalStretch)room.currentRound=Math.max(1,(room.settings?.rounds||10)-2)
    room.turnState.rolled=true;room.turnState.readyToEnd=true
-   room.turnState.hiddenGiftResult={id:`dev-gift-${now}`,playerId:uid,kind:scenario==='gift-trophy'?'trophies':'tokens',amount:scenario==='gift-trophy'?1:randomPartyInt(seed,options.finalStretch?15:10,options.finalStretch?20:15),startedAt:now,dismissed:false}
+   room.turnState.hiddenGiftResult={id:`dev-gift-${now}`,playerId:uid,kind:scenario==='gift-trophy'?'trophies':'tokens',amount:scenario==='gift-trophy'?1:tokenGiftWheel(seed,options.finalStretch).amount,wheelAngle:scenario==='gift-trophy'?342:tokenGiftWheel(seed,options.finalStretch).wheelAngle,startedAt:now,dismissed:false}
   }else if(scenario==='mechanic'||scenario==='danger'){
    if(options.finalStretch)room.currentRound=Math.max(1,(room.settings?.rounds||10)-2);else room.currentRound=1
    const node=getPartyBoard(room).nodes.find(n=>n.type===(scenario==='danger'?'Danger Mechanic':'Mechanic'))
@@ -5067,6 +5068,7 @@ export async function finishBoardCinematic(code,uid,id,skip=false){
  const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
   const c=room?.boardCinematic;if(room&&!c&&(uid===room.hostId||uid===room.turnState?.playerId))return room;if(!c||c.id!==id||(uid!==room.hostId&&uid!==c.playerId))return
   if(skip&&uid!==room.hostId)return
+  if(c.awaitingContinue){if(!skip)return;beginAllyGoodbye(room,partyNow())}
   if(!skip&&partyNow()<c.endsAt)return
   delete room.boardCinematic
   if(room.turnState?.eventEffect&&c.kind!=='homestretch')room.turnState.eventEffect.resolved=true
@@ -5079,14 +5081,15 @@ export async function prepareDemoDev(code,uid,scenario){
  const result=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
   if(!room||room.hostId!==uid||room.phase!=='board')return
   const setup=room.playerSetup?.[uid];if(!setup)return
-  delete room.boardCinematic;delete room.boardMotion;delete room.presentation
+  refundVsPot(room,room.turnState?.battle);delete room.boardCinematic;delete room.boardMotion;delete room.presentation
   room.turnIndex=orderedPlayerIds(room).indexOf(uid);room.turnState=makeTurnState(uid)
   if(scenario==='homestretch'){room.currentRound=Math.max(1,(room.settings.rounds||10)-2);room.boardState.homestretchShown=false;maybeHomestretch(room,now);return room}
+  if(scenario==='vs'){const ids=orderedPlayerIds(room);if(ids.length<2)return;room.turnState.rolled=true;room.turnState.battle=createBattle({ids,hostId:room.hostId,challengerId:uid,source:'battle-space',seed:Math.floor(now)%4294967296,now});return room}
   if(room.settings?.mapId!=='demo-mines')return
   if(scenario.startsWith('ally-')){setup.bombAlly={rollsLeft:scenario==='ally-final'?1:3};return room}
   const nodes={mining:'d44',minecart:'d49','minecart-return':'d29',countdown:'d04',explosion:'d04',conveyor:'d31'}
   const node=nodes[scenario];if(!node)return
-  if(scenario==='explosion'){room.boardState.bombCountdown=1;for(const s of Object.values(room.playerSetup)){s.boardNodeId='d03';s.onStartDeck=false;s.tokens=15}}
+  if(scenario==='explosion'){room.boardState.bombCountdown=1;setup.tokens=15}
   setup.boardNodeId=node;setup.onStartDeck=false
   Object.assign(room.turnState,{rolled:true,movementStarted:true,movementSpacesTaken:1,readyToEnd:true,landedNodeId:node,landedType:'Event'})
   triggerDemoEvent(room,room.turnState,uid,node,now);return room
@@ -5110,4 +5113,12 @@ export async function resolveDemoMinecart(code,uid,accept){
   try{chooseMinecartRide(room,accept,now);return room}catch(e){error=e.message;return}
  })
  if(!r.committed)throw Error(error)
+}
+
+export async function continueBombAlly(code,uid){
+ requireOnlineIdentity(uid);await ensurePartyClock();const now=partyNow();let error='Only the active player or host can continue.';
+ const r=await runTransaction(ref(db,`securePartyRooms/${normalizeCode(code)}`),room=>{
+  if(!room||(uid!==room.hostId&&uid!==room.boardCinematic?.playerId))return;
+  try{beginAllyGoodbye(room,now);return room}catch(e){error=e.message;return}
+ });if(!r.committed)throw Error(error)
 }

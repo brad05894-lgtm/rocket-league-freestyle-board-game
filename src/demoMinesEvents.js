@@ -23,12 +23,13 @@ export function triggerDemoEvent(room,turn,uid,nodeId,now){
    const before=Math.max(0,Number(s.tokens)||0),loss=Math.ceil(before/2);s.tokens=before-loss;losses[id]=loss;affected.push(id)
   }}
   state.bombCountdown=remaining<=0?5:remaining
-  effect.publicMessage=remaining<=0?'BOOM! Everyone on the central loop loses half their Tokens, rounded up. Stay on your spaces. Countdown resets to 5.':`Central bomb countdown: ${remaining}.`
-  createBoardCinematic(room,'central-bomb',now,{playerId:uid,previous,countdown:remaining,affected,losses,title:remaining<=0?'Explosion!':'Tick… Tock…',message:effect.publicMessage},remaining<=0?8500:3600)
+  effect.publicMessage=remaining<=0?'BOOM! Everyone on the central loop loses half their Tokens, so remaining Tokens round down. Stay on your spaces. Countdown resets to 5.':`Central bomb countdown: ${remaining}.`
+  createBoardCinematic(room,'central-bomb',now,{playerId:uid,previous,countdown:remaining,affected,losses,title:remaining<=0?'Explosion!':'Tick… Tock…',message:effect.publicMessage},remaining<=0?Math.max(8500,3400+affected.length*2200):3600)
  }else if(node.special==='conveyor-reversal'){
-  state.conveyorLane=state.conveyorLane==='upper'?'lower':'upper'
+  const previousLane=state.conveyorLane==='upper'?'upper':'lower'
+  state.conveyorLane=previousLane==='upper'?'lower':'upper'
   effect.publicMessage=state.conveyorLane==='upper'?'The top conveyor now takes the upper route past the bomb ally.':'The top conveyor now takes the lower, safe route.'
-  createBoardCinematic(room,'conveyor',now,{playerId:uid,lane:state.conveyorLane,title:'Conveyor Reversed!',message:effect.publicMessage},3500)
+  createBoardCinematic(room,'conveyor',now,{playerId:uid,lane:state.conveyorLane,previousLane,title:'Conveyor Reversed!',message:effect.publicMessage},4500)
  }else if(node.special==='gold-mine'){
   effect.name='Dig for Gold!';effect.stage='rules';effect.swings=0;effect.unbanked=0;effect.revision=0
   effect.publicMessage='Each successful swing mines 1–5 Tokens. Your first swing is safe. Each extra swing is riskier. Collect after any success, or risk another swing. A broken pickaxe loses only this visit’s earnings.'
@@ -38,18 +39,21 @@ export function triggerDemoEvent(room,turn,uid,nodeId,now){
 export function mineAction(room,action,expectedRevision,breakSeed,rewardSeed,now){
  const e=room.turnState?.eventEffect
  if(e?.id!=='gold-mine'||e.resolved||e.revision!==expectedRevision)throw Error('Mining state changed. Please try again.')
- if(action==='start'){if(e.stage!=='rules')throw Error('Mining already started.');e.stage='mining'}
+ if(action==='continue'){if(e.stage!=='rules')throw Error('Rules already acknowledged.');e.stage='ready'}
+ else if(action==='start'){if(!['rules','ready'].includes(e.stage))throw Error('Mining already started.');e.stage='mining'}
  else if(action==='swing'){
   if(e.stage!=='mining'||now<Number(e.swingUntil||0))throw Error('Wait for the pickaxe to finish.')
-  e.swings++;e.lastSwingAt=now;e.swingUntil=now+1100
+  e.previousTotal=Math.max(0,Number(e.unbanked)||0)
+  e.swings++;e.lastSwingAt=now;e.swingUntil=now+1600
   e.broken=breakSeed<miningBreakChance(e.swings)
-  e.lastGain=e.broken?0:1+Math.min(4,Math.floor(rewardSeed*5))
-  e.unbanked=e.broken?0:e.unbanked+e.lastGain
+  e.lastGain=e.broken?0:1+Math.max(0,Math.min(4,Math.floor((Number.isFinite(rewardSeed)?rewardSeed:0)*5)))
+  e.unbanked=e.broken?0:e.previousTotal+e.lastGain
+  if(e.broken)e.swingUntil=now+2800
   if(e.broken){e.stage='result';e.publicMessage='Your pickaxe broke! 0 Tokens collected. Your existing Tokens are safe.'}
  }else if(action==='collect'){
   if(e.stage!=='mining'||e.swings<1||now<Number(e.swingUntil||0))throw Error('Finish at least one swing first.')
   const s=room.playerSetup[room.turnState.playerId];s.tokens=Math.max(0,Number(s.tokens)||0)+e.unbanked
-  e.collected=e.unbanked;e.stage='result';e.publicMessage=`Collected ${e.unbanked} Tokens!`
+  e.collected=e.unbanked;e.stage='result';e.publicMessage=`Cashed out ${e.unbanked} Tokens!`
  }else if(action==='finish'){
   if(e.stage!=='result'||now<Number(e.swingUntil||0))throw Error('Finish mining first.')
   e.resolved=true
@@ -69,10 +73,17 @@ export function rollBombAlly(setup,turn,seed){
 }
 export function explodeAllyAtTurnEnd(room,uid,now){
  const s=room.playerSetup?.[uid];if(!s?.bombAlly?.goodbyePending)return false
- const before=Math.max(0,Number(s.tokens)||0),loss=Math.min(5,before);s.tokens=before-loss;delete s.bombAlly
- createBoardCinematic(room,'ally-goodbye',now,{playerId:uid,nodeId:s.boardNodeId,title:'One Last BOOM!',message:`Your bomb ally says goodbye: −${loss} Tokens.`,loss},3500)
+ if(room.boardCinematic)return true
+ createBoardCinematic(room,'ally-goodbye',now,{playerId:uid,nodeId:s.boardNodeId,awaitingContinue:true,title:'Your bomb ally is about to explode!',message:''},3500)
  return true
 }
+export function beginAllyGoodbye(room,now){
+ const c=room.boardCinematic,s=room.playerSetup?.[c?.playerId];
+ if(c?.kind!=='ally-goodbye'||!c.awaitingContinue||!s?.bombAlly?.goodbyePending)throw Error('This bomb ally has already been handled.')
+ const before=Math.max(0,Number(s.tokens)||0);c.loss=Math.min(5,before);s.tokens=before-c.loss;delete s.bombAlly
+ c.awaitingContinue=false;c.startedAt=now;c.endsAt=now+4200
+}
+
 export function maybeHomestretch(room,now){
  if(room.phase!=='board'||room.boardState?.homestretchShown||Number(room.currentRound||1)<=Math.max(0,Number(room.settings?.rounds||10)-3)||room.boardCinematic)return
  room.boardState ||= {};room.boardState.homestretchShown=true
@@ -97,5 +108,7 @@ export function chooseMinecartRide(room,accept,now){
  room.boardState ||= {}
  const cartAt=room.boardState.minecartStation||'d49',pickupMs=cartAt===e.nodeId?0:6000
  room.boardState.minecartStation=e.destination
- createBoardCinematic(room,'minecart',now,{playerId:turn.playerId,from:e.nodeId,to:e.destination,cartFrom:cartAt,pickupMs,title:'Minecart Ride',message:''},12000+pickupMs)
+ createBoardCinematic(room,'minecart',now,{playerId:turn.playerId,from:e.nodeId,to:e.destination,cartFrom:cartAt,pickupMs,title:'Minecart Ride',message:''},13000+pickupMs)
 }
+
+export function conveyorProgress(c,now){return c?.kind==='conveyor'?Math.max(0,Math.min(1,(now-c.startedAt-1500)/1800)):1}

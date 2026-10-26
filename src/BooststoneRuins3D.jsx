@@ -1,3 +1,4 @@
+import {TrophyBeacon} from './PartyTrophyModel'
 import {partyPlayerColor} from './partyPlayerColors'
 import {partyNow} from './partyClock'
 import { transformedBadLuck } from './demoMinesEvents'
@@ -531,7 +532,7 @@ export default function BooststoneRuins3D({ board, room, players = [], activePla
         <Suspense fallback={<Html center><div style={{ color: '#fff', whiteSpace: 'nowrap' }}>Loading your board…</div></Html>}>
           <BoardModel board={board} room={room} finalFive={finalFive} closedGarageGateIds={effectiveClosedGarageGateIds}
             ballRun={ballRun} clockOffset={clockOffset} ballFocus={ballFocus} />
-          <BoardServices/><HiddenGiftOnBoard room={room} clockOffset={clockOffset}/><RewardParticles room={room} clockOffset={clockOffset}/>
+          <TrophyBeacon position={layout.nodes[room.activeTrophyNodeId]} visible={overview}/><BoardServices/><HiddenGiftOnBoard room={room} clockOffset={clockOffset}/><RewardParticles room={room} clockOffset={clockOffset}/>
           <DestinationHighlights nodeIds={highlightNodeIds} />
           <PlayerTokens board={board} room={room} players={players} activePlayer={activePlayer}
             turnOrderPhase={turnOrderPhase} turnOrderRolls={turnOrderRolls} ballRun={ballRun} clockOffset={clockOffset} followPoint={followPoint} />
