@@ -74,3 +74,11 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* Battle uses a warm orange fade, distinct from Jeopardy's gold. */
+.home-screen .home-mode-card--battle {
+  border: 1px solid #fb923c;
+  background: linear-gradient(145deg, #4a281b, #25140f);
+}
+.home-screen .home-mode-card--battle .home-mode-card__eyebrow,
+.home-screen .home-mode-card--battle h2 { color: #fed7aa; }
