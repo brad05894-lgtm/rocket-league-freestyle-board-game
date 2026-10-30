@@ -5,18 +5,12 @@
 }
 .home-screen .home-mode-card--classic .home-mode-card__eyebrow,
 .home-screen .home-mode-card--classic h2 { color: #bfdbfe; }
-.home-screen .home-mode-card--classic .home-mode-card__menu button {
-  background: #1e40af; border-color: #60a5fa; color: #fff;
-}
 .home-screen .home-mode-card--party {
   border: 1px solid #c084fc;
   background: linear-gradient(145deg, #392052, #1c112e);
 }
 .home-screen .home-mode-card--party .home-mode-card__eyebrow,
 .home-screen .home-mode-card--party h2 { color: #e9d5ff; }
-.home-screen .home-mode-card--party .home-mode-card__menu button {
-  background: #6b21a8; border-color: #c084fc; color: #fff;
-}
 .home-screen .home-mode-card--classic button:focus-visible,
 .home-screen .home-mode-card--party button:focus-visible {
   outline: 3px solid #fff; outline-offset: 3px;
@@ -32,9 +26,6 @@
 }
 .home-screen .home-mode-card--imposter .home-mode-card__eyebrow,
 .home-screen .home-mode-card--imposter h2 { color: #99f6e4; }
-.home-screen .home-mode-card--imposter .home-mode-card__menu button {
-  background: #115e59; border-color: #2dd4bf; color: #fff;
-}
 .home-screen .home-mode-card--imposter button:focus-visible {
   outline: 3px solid #fff; outline-offset: 3px;
 }
@@ -50,9 +41,6 @@
 }
 .home-screen .home-mode-card--jeopardy .home-mode-card__eyebrow,
 .home-screen .home-mode-card--jeopardy h2 { color: #fde68a; }
-.home-screen .home-mode-card--jeopardy .home-mode-card__menu button {
-  background: #854d0e; border-color: #fbbf24; color: #fff;
-}
 .home-screen .home-mode-card--jeopardy button:focus-visible {
   outline: 3px solid #fff; outline-offset: 3px;
 }
@@ -67,9 +55,6 @@
 }
 .home-screen .home-mode-card--bingo .home-mode-card__eyebrow,
 .home-screen .home-mode-card--bingo h2 { color: #fecdd3; }
-.home-screen .home-mode-card--bingo .home-mode-card__menu button {
-  background: #9f1239; border-color: #fb7185; color: #fff;
-}
 .home-screen .home-mode-card--bingo button:focus-visible {
   outline: 3px solid #fff; outline-offset: 3px;
 }
@@ -77,3 +62,15 @@
 .bingo-mode-entry > .home-mode-card { width: min(100%, 580px); margin: 24px auto; box-sizing: border-box; }
 .bingo-mode-entry .home-mode-card__menu { display: flex; flex-wrap: wrap; gap: 12px; }
 .bingo-mode-entry .home-mode-card__menu button { flex: 1 1 180px; min-height: 48px; }
+
+/* All mode buttons now inherit the existing shared Battle button gradient,
+   border, typography and hover styling from App.css. Keep card colors above. */
+.home-screen .home-mode-grid--main-menu .home-mode-card__menu {
+  margin-top: auto;
+}
+.home-screen .home-mode-grid--main-menu .home-mode-card__menu button {
+  width: 100%;
+  box-sizing: border-box;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
