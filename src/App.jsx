@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
+import './modeMenu.css'
 import OnlineLobby from './OnlineLobby'
 import { endRoom, getClientId, kickPlayer, leaveRoom, listenToGame, listenToRoom, saveClassicCarSelection, saveGameState } from './multiplayer'
 import { generateBoard } from './boardGenerator'
@@ -8862,11 +8863,80 @@ if (screen === 'battle-mode') {
   return <BattleMode onBack={() => setScreen('home')} />
 }
 
+if (screen === 'imposter-mode') {
+  return (
+    <main className="game home-screen imposter-mode-entry">
+      <h1>Imposter Mode</h1>
+      <section className="home-mode-card home-mode-card--imposter">
+        <h2>Play Imposter</h2>
+        <p id="imposter-coming-soon">Coming soon. Create and Join will be available when this mode is ready.</p>
+        <div className="menu home-mode-card__menu">
+          <button disabled aria-describedby="imposter-coming-soon">Create Game</button>
+          <button disabled aria-describedby="imposter-coming-soon">Join Game</button>
+        </div>
+      </section>
+      <div className="menu"><button onClick={() => setScreen('home')}>Back to Main Menu</button></div>
+    </main>
+  )
+}
+
+if (screen === 'jeopardy-mode') {
+  return (
+    <main className="game home-screen jeopardy-mode-entry">
+      <h1>Rocket League Jeopardy</h1>
+      <section className="home-mode-card home-mode-card--jeopardy">
+        <h2>Play Rocket League Jeopardy</h2>
+        <p id="jeopardy-coming-soon">Coming soon. Create and Join will be available when this mode is ready.</p>
+        <div className="menu home-mode-card__menu">
+          <button disabled aria-describedby="jeopardy-coming-soon">Create Game</button>
+          <button disabled aria-describedby="jeopardy-coming-soon">Join Game</button>
+        </div>
+      </section>
+      <div className="menu"><button onClick={() => setScreen('home')}>Back to Main Menu</button></div>
+    </main>
+  )
+}
+
+if (screen === 'bingo-mode') {
+  return (
+    <main className="game home-screen bingo-mode-entry">
+      <h1>Bingo</h1>
+      <section className="home-mode-card home-mode-card--bingo">
+        <h2>Play Bingo</h2>
+        <p id="bingo-coming-soon">Coming soon. Create and Join will be available when this mode is ready.</p>
+        <div className="menu home-mode-card__menu">
+          <button disabled aria-describedby="bingo-coming-soon">Create Game</button>
+          <button disabled aria-describedby="bingo-coming-soon">Join Game</button>
+        </div>
+      </section>
+      <div className="menu"><button onClick={() => setScreen('home')}>Back to Main Menu</button></div>
+    </main>
+  )
+}
+
+if (screen === 'classic-mode') {
+  return (
+    <main className="game home-screen classic-mode-entry">
+      <h1>Classic Mode</h1>
+      <p className="home-screen__subtitle">2–6 Players · Race from Start to Finish</p>
+      <section className="home-mode-card home-mode-card--classic">
+        <h2>Play Classic</h2>
+        <p>Create a party for your friends or join one with a room code.</p>
+        <div className="menu home-mode-card__menu">
+          <button onClick={() => setScreen('online-create')}>Create Party</button>
+          <button onClick={() => setScreen('online-join')}>Join Party</button>
+        </div>
+      </section>
+      <div className="menu"><button onClick={() => setScreen('home')}>Back to Main Menu</button></div>
+    </main>
+  )
+}
+
 if (screen === 'online-create') {
   return (
     <OnlineLobby
       mode="create"
-      onBack={() => setScreen('home')}
+      onBack={() => setScreen('classic-mode')}
       onGameStart={enterOnlineGame}
     />
   )
@@ -8876,7 +8946,7 @@ if (screen === 'online-join') {
   return (
     <OnlineLobby
       mode="join"
-      onBack={() => setScreen('home')}
+      onBack={() => setScreen('classic-mode')}
       onGameStart={enterOnlineGame}
     />
   )
@@ -8891,7 +8961,7 @@ if (screen === 'online-join') {
       <p className="home-screen__subtitle">Classic: 2–6 Players • Party: 2–4 Players • Battle: 2–4 Players</p>
 
       <div className="home-mode-grid home-mode-grid--main-menu">
-        <section className="home-mode-card">
+        <section className="home-mode-card home-mode-card--classic">
           <div>
             <p className="home-mode-card__eyebrow">Original game</p>
             <h2>Classic Mode</h2>
@@ -8899,11 +8969,8 @@ if (screen === 'online-join') {
           </div>
 
           <div className="menu home-mode-card__menu">
-            <button onClick={() => setScreen('online-create')}>
-              Create Classic Game
-            </button>
-            <button onClick={() => setScreen('online-join')}>
-              Join Classic Game
+            <button onClick={() => setScreen('classic-mode')}>
+              Enter Classic Mode
             </button>
           </div>
         </section>
@@ -8930,6 +8997,39 @@ if (screen === 'online-join') {
           </div>
           <div className="menu home-mode-card__menu">
             <button onClick={() => setScreen('battle-mode')}>Enter Battle Mode</button>
+          </div>
+        </section>
+
+        <section className="home-mode-card home-mode-card--imposter">
+          <div>
+            <p className="home-mode-card__eyebrow">Coming soon</p>
+            <h2>Imposter Mode</h2>
+            <p>A new way to play. More details coming soon.</p>
+          </div>
+          <div className="menu home-mode-card__menu">
+            <button onClick={() => setScreen('imposter-mode')}>Enter Imposter Mode</button>
+          </div>
+        </section>
+
+        <section className="home-mode-card home-mode-card--jeopardy">
+          <div>
+            <p className="home-mode-card__eyebrow">Coming soon</p>
+            <h2>Rocket League Jeopardy</h2>
+            <p>A new way to play. More details coming soon.</p>
+          </div>
+          <div className="menu home-mode-card__menu">
+            <button onClick={() => setScreen('jeopardy-mode')}>Enter Rocket League Jeopardy</button>
+          </div>
+        </section>
+
+        <section className="home-mode-card home-mode-card--bingo">
+          <div>
+            <p className="home-mode-card__eyebrow">Coming soon</p>
+            <h2>Bingo</h2>
+            <p>A new way to play. More details coming soon.</p>
+          </div>
+          <div className="menu home-mode-card__menu">
+            <button onClick={() => setScreen('bingo-mode')}>Enter Bingo</button>
           </div>
         </section>
       </div>

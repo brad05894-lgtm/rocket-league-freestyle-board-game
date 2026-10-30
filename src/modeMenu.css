@@ -1,0 +1,79 @@
+/* Scoped to mode selection; board and battle controls keep their own styles. */
+.home-screen .home-mode-card--classic {
+  border: 1px solid #60a5fa;
+  background: linear-gradient(145deg, #162d50, #0b172b);
+}
+.home-screen .home-mode-card--classic .home-mode-card__eyebrow,
+.home-screen .home-mode-card--classic h2 { color: #bfdbfe; }
+.home-screen .home-mode-card--classic .home-mode-card__menu button {
+  background: #1e40af; border-color: #60a5fa; color: #fff;
+}
+.home-screen .home-mode-card--party {
+  border: 1px solid #c084fc;
+  background: linear-gradient(145deg, #392052, #1c112e);
+}
+.home-screen .home-mode-card--party .home-mode-card__eyebrow,
+.home-screen .home-mode-card--party h2 { color: #e9d5ff; }
+.home-screen .home-mode-card--party .home-mode-card__menu button {
+  background: #6b21a8; border-color: #c084fc; color: #fff;
+}
+.home-screen .home-mode-card--classic button:focus-visible,
+.home-screen .home-mode-card--party button:focus-visible {
+  outline: 3px solid #fff; outline-offset: 3px;
+}
+.classic-mode-entry > .home-mode-card { width: min(100%, 580px); margin: 24px auto; box-sizing: border-box; }
+.classic-mode-entry .home-mode-card__menu { display: flex; flex-wrap: wrap; gap: 12px; }
+.classic-mode-entry .home-mode-card__menu button { flex: 1 1 180px; min-height: 48px; }
+
+/* Imposter is a menu placeholder until its game rules are defined. */
+.home-screen .home-mode-card--imposter {
+  border: 1px solid #2dd4bf;
+  background: linear-gradient(145deg, #123e3d, #081f25);
+}
+.home-screen .home-mode-card--imposter .home-mode-card__eyebrow,
+.home-screen .home-mode-card--imposter h2 { color: #99f6e4; }
+.home-screen .home-mode-card--imposter .home-mode-card__menu button {
+  background: #115e59; border-color: #2dd4bf; color: #fff;
+}
+.home-screen .home-mode-card--imposter button:focus-visible {
+  outline: 3px solid #fff; outline-offset: 3px;
+}
+.home-screen .home-mode-card--imposter button:disabled { opacity: .65; cursor: not-allowed; }
+.imposter-mode-entry > .home-mode-card { width: min(100%, 580px); margin: 24px auto; box-sizing: border-box; }
+.imposter-mode-entry .home-mode-card__menu { display: flex; flex-wrap: wrap; gap: 12px; }
+.imposter-mode-entry .home-mode-card__menu button { flex: 1 1 180px; min-height: 48px; }
+.home-screen .home-mode-grid--main-menu { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+
+.home-screen .home-mode-card--jeopardy {
+  border: 1px solid #fbbf24;
+  background: linear-gradient(145deg, #493514, #251b0b);
+}
+.home-screen .home-mode-card--jeopardy .home-mode-card__eyebrow,
+.home-screen .home-mode-card--jeopardy h2 { color: #fde68a; }
+.home-screen .home-mode-card--jeopardy .home-mode-card__menu button {
+  background: #854d0e; border-color: #fbbf24; color: #fff;
+}
+.home-screen .home-mode-card--jeopardy button:focus-visible {
+  outline: 3px solid #fff; outline-offset: 3px;
+}
+.home-screen .home-mode-card--jeopardy button:disabled { opacity: .65; cursor: not-allowed; }
+.jeopardy-mode-entry > .home-mode-card { width: min(100%, 580px); margin: 24px auto; box-sizing: border-box; }
+.jeopardy-mode-entry .home-mode-card__menu { display: flex; flex-wrap: wrap; gap: 12px; }
+.jeopardy-mode-entry .home-mode-card__menu button { flex: 1 1 180px; min-height: 48px; }
+
+.home-screen .home-mode-card--bingo {
+  border: 1px solid #fb7185;
+  background: linear-gradient(145deg, #4b1d32, #260e1b);
+}
+.home-screen .home-mode-card--bingo .home-mode-card__eyebrow,
+.home-screen .home-mode-card--bingo h2 { color: #fecdd3; }
+.home-screen .home-mode-card--bingo .home-mode-card__menu button {
+  background: #9f1239; border-color: #fb7185; color: #fff;
+}
+.home-screen .home-mode-card--bingo button:focus-visible {
+  outline: 3px solid #fff; outline-offset: 3px;
+}
+.home-screen .home-mode-card--bingo button:disabled { opacity: .65; cursor: not-allowed; }
+.bingo-mode-entry > .home-mode-card { width: min(100%, 580px); margin: 24px auto; box-sizing: border-box; }
+.bingo-mode-entry .home-mode-card__menu { display: flex; flex-wrap: wrap; gap: 12px; }
+.bingo-mode-entry .home-mode-card__menu button { flex: 1 1 180px; min-height: 48px; }
